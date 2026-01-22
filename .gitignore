@@ -1,0 +1,16 @@
+# Dependencies
+/node_modules
+
+# Build output
+/dist
+
+# Environment variables
+.env
+
+# Archives and tools
+sqlite-tools-win-x64-3510200.zip
+/sqlite-tools-win-x64-3510200
+
+# IDE / Tool specific
+.gemini/
+.kiro/
