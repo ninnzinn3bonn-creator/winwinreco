@@ -1,0 +1,21 @@
+const WebSocket = require('ws');
+const http = require('http');
+const { createApp, setupWebSocket } = require('../src/backend/app');
+const { initDB } = require('../src/backend/repo/db');
+const { RoomRepository } = require('../src/backend/repo/room-repo');
+const { ParticipantRepository } = require('../src/backend/repo/participant-repo');
+const { UtteranceRepository } = require('../src/backend/repo/utterance-repo');
+const { AudioProcessor } = require('../src/backend/services/audio-processor');
+const { STTService } = require('../src/backend/services/st redundancy-service'); // Note: fixed potential typo in stt-service
+const path = require('path');
+const fs = require('fs');
+
+describe('End-to-End Audio Flow', () => {
+    let server, port, db;
+    const dbPath = path.resolve(__dirname, '../db/test_e2e.db');
+
+    beforeAll(async () => {
+        if (fs.existsSync(dbPath)) fs.unlinkSync(dbPath);
+        db = await initSilverDB(dbPath); // Wait, no, initDB
+    });
+});

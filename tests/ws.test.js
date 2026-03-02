@@ -1,0 +1,85 @@
+const WebSocket = require('ws');
+const http = require('http');
+const { createApp, setupWebSocket } = require('../src/backend/app');
+const { initDB } = require('../src/backend/repo/db');
+const { RoomRepository } = require('../src/backend/repo/room-repo');
+const { ParticipantRepository } = require('../src/backend/repo/participant-repo');
+const path = require('path');
+const fs = require('fs');
+
+describe('WebSocket Room Broadcast', () => {
+    let server;
+    let port;
+    let db;
+    const dbPath = path.resolve(__dirname, '../db/test_ws.db');
+
+    beforeAll(async () => {
+        if (fs.existsSync(dbPath)) fs.unlinkSync(dbPath);
+        db = await initDB(dbPath);
+        const roomRepo = new RoomRepository(db);
+        const participantRepo = new ParticipantRepository(db);
+        
+        const app = createApp({ roomRepo, participantRepo });
+        server = http.createServer(app);
+        setupWebSocket(server, { participantRepo });
+        
+        return new Promise((resolve) => {
+            server.listen(0, () => {
+                port = server.address().port;
+                resolve();
+            });
+        });
+    });
+
+    afterAll(async () => {
+        await new Promise(resolve => server.close(resolve));
+        await new Promise(resolve => db.close(resolve));
+    });
+
+    async function createWS(participantId) {
+        return new Promise((resolve, reject) => {
+            const ws = new WebSocket(`ws://localhost:${port}?participantId=${participantId}`);
+            ws.on('open', () => resolve(ws));
+            ws.on('error', reject);
+        });
+    }
+
+    test('should broadcast message to same room participants', async () => {
+        const roomRepo = new RoomRepository(db);
+        const participantRepo = new ParticipantRepository(db);
+
+        // Setup Room A
+        await roomRepo.create({ id: 'room-A', owner_id: 'user-1' });
+        await participantRepo.join({ id: 'p-A1', room_id: 'room-A', display_name: 'Alice' });
+        await participantRepo.join({ id: 'p-A2', room_id: 'room-A', display_name: 'Bob' });
+
+        // Setup Room B
+        await roomRepo.create({ id: 'room-B', owner_id: 'user-2' });
+        await participantRepo.join({ id: 'p-B1', room_id: 'room-B', display_name: 'Charlie' });
+
+        const wsA1 = await createWS('p-A1');
+        const wsA2 = await createWS('p-A2');
+        const wsB1 = await createWS('p-B1');
+
+        const receivedMessagesA2 = [];
+        wsA2.on('message', (data) => receivedMessagesA2.push(JSON.parse(data)));
+
+        const receivedMessagesB1 = [];
+        wsB1.on('message', (data) => receivedMessagesB1.push(JSON.parse(data)));
+
+        // Send message from A1
+        const msg = { type: 'chat', text: 'Hello Room A' };
+        wsA1.send(JSON.stringify(msg));
+
+        // Wait for broadcast
+        await new Promise(resolve => setTimeout(resolve, 100));
+
+        expect(receivedMessagesA2.length).toBe(1);
+        expect(receivedMessagesA2[0].text).toBe('Hello Room A');
+        expect(receivedMessagesB1.length).toBe(0);
+
+        wsA1.close();
+        wsA2.close();
+        wsB1.close();
+    });
+});

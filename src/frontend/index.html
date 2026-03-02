@@ -1,0 +1,67 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>対面会議 議事録アプリ</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <div id="app">
+        <!-- 画面①: ルーム作成・参加 -->
+        <section id="setup-screen" class="active">
+            <h1>会議に参加する</h1>
+            <div class="form-group">
+                <label for="display-name">表示名</label>
+                <input type="text" id="display-name" placeholder="例: 山田 太郎">
+            </div>
+            <div class="form-group">
+                <label for="room-id">場所ID / ルームID</label>
+                <input type="text" id="room-id" placeholder="例: room-123">
+            </div>
+            <div class="actions">
+                <button id="btn-create" class="primary">新しくルームを作る</button>
+                <button id="btn-join">既存のルームに入る</button>
+            </div>
+        </section>
+
+        <!-- 画面②: 録音・ログ画面 -->
+        <section id="meeting-screen">
+            <header>
+                <div class="status">
+                    <span class="recording-indicator"></span>
+                    <span id="room-info">ルーム: ---</span>
+                    <button id="btn-copy-room" class="icon-btn" title="ルームIDをコピー">📋</button>
+                    <button id="btn-download" class="icon-btn" title="議事録をダウンロード">📥</button>
+                </div>
+                <button id="btn-end" class="danger">終了</button>
+            </header>
+
+            <main id="timeline">
+                <!-- 発話ログがここに挿入される -->
+                <div class="system-message">接続を待機しています...</div>
+            </main>
+
+            <footer>
+                <div id="self-info">参加者: ---</div>
+            </footer>
+        </section>
+
+        <!-- 画面③: 会議終了サマリー -->
+        <section id="summary-screen">
+            <h1>会議が終了しました</h1>
+            <p id="summary-info">ルーム: ---</p>
+            
+            <div id="summary-log" class="timeline-preview">
+                <!-- 最終的なログがここに表示される -->
+            </div>
+
+            <div class="actions">
+                <button id="btn-download-final" class="primary">議事録をダウンロード (.md)</button>
+                <button id="btn-home">ホームに戻る</button>
+            </div>
+        </section>
+    </div>
+    <script src="main.js"></script>
+</body>
+</html>
