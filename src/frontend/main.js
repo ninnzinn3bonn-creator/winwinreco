@@ -27,6 +27,51 @@ document.getElementById('btn-download').onclick = downloadMinutes;
 document.getElementById('btn-download-final').onclick = downloadMinutes;
 document.getElementById('btn-home').onclick = () => location.reload();
 
+// AI Tabs
+document.getElementById('tab-log').onclick = () => switchTab('log');
+document.getElementById('tab-ai').onclick = () => switchTab('ai');
+
+// AI Analysis Actions
+document.getElementById('btn-ai-summary').onclick = () => analyzeMeeting('summary');
+document.getElementById('btn-ai-agenda').onclick = () => analyzeMeeting('agenda');
+document.getElementById('btn-ai-custom').onclick = () => analyzeMeeting('custom');
+
+function switchTab(tab) {
+    document.querySelectorAll('.tab-btn').forEach(btn => btn.classList.remove('active'));
+    document.querySelectorAll('.tab-panel').forEach(panel => panel.classList.remove('active'));
+    
+    document.getElementById(`tab-${tab}`).classList.add('active');
+    document.getElementById(`panel-${tab}`).classList.add('active');
+}
+
+async function analyzeMeeting(type) {
+    const resultArea = document.getElementById('ai-result');
+    const instruction = document.getElementById('ai-instruction').value;
+    
+    if (type === 'custom' && !instruction) {
+        return alert('AIへの指示を入力してください');
+    }
+
+    resultArea.innerText = 'AIが解析中...（数秒かかる場合があります）';
+    
+    try {
+        const res = await fetch(`/rooms/${state.roomId}/analyze`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ type, instruction })
+        });
+        
+        const data = await res.json();
+        if (data.error) throw new Error(data.error);
+        
+        resultArea.innerHTML = `<div class="ai-provider-badge">解析エンジン: ${data.provider}</div>` + 
+                             `<div class="ai-text">${data.result.replace(/\n/g, '<br>')}</div>`;
+    } catch (e) {
+        console.error(e);
+        resultArea.innerText = '解析に失敗しました: ' + e.message;
+    }
+}
+
 async function downloadMinutes() {
     if (!state.roomId) return;
     window.location.href = `/rooms/${state.roomId}/download`;
@@ -104,6 +149,11 @@ function showSummaryScreen() {
     summaryScreen.classList.add('active');
     summaryInfo.innerText = `ルーム: ${state.roomId} | 参加者: ${state.displayName}`;
     
+    // Default to log tab
+    switchTab('log');
+    document.getElementById('ai-result').innerText = 'AIによる解析結果がここに表示されます。';
+    document.getElementById('ai-instruction').value = '';
+
     // Copy the final log content to summary preview
     summaryLog.innerHTML = timeline.innerHTML;
 }

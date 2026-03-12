@@ -1,0 +1,13 @@
+node_modules
+npm-debug.log
+.env
+.git
+.gitignore
+db/*.db
+db/*.db-shm
+db/*.db-wal
+.DS_Store
+.kiro
+.gemini
+*.md.txt
+PLAN.txt

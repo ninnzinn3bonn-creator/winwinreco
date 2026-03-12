@@ -4,9 +4,11 @@ const { createApp, setupWebSocket } = require('./app');
 const { RoomRepository } = require('./repo/room-repo');
 const { ParticipantRepository } = require('./repo/participant-repo');
 const { UtteranceRepository } = require('./repo/utterance-repo');
+const { AnalysisRepository } = require('./repo/analysis-repo');
 const { initDB } = require('./repo/db');
 const { AudioProcessor } = require('./services/audio-processor');
 const { STTService } = require('./services/stt-service');
+const { AIService } = require('./services/ai-service');
 
 async function start() {
     const dbPath = process.env.DB_PATH || './db/meeting.db';
@@ -15,20 +17,27 @@ async function start() {
     const repos = {
         roomRepo: new RoomRepository(db),
         participantRepo: new ParticipantRepository(db),
-        utteranceRepo: new UtteranceRepository(db)
+        utteranceRepo: new UtteranceRepository(db),
+        analysisRepo: new AnalysisRepository(db)
     };
 
     const audioProcessor = new AudioProcessor({ chunkLimit: 10 }); 
     const sttService = new STTService();
+    const aiService = new AIService({
+        provider: process.env.AI_PROVIDER,
+        apiKey: process.env.GEMINI_API_KEY
+    });
 
-    // Create a dummy wss first to pass into app
+    // Pass the original repos object to maintain reference
+    repos.aiService = aiService;
+
     const app = createApp(repos);
     const server = http.createServer(app);
     
     // setupWebSocket returns the wss instance
     const wss = setupWebSocket(server, { ...repos, audioProcessor, sttService });
     
-    // Update app with the actual wss instance for API handlers
+    // Update the same repos object with wss
     repos.wss = wss;
 
     const PORT = process.env.PORT || 3000;

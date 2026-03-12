@@ -6,7 +6,7 @@ function createApp(repositories = {}) {
     app.use(express.json());
     app.use(express.static('src/frontend'));
 
-    const { roomRepo, participantRepo, utteranceRepo, wss } = repositories;
+    const { roomRepo, participantRepo, utteranceRepo, analysisRepo, aiService } = repositories;
 
     app.get('/', (req, res) => {
         res.status(200).send('Meeting Minutes API');
@@ -103,6 +103,44 @@ function createApp(repositories = {}) {
         } catch (error) {
             console.error(error);
             res.status(500).send('Failed to generate transcript');
+        }
+    });
+
+    // POST /rooms/:id/analyze - AI Analysis (Summary, Agenda, TODO, etc.)
+    app.post('/rooms/:id/analyze', async (req, res) => {
+        try {
+            const { id: roomId } = req.params;
+            const { type, instruction } = req.body;
+
+            // Fetch all utterances for context
+            const utterances = await utteranceRepo.findByRoomIdWithParticipants(roomId);
+            if (utterances.length === 0) {
+                return res.status(400).json({ error: 'No utterances found to analyze.' });
+            }
+
+            // Perform AI analysis
+            if (!aiService || !aiService.enabled) {
+                return res.status(503).json({ error: 'AI Service is not configured or disabled.' });
+            }
+
+            const { result, prompt, provider } = await aiService.analyzeMeeting(utterances, type, instruction);
+
+            // Save analysis result
+            const analysis = {
+                id: `a-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
+                room_id: roomId,
+                type: type,
+                input_prompt: prompt,
+                result_text: result
+            };
+            if (analysisRepo) {
+                await analysisRepo.add(analysis);
+            }
+
+            res.status(200).json({ result, provider });
+        } catch (error) {
+            console.error('[API] Analysis error:', error);
+            res.status(500).json({ error: error.message || 'Failed to perform AI analysis' });
         }
     });
 

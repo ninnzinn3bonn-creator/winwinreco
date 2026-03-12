@@ -52,8 +52,31 @@
             <h1>会議が終了しました</h1>
             <p id="summary-info">ルーム: ---</p>
             
-            <div id="summary-log" class="timeline-preview">
-                <!-- 最終的なログがここに表示される -->
+            <div class="tabs">
+                <button id="tab-log" class="tab-btn active">全ログ</button>
+                <button id="tab-ai" class="tab-btn">AI解析</button>
+            </div>
+
+            <div id="summary-content">
+                <div id="panel-log" class="tab-panel active">
+                    <div id="summary-log" class="timeline-preview">
+                        <!-- 最終的なログがここに表示される -->
+                    </div>
+                </div>
+
+                <div id="panel-ai" class="tab-panel">
+                    <div class="ai-controls">
+                        <button id="btn-ai-summary" class="secondary">要約生成</button>
+                        <button id="btn-ai-agenda" class="secondary">決定事項/TODO</button>
+                    </div>
+                    <div class="ai-custom">
+                        <textarea id="ai-instruction" placeholder="AIへのカスタム指示（例：この会議の懸念点をまとめて）"></textarea>
+                        <button id="btn-ai-custom">実行</button>
+                    </div>
+                    <div id="ai-result" class="ai-preview">
+                        AIによる解析結果がここに表示されます。
+                    </div>
+                </div>
             </div>
 
             <div class="actions">

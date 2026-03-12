@@ -163,19 +163,92 @@ header {
 #summary-info {
     font-size: 0.9rem;
     color: #666;
-    margin-bottom: 2rem;
+    margin-bottom: 1rem;
 }
 
-.timeline-preview {
+.tabs {
+    display: flex;
+    border-bottom: 1px solid var(--border-color);
+    margin-bottom: 1rem;
+}
+
+.tab-btn {
+    flex: 1;
+    background: none;
+    padding: 0.75rem;
+    border: none;
+    border-bottom: 2px solid transparent;
+    cursor: pointer;
+    font-weight: bold;
+    color: #666;
+}
+
+.tab-btn.active {
+    color: var(--primary-color);
+    border-bottom-color: var(--primary-color);
+}
+
+.tab-panel {
+    display: none;
+}
+
+.tab-panel.active {
+    display: block;
+}
+
+.timeline-preview, .ai-preview {
     flex: 1;
     border: 1px solid var(--border-color);
     border-radius: 8px;
     padding: 1rem;
-    margin-bottom: 2rem;
+    margin-bottom: 1.5rem;
     background: #fdfdfd;
     overflow-y: auto;
     text-align: left;
     max-height: 40vh;
+    min-height: 100px;
+    font-size: 0.95rem;
+    line-height: 1.6;
+}
+
+.ai-controls {
+    display: flex;
+    gap: 0.5rem;
+    margin-bottom: 1rem;
+}
+
+.ai-controls button {
+    font-size: 0.85rem;
+    padding: 0.5rem;
+    background: #e9ecef;
+}
+
+.ai-custom {
+    display: flex;
+    gap: 0.5rem;
+    margin-bottom: 1rem;
+}
+
+#ai-instruction {
+    flex: 1;
+    padding: 0.5rem;
+    border: 1px solid var(--border-color);
+    border-radius: 4px;
+    resize: none;
+    height: 40px;
+}
+
+#btn-ai-custom {
+    width: auto;
+    padding: 0.5rem 1rem;
+    background: var(--primary-color);
+    color: white;
+}
+
+.ai-preview {
+    white-space: pre-wrap;
+    background: #f1f8ff;
+    border-color: #c8e1ff;
 }
 
 #summary-screen .actions {
@@ -192,4 +265,21 @@ footer {
     background: #eee;
     font-size: 0.8rem;
     border-top: 1px solid var(--border-color);
+}
+
+.ai-provider-badge {
+    display: inline-block;
+    background-color: #f0f4f8;
+    color: #4a5568;
+    font-size: 0.75rem;
+    padding: 2px 8px;
+    border-radius: 12px;
+    border: 1px solid #e2e8f0;
+    margin-bottom: 10px;
+    font-weight: bold;
+}
+
+.ai-text {
+    line-height: 1.6;
+    color: #2d3748;
 }

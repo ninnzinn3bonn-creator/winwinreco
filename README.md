@@ -28,7 +28,8 @@ npm install
 ```env
 PORT=3000
 DB_PATH=./db/meeting.db
-GOOGLE_API_KEY=your_google_api_key_here
+GOOGLE_API_KEY=your_google_speech_api_key_here
+GEMINI_API_KEY=your_gemini_api_key_here
 ```
 
 ### 3. サーバー起動
@@ -38,4 +39,5 @@ npm start
 ブラウザで `http://localhost:3000` にアクセスしてください。
 
 ## 開発状況
-MVPフェーズが完了し、現在「AIサポート機能（要約・アジェンダ生成）」の追加を計画中です。
+MVPフェーズが完了し、AIサポート機能（要約・アジェンダ生成）の実装も完了しました。
+現在、さらなるUIの改善と多言語対応を検討中です。

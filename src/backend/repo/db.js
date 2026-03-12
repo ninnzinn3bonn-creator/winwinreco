@@ -45,6 +45,16 @@ async function initDB(dbPath) {
                     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
                     FOREIGN KEY(room_id) REFERENCES rooms(id),
                     FOREIGN KEY(participant_id) REFERENCES participants(id)
+                )`);
+
+                db.run(`CREATE TABLE IF NOT EXISTS room_analyses (
+                    id TEXT PRIMARY KEY,
+                    room_id TEXT,
+                    type TEXT,
+                    input_prompt TEXT,
+                    result_text TEXT,
+                    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                    FOREIGN KEY(room_id) REFERENCES rooms(id)
                 )`, (err) => {
                     if (err) return reject(err);
                     resolve(db);
