@@ -7,6 +7,22 @@
     <link rel="stylesheet" href="style.css">
 </head>
 <body>
+    <!-- Mobile Debug Monitor (Overlay) -->
+    <div id="debug-monitor" class="debug-monitor hidden">
+        <div class="debug-stats">
+            <span>🎤 Mic: <span id="debug-mic-status">不明</span></span> | 
+            <span>⚡ Ping: <span id="debug-ping">---</span>ms</span> | 
+            <span>🚨 Err: <span id="debug-error-count">0</span></span>
+        </div>
+        <div class="debug-actions">
+            <button id="btn-debug-copy" title="ログをコピー">📝</button>
+            <button id="btn-debug-download" title="ログをJSON保存">💾</button>
+            <button id="btn-debug-toggle" title="閉じる">×</button>
+        </div>
+    </div>
+    <!-- Floating toggle button for debug monitor -->
+    <button id="btn-debug-float" class="debug-float-btn" title="デバッグを開く">🛠️</button>
+
     <div id="app">
         <!-- 画面①: ルーム作成・参加 -->
         <section id="setup-screen" class="active">
@@ -90,6 +106,7 @@
             </div>
         </section>
     </div>
+    <script src="debug.js"></script>
     <script src="main.js"></script>
 </body>
 </html>

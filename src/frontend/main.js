@@ -67,6 +67,7 @@ async function analyzeMeeting(type) {
         resultArea.innerHTML = `<div class="ai-provider-badge">解析エンジン: ${data.provider}</div>` + 
                              `<div class="ai-text">${data.result.replace(/\n/g, '<br>')}</div>`;
     } catch (e) {
+        if (window.DebugMonitor) window.DebugMonitor.log('error', `AI Analysis failed: ${type}`, e.message);
         console.error(e);
         resultArea.innerText = '解析に失敗しました: ' + e.message;
     }
@@ -99,6 +100,7 @@ async function createRoom() {
         // Auto join after create
         await joinRoomProcess(room.id, displayName);
     } catch (e) {
+        if (window.DebugMonitor) window.DebugMonitor.log('error', 'Room creation failed', e.message);
         console.error(e);
         alert('ルーム作成に失敗しました');
     }
@@ -131,6 +133,7 @@ async function joinRoomProcess(roomId, displayName) {
         initWebSocket();
         // startRecording() is called after WS is 'ready' for stability
     } catch (e) {
+        if (window.DebugMonitor) window.DebugMonitor.log('error', `Join room failed: ${roomId}`, e.message);
         console.error(e);
         alert('ルーム参加に失敗しました。IDが正しいか確認してください。');
     }
@@ -192,7 +195,8 @@ function initWebSocket() {
         }
     };
 
-    state.ws.onclose = () => {
+    state.ws.onclose = (e) => {
+        if (window.DebugMonitor) window.DebugMonitor.log('warn', `WS Closed. Code: ${e.code}, Reason: ${e.reason}`);
         addSystemMessage('接続が切れました。再接続を試みます...');
         const delay = Math.min(1000 * Math.pow(2, reconnectAttempts), 30000);
         reconnectAttempts++;
@@ -200,6 +204,7 @@ function initWebSocket() {
     };
 
     state.ws.onerror = (e) => {
+        if (window.DebugMonitor) window.DebugMonitor.log('error', 'WebSocket Error', e);
         console.error('WS Error:', e);
     };
 }
@@ -237,6 +242,7 @@ async function startRecording() {
         state.audioContext = audioContext;
         console.log('Recording started with AudioContext (PCM 16kHz)');
     } catch (e) {
+        if (window.DebugMonitor) window.DebugMonitor.log('error', 'Microphone retrieval failed', { name: e.name, message: e.message });
         console.error('Recording error:', e);
         if (!navigator.mediaDevices) {
             addSystemMessage('マイクの取得に失敗しました: 安全な接続(HTTPS)ではないか、ブラウザが未対応です。');
