@@ -238,7 +238,11 @@ async function startRecording() {
         console.log('Recording started with AudioContext (PCM 16kHz)');
     } catch (e) {
         console.error('Recording error:', e);
-        addSystemMessage('マイクの取得に失敗しました。');
+        if (!navigator.mediaDevices) {
+            addSystemMessage('マイクの取得に失敗しました: 安全な接続(HTTPS)ではないか、ブラウザが未対応です。');
+        } else {
+            addSystemMessage('マイクの取得に失敗しました: ' + (e.name || 'Unknown') + ' - ' + (e.message || e));
+        }
     }
 }
 
