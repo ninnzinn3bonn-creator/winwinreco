@@ -12,6 +12,15 @@ function createApp(repositories = {}) {
         res.status(200).send('Meeting Minutes API');
     });
 
+    // GET /api/status - Check if API keys are configured properly
+    app.get('/api/status', (req, res) => {
+        const status = {
+            google_stt: !!process.env.GOOGLE_API_KEY && process.env.GOOGLE_API_KEY !== 'dummy',
+            gemini_ai: !!process.env.GEMINI_API_KEY && process.env.GEMINI_API_KEY !== 'dummy'
+        };
+        res.status(200).json(status);
+    });
+
     // POST /rooms - Create a new room
     app.post('/rooms', async (req, res) => {
         try {

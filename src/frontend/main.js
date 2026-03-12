@@ -305,3 +305,34 @@ function addSystemMessage(text) {
     div.innerText = text;
     timeline.appendChild(div);
 }
+
+// Check API status on load
+async function checkApiStatus() {
+    const container = document.getElementById('api-status-container');
+    if (!container) return;
+    
+    try {
+        const res = await fetch('/api/status');
+        const status = await res.json();
+        
+        const sttColor = status.google_stt ? 'green' : 'red';
+        const sttText = status.google_stt ? 'OK' : '未設定';
+        
+        const aiColor = status.gemini_ai ? 'green' : 'red';
+        const aiText = status.gemini_ai ? 'OK' : '未設定';
+        
+        container.innerHTML = `
+            <div style="font-size: 0.9em; padding: 10px; background: #f8f9fa; border-radius: 4px; border: 1px solid #ddd; margin-bottom: 20px;">
+                <div style="margin-bottom: 5px;"><strong>API設定状況:</strong></div>
+                <div>音声認識 (Google): <span style="color: ${sttColor}; font-weight: bold;">${sttText}</span></div>
+                <div>AI解析 (Gemini): <span style="color: ${aiColor}; font-weight: bold;">${aiText}</span></div>
+            </div>
+        `;
+    } catch(e) {
+        console.error('API Status check failed', e);
+        container.innerHTML = '<p style="color: gray; font-size: 0.9em;">(API設定状況の取得に失敗しました)</p>';
+    }
+}
+
+// Call on load
+document.addEventListener('DOMContentLoaded', checkApiStatus);
