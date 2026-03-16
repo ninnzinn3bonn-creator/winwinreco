@@ -255,9 +255,43 @@ function copyRoomId() {
     navigator.clipboard.writeText(state.roomId).then(() => alert('ルームIDをコピーしました'));
 }
 
+// --- Audio Preparation (Crucial for Mobile) ---
+async function prepareAudio() {
+    DebugMonitor.log('info', 'prepareAudio: Requesting permission on user gesture');
+    try {
+        // 1. Get Stream immediately
+        if (!state.stream) {
+            state.stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+            DebugMonitor.log('info', 'prepareAudio: Stream acquired');
+        }
+        
+        // 2. Initialize AudioContext (must be in user gesture for iOS)
+        if (!state.audioContext) {
+            state.audioContext = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: 16000 });
+            DebugMonitor.log('info', `prepareAudio: AudioContext created. State: ${state.audioContext.state}`);
+        }
+        
+        // 3. Resume if suspended
+        if (state.audioContext.state === 'suspended') {
+            await state.audioContext.resume();
+            DebugMonitor.log('info', 'prepareAudio: AudioContext resumed');
+        }
+        
+        return true;
+    } catch (e) {
+        DebugMonitor.log('error', 'prepareAudio: Failed', { name: e.name, message: e.message });
+        alert('マイクの許可が必要です。ブラウザの設定を確認してください。\n' + e.message);
+        return false;
+    }
+}
+
 async function createRoom() {
     const displayName = document.getElementById('display-name').value;
     if (!displayName) return alert('表示名を入力してください');
+    
+    // Request mic permission as part of the click event
+    if (!await prepareAudio()) return;
+
     try {
         const res = await fetch('/rooms', {
             method: 'POST',
@@ -273,6 +307,10 @@ async function joinRoom() {
     const displayName = document.getElementById('display-name').value;
     const roomId = document.getElementById('room-id').value;
     if (!displayName || !roomId) return alert('表示名とルームIDを入力してください');
+    
+    // Request mic permission as part of the click event
+    if (!await prepareAudio()) return;
+
     await joinRoomProcess(roomId, displayName);
 }
 
@@ -344,28 +382,33 @@ function initWebSocket() {
 }
 
 async function startRecording() {
-    if (state.audioContext) {
-        DebugMonitor.log('warn', 'startRecording called but already recording');
-        return;
-    }
-    
-    DebugMonitor.log('info', 'Requesting Microphone access...');
-    try {
-        state.stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-        DebugMonitor.log('info', 'Microphone access GRANTED');
-        
-        const audioContext = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: 16000 });
-        DebugMonitor.log('info', `AudioContext started. State: ${audioContext.state}, SampleRate: ${audioContext.sampleRate}`);
-        
-        if (audioContext.state === 'suspended') {
-            DebugMonitor.log('info', 'Resuming suspended AudioContext...');
-            await audioContext.resume();
+    // If already initialized by prepareAudio, just connect nodes
+    if (state.audioContext && state.audioContext.state === 'running' && state.stream) {
+        DebugMonitor.log('info', 'startRecording: Using existing AudioContext and Stream');
+    } else {
+        DebugMonitor.log('info', 'startRecording: Requesting Microphone access (Fallback)...');
+        try {
+            if (!state.stream) {
+                state.stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+            }
+            if (!state.audioContext) {
+                state.audioContext = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: 16000 });
+            }
+            if (state.audioContext.state === 'suspended') {
+                await state.audioContext.resume();
+            }
+        } catch (e) {
+            DebugMonitor.log('error', 'startRecording: FAILED', { name: e.name, message: e.message });
+            addSystemMessage(`マイク取得失敗: ${e.name}`);
+            return;
         }
+    }
 
-        const source = audioContext.createMediaStreamSource(state.stream);
-        const processor = audioContext.createScriptProcessor(4096, 1, 1);
+    try {
+        const source = state.audioContext.createMediaStreamSource(state.stream);
+        const processor = state.audioContext.createScriptProcessor(4096, 1, 1);
         source.connect(processor);
-        processor.connect(audioContext.destination);
+        processor.connect(state.audioContext.destination);
         
         processor.onaudioprocess = (e) => {
             const inputData = e.inputBuffer.getChannelData(0);
@@ -377,11 +420,11 @@ async function startRecording() {
                 state.ws.send(pcmData.buffer);
             }
         };
-        state.audioContext = audioContext;
+        // Keep a reference to prevent garbage collection
+        state.processor = processor;
         DebugMonitor.log('info', 'Audio Processor connected and running');
-    } catch (e) { 
-        DebugMonitor.log('error', 'Microphone Access FAILED', { name: e.name, message: e.message });
-        addSystemMessage(`マイク取得失敗: ${e.name}`); 
+    } catch (e) {
+        DebugMonitor.log('error', 'startRecording: Node connection FAILED', e.message);
     }
 }
 
