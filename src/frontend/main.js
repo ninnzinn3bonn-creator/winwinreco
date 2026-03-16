@@ -46,9 +46,9 @@ document.getElementById('ai-provider').onchange = (e) => {
     const modelInput = document.getElementById('ai-model');
     state.aiProvider = provider;
     if (provider === 'gemini') {
-        modelInput.value = 'gemini-1.5-flash';
+        modelInput.value = 'gemini-2.5-flash';
     } else if (provider === 'ollama') {
-        modelInput.value = 'llama3';
+        modelInput.value = 'gpt-oss:20b';
     }
     state.aiModel = modelInput.value;
 };

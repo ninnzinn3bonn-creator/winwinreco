@@ -23,12 +23,11 @@ class GeminiProvider {
  * Ollama (Local LLM) Provider
  */
 class OllamaProvider {
-    constructor(baseUrl = 'http://localhost:11434', modelName = 'llama3') {
+    constructor(baseUrl = 'http://localhost:11434', modelName = 'gpt-oss:20b') {
         this.baseUrl = baseUrl.replace(/\/$/, '');
         this.modelName = modelName;
         this.name = `Local LLM (Ollama: ${modelName})`;
     }
-
     async generate(prompt) {
         const response = await fetch(`${this.baseUrl}/api/generate`, {
             method: 'POST',

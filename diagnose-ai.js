@@ -12,7 +12,7 @@ async function diagnose() {
     const genAI = new GoogleGenerativeAI(apiKey);
     
     try {
-        const modelNames = ["models/gemini-1.5-flash", "models/gemini-1.5-pro", "models/gemini-pro"];
+        const modelNames = ["models/gemini-2.5-flash"];
         
         for (const name of modelNames) {
             console.log(`モデル '${name}' を試行中...`);
