@@ -92,14 +92,23 @@ function addMemo() {
 // --- Topic Tree Analysis Logic ---
 async function analyzeTopicTree() {
     if (!state.roomId) return alert('ルームIDがありません');
+    if (document.getElementById('btn-analyze').classList.contains('analyzing')) return;
+
     const newUtterances = state.currentUtterances.slice(state.lastAnalyzedIndex + 1);
     if (newUtterances.length === 0 && state.lastAnalyzedIndex !== -1) {
         return alert('新しい発言がありません');
     }
     
+    // Broadcast analysis start to lock buttons for everyone
+    if (state.ws && state.ws.readyState === WebSocket.OPEN) {
+        state.ws.send(JSON.stringify({ type: 'topic_analyzing', participant_id: state.participantId }));
+    }
+
+    setAnalyzingState(true);
     DebugMonitor.log('info', `Starting Topic Tree Analysis... (New: ${newUtterances.length})`);
+    
     const originalHTML = treeContent.innerHTML;
-    treeContent.innerHTML = '<span class="placeholder-text">解析中...</span>';
+    treeContent.innerHTML = '<span class="placeholder-text">解析中... (他の参加者にも共有されています)</span>';
 
     const currentTreeText = Array.from(treeContent.querySelectorAll('.topic-node'))
         .map(node => {
@@ -119,7 +128,6 @@ async function analyzeTopicTree() {
                 model: state.aiModel
             }
         };
-        DebugMonitor.log('info', 'Analysis Request Payload', payload);
 
         const res = await fetch(`/rooms/${state.roomId}/analyze`, {
             method: 'POST',
@@ -127,22 +135,52 @@ async function analyzeTopicTree() {
             body: JSON.stringify(payload)
         });
         
-        DebugMonitor.log('info', `Analysis Response Status: ${res.status}`);
         const data = await res.json();
         if (data.error) throw new Error(data.error);
         
         if (data.result) {
-            DebugMonitor.log('info', 'Analysis Success', { provider: data.provider });
-            renderTreeNodes(data.result);
-            state.lastProcessedTimestamp = data.latest_timestamp;
+            DebugMonitor.log('info', 'Analysis Success. Broadcasting results...');
+            const updateMsg = {
+                type: 'topic_update',
+                result: data.result,
+                latest_timestamp: data.latest_timestamp,
+                last_analyzed_index: state.currentUtterances.length - 1,
+                provider: data.provider
+            };
+            
+            // Apply locally
+            applyTopicUpdate(updateMsg);
+
+            // Broadcast to others
+            if (state.ws && state.ws.readyState === WebSocket.OPEN) {
+                state.ws.send(JSON.stringify(updateMsg));
+            }
         }
-        state.lastAnalyzedIndex = state.currentUtterances.length - 1;
     } catch (e) {
         DebugMonitor.log('error', 'Topic Tree Analysis Failed', e.message);
-        console.error('Analysis error:', e);
         alert('解析に失敗しました: ' + e.message);
         treeContent.innerHTML = originalHTML;
+        setAnalyzingState(false);
     }
+}
+
+function setAnalyzingState(isAnalyzing) {
+    const btn = document.getElementById('btn-analyze');
+    if (isAnalyzing) {
+        btn.classList.add('analyzing');
+        btn.innerText = '解析中...';
+    } else {
+        btn.classList.remove('analyzing');
+        btn.innerText = '解析';
+    }
+}
+
+function applyTopicUpdate(data) {
+    DebugMonitor.log('info', 'Applying Topic Tree Update', { provider: data.provider });
+    renderTreeNodes(data.result);
+    state.lastProcessedTimestamp = data.latest_timestamp;
+    state.lastAnalyzedIndex = data.last_analyzed_index;
+    setAnalyzingState(false);
 }
 
 function renderTreeNodes(text) {
@@ -369,6 +407,14 @@ function initWebSocket() {
             DebugMonitor.log('info', 'Meeting terminated by server');
             stopRecording();
             showSummaryScreen();
+        } else if (msg.type === 'topic_analyzing') {
+            DebugMonitor.log('info', 'Another participant started analysis');
+            setAnalyzingState(true);
+            if (msg.participant_id !== state.participantId) {
+                treeContent.innerHTML = '<span class="placeholder-text">他の参加者が解析中です...</span>';
+            }
+        } else if (msg.type === 'topic_update') {
+            applyTopicUpdate(msg);
         }
     };
     state.ws.onclose = (e) => {

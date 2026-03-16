@@ -188,7 +188,19 @@ function setupWebSocket(server, repositories = {}) {
     
     wss.rooms = new Map();
 
+    // Heartbeat to prevent timeouts
+    const interval = setInterval(() => {
+        wss.clients.forEach((ws) => {
+            if (ws.isAlive === false) return ws.terminate();
+            ws.isAlive = false;
+            ws.ping();
+        });
+    }, 30000);
+
     wss.on('connection', (ws, req) => {
+        ws.isAlive = true;
+        ws.on('pong', () => { ws.isAlive = true; });
+        
         const url = new URL(req.url, `http://${req.headers.host}`);
         const participantId = url.searchParams.get('participantId');
         let sttStream = null;
