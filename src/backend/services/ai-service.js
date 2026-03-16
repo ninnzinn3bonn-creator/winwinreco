@@ -7,7 +7,7 @@ class GeminiProvider {
     constructor(apiKey, modelName) {
         if (!apiKey) throw new Error('GEMINI_API_KEY is not set.');
         const genAI = new GoogleGenerativeAI(apiKey);
-        const actualModelName = modelName || process.env.GEMINI_MODEL || "gemini-1.5-flash";
+        const actualModelName = modelName || process.env.GEMINI_MODEL || "gemini-2.5-flash";
         this.model = genAI.getGenerativeModel({ model: actualModelName });
         this.name = `gemini (${actualModelName})`;
     }

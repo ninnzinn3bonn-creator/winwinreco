@@ -9,15 +9,21 @@
 <body>
     <!-- Mobile Debug Monitor (Overlay) -->
     <div id="debug-monitor" class="debug-monitor hidden">
-        <div class="debug-stats">
-            <span>🎤 Mic: <span id="debug-mic-status">不明</span></span> | 
-            <span>⚡ Ping: <span id="debug-ping">---</span>ms</span> | 
-            <span>🚨 Err: <span id="debug-error-count">0</span></span>
+        <div class="debug-header">
+            <div class="debug-stats">
+                <span>🎤 Mic: <span id="debug-mic-status">不明</span></span> | 
+                <span>⚡ Ping: <span id="debug-ping">---</span>ms</span> | 
+                <span>🚨 Err: <span id="debug-error-count">0</span></span>
+            </div>
+            <div class="debug-actions">
+                <button id="btn-debug-clear" title="ログをクリア">🧹</button>
+                <button id="btn-debug-copy" title="ログをコピー">📝</button>
+                <button id="btn-debug-download" title="ログをJSON保存">💾</button>
+                <button id="btn-debug-toggle" title="閉じる">×</button>
+            </div>
         </div>
-        <div class="debug-actions">
-            <button id="btn-debug-copy" title="ログをコピー">📝</button>
-            <button id="btn-debug-download" title="ログをJSON保存">💾</button>
-            <button id="btn-debug-toggle" title="閉じる">×</button>
+        <div id="debug-log-view" class="debug-log-view">
+            <!-- ログがここに動的に追加される -->
         </div>
     </div>
     <!-- Floating toggle button for debug monitor -->
@@ -47,7 +53,7 @@
                         <option value="gemini">Gemini (クラウド)</option>
                         <option value="ollama">Ollama (ローカル)</option>
                     </select>
-                    <input type="text" id="ai-model" placeholder="モデル名 (例: gemini-1.5-flash)" value="gemini-1.5-flash">
+                    <input type="text" id="ai-model" placeholder="モデル名 (例: gemini-2.5-flash)" value="gemini-2.0-flash">
                 </div>
             </div>
 

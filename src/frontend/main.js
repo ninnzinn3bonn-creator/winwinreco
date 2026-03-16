@@ -10,7 +10,7 @@ let state = {
     lastProcessedTimestamp: null,
     currentUtterances: [],
     aiProvider: 'gemini',
-    aiModel: 'gemini-1.5-flash'
+    aiModel: 'gemini-2.5-flash'
 };
 
 // UI Elements
@@ -96,6 +96,8 @@ async function analyzeTopicTree() {
     if (newUtterances.length === 0 && state.lastAnalyzedIndex !== -1) {
         return alert('新しい発言がありません');
     }
+    
+    DebugMonitor.log('info', `Starting Topic Tree Analysis... (New: ${newUtterances.length})`);
     const originalHTML = treeContent.innerHTML;
     treeContent.innerHTML = '<span class="placeholder-text">解析中...</span>';
 
@@ -107,28 +109,36 @@ async function analyzeTopicTree() {
         }).join('\n');
 
     try {
+        const payload = { 
+            type: 'topic_tree',
+            last_timestamp: state.lastProcessedTimestamp,
+            current_tree: currentTreeText,
+            instruction: state.lastProcessedTimestamp ? 'これは差分解析です。既存のツリーに新しい議論を統合してください。' : '',
+            ai_config: {
+                provider: state.aiProvider,
+                model: state.aiModel
+            }
+        };
+        DebugMonitor.log('info', 'Analysis Request Payload', payload);
+
         const res = await fetch(`/rooms/${state.roomId}/analyze`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ 
-                type: 'topic_tree',
-                last_timestamp: state.lastProcessedTimestamp,
-                current_tree: currentTreeText,
-                instruction: state.lastProcessedTimestamp ? 'これは差分解析です。既存のツリーに新しい議論を統合してください。' : '',
-                ai_config: {
-                    provider: state.aiProvider,
-                    model: state.aiModel
-                }
-            })
+            body: JSON.stringify(payload)
         });
+        
+        DebugMonitor.log('info', `Analysis Response Status: ${res.status}`);
         const data = await res.json();
         if (data.error) throw new Error(data.error);
+        
         if (data.result) {
+            DebugMonitor.log('info', 'Analysis Success', { provider: data.provider });
             renderTreeNodes(data.result);
             state.lastProcessedTimestamp = data.latest_timestamp;
         }
         state.lastAnalyzedIndex = state.currentUtterances.length - 1;
     } catch (e) {
+        DebugMonitor.log('error', 'Topic Tree Analysis Failed', e.message);
         console.error('Analysis error:', e);
         alert('解析に失敗しました: ' + e.message);
         treeContent.innerHTML = originalHTML;
@@ -301,8 +311,12 @@ function showSummaryScreen() {
 
 function initWebSocket() {
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-    state.ws = new WebSocket(`${protocol}//${window.location.host}?participantId=${state.participantId}`);
+    const wsUrl = `${protocol}//${window.location.host}?participantId=${state.participantId}`;
+    DebugMonitor.log('info', `Connecting to WebSocket: ${wsUrl}`);
+    
+    state.ws = new WebSocket(wsUrl);
     state.ws.onopen = () => {
+        DebugMonitor.log('info', 'WebSocket Connected');
         addSystemMessage('サーバーに接続しました。');
         state.ws.send(JSON.stringify({ type: 'hello' }));
     };
@@ -310,28 +324,49 @@ function initWebSocket() {
         const msg = JSON.parse(event.data);
         if (msg.type === 'transcript') addUtterance(msg);
         else if (msg.type === 'ready') {
+            DebugMonitor.log('info', 'Server ready for audio transmission');
             if (msg.history) msg.history.forEach(u => addUtterance(u));
             startRecording();
         } else if (msg.type === 'terminated') {
+            DebugMonitor.log('info', 'Meeting terminated by server');
             stopRecording();
             showSummaryScreen();
         }
     };
-    state.ws.onclose = () => {
+    state.ws.onclose = (e) => {
+        DebugMonitor.log('warn', 'WebSocket Closed', { code: e.code, reason: e.reason, clean: e.wasClean });
         addSystemMessage('接続が切れました。再接続を試みます...');
         setTimeout(initWebSocket, 3000);
+    };
+    state.ws.onerror = (e) => {
+        DebugMonitor.log('error', 'WebSocket Error occurred');
     };
 }
 
 async function startRecording() {
-    if (state.audioContext) return;
+    if (state.audioContext) {
+        DebugMonitor.log('warn', 'startRecording called but already recording');
+        return;
+    }
+    
+    DebugMonitor.log('info', 'Requesting Microphone access...');
     try {
         state.stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        DebugMonitor.log('info', 'Microphone access GRANTED');
+        
         const audioContext = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: 16000 });
+        DebugMonitor.log('info', `AudioContext started. State: ${audioContext.state}, SampleRate: ${audioContext.sampleRate}`);
+        
+        if (audioContext.state === 'suspended') {
+            DebugMonitor.log('info', 'Resuming suspended AudioContext...');
+            await audioContext.resume();
+        }
+
         const source = audioContext.createMediaStreamSource(state.stream);
         const processor = audioContext.createScriptProcessor(4096, 1, 1);
         source.connect(processor);
         processor.connect(audioContext.destination);
+        
         processor.onaudioprocess = (e) => {
             const inputData = e.inputBuffer.getChannelData(0);
             const pcmData = new Int16Array(inputData.length);
@@ -343,7 +378,11 @@ async function startRecording() {
             }
         };
         state.audioContext = audioContext;
-    } catch (e) { addSystemMessage('マイク取得失敗'); }
+        DebugMonitor.log('info', 'Audio Processor connected and running');
+    } catch (e) { 
+        DebugMonitor.log('error', 'Microphone Access FAILED', { name: e.name, message: e.message });
+        addSystemMessage(`マイク取得失敗: ${e.name}`); 
+    }
 }
 
 function stopRecording() {
