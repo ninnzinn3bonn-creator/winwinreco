@@ -41,6 +41,22 @@ class UtteranceRepository {
             });
         });
     }
+
+    async findNewerThan(room_id, last_timestamp) {
+        return new Promise((resolve, reject) => {
+            const query = `
+                SELECT u.*, p.display_name 
+                FROM utterances u
+                JOIN participants p ON u.participant_id = p.id
+                WHERE u.room_id = ? AND u.started_at > ?
+                ORDER BY u.started_at ASC
+            `;
+            this.db.all(query, [room_id, last_timestamp], (err, rows) => {
+                if (err) return reject(err);
+                resolve(rows);
+            });
+        });
+    }
 }
 
 module.exports = { UtteranceRepository };

@@ -4,11 +4,12 @@ const { GoogleGenerativeAI } = require("@google/generative-ai");
  * Gemini API Provider
  */
 class GeminiProvider {
-    constructor(apiKey) {
+    constructor(apiKey, modelName) {
         if (!apiKey) throw new Error('GEMINI_API_KEY is not set.');
         const genAI = new GoogleGenerativeAI(apiKey);
-        this.model = genAI.getGenerativeModel({ model: "gemini-2.5-flash" });
-        this.name = 'gemini 2.5 flash';
+        const actualModelName = modelName || process.env.GEMINI_MODEL || "gemini-1.5-flash";
+        this.model = genAI.getGenerativeModel({ model: actualModelName });
+        this.name = `gemini (${actualModelName})`;
     }
 
     async generate(prompt) {
@@ -63,7 +64,10 @@ class AIService {
                     config.ollamaModel || process.env.OLLAMA_MODEL || 'llama3'
                 );
             } else {
-                this.provider = new GeminiProvider(config.apiKey || process.env.GEMINI_API_KEY);
+                this.provider = new GeminiProvider(
+                    config.apiKey || process.env.GEMINI_API_KEY,
+                    config.geminiModel || process.env.GEMINI_MODEL
+                );
             }
             this.enabled = true;
             console.log(`[AIService] Initialized with provider: ${this.provider.name}`);
@@ -89,6 +93,24 @@ class AIService {
                 break;
             case 'agenda':
                 systemPrompt = '以下の会議ログから、決定事項 (Decisions) とネクストアクション (TODO) を箇条書きで抽出してください。';
+                break;
+            case 'topic_tree':
+                systemPrompt = `あなたは会議の議論をトピックツリー形式で整理する専門家です。
+
+指示：
+- 会議ログから新しいトピックや議論の深まりを抽出し、ツリーに追加してください。
+- 階層はインデント（スペース2つ）と記号（└, ├）で表現してください。
+- もし「現在のトピックツリー」が提供されている場合は、その構造を維持しつつ、新しい内容を適切な位置に統合してください。
+- 出力は純粋なトピックツリーのみ（テキスト形式）とし、説明文などは一切含めないでください。
+
+${customInstruction ? `【重要】${customInstruction}` : ''}
+
+出力例：
+トピックA
+  ├ 子要素A-1
+  └ 子要素A-2
+トピックB
+`;
                 break;
             case 'custom':
                 systemPrompt = customInstruction || '以下の会議ログを分析してください。';

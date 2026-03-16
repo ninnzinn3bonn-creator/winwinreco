@@ -5,7 +5,12 @@ let state = {
     ws: null,
     mediaRecorder: null,
     stream: null,
-    speakerColors: new Map() // participantId -> colorIndex
+    speakerColors: new Map(), // participantId -> colorIndex
+    lastAnalyzedIndex: -1,
+    lastProcessedTimestamp: null,
+    currentUtterances: [],
+    aiProvider: 'gemini',
+    aiModel: 'gemini-1.5-flash'
 };
 
 // UI Elements
@@ -17,6 +22,9 @@ const summaryLog = document.getElementById('summary-log');
 const roomInfo = document.getElementById('room-info');
 const summaryInfo = document.getElementById('summary-info');
 const selfInfo = document.getElementById('self-info');
+const treeContainer = document.getElementById('topic-tree-container');
+const treeContent = document.getElementById('topic-tree-content');
+const resizer = document.getElementById('resizer');
 
 // Event Listeners
 document.getElementById('btn-create').onclick = createRoom;
@@ -27,50 +35,204 @@ document.getElementById('btn-download').onclick = downloadMinutes;
 document.getElementById('btn-download-final').onclick = downloadMinutes;
 document.getElementById('btn-home').onclick = () => location.reload();
 
-// AI Tabs
-document.getElementById('tab-log').onclick = () => switchTab('log');
-document.getElementById('tab-ai').onclick = () => switchTab('ai');
+// Meeting Footer Actions
+document.getElementById('btn-analyze').onclick = analyzeTopicTree;
+document.getElementById('btn-memo').onclick = addMemo;
+document.getElementById('btn-save').onclick = downloadMinutes;
 
-// AI Analysis Actions
-document.getElementById('btn-ai-summary').onclick = () => analyzeMeeting('summary');
-document.getElementById('btn-ai-agenda').onclick = () => analyzeMeeting('agenda');
-document.getElementById('btn-ai-custom').onclick = () => analyzeMeeting('custom');
+// --- AI Engine Config Logic ---
+document.getElementById('ai-provider').onchange = (e) => {
+    const provider = e.target.value;
+    const modelInput = document.getElementById('ai-model');
+    state.aiProvider = provider;
+    if (provider === 'gemini') {
+        modelInput.value = 'gemini-1.5-flash';
+    } else if (provider === 'ollama') {
+        modelInput.value = 'llama3';
+    }
+    state.aiModel = modelInput.value;
+};
 
-function switchTab(tab) {
-    document.querySelectorAll('.tab-btn').forEach(btn => btn.classList.remove('active'));
-    document.querySelectorAll('.tab-panel').forEach(panel => panel.classList.remove('active'));
-    
-    document.getElementById(`tab-${tab}`).classList.add('active');
-    document.getElementById(`panel-${tab}`).classList.add('active');
+document.getElementById('ai-model').oninput = (e) => {
+    state.aiModel = e.target.value;
+};
+
+// --- Resizer Logic ---
+let isResizing = false;
+resizer.addEventListener('mousedown', (e) => {
+    isResizing = true;
+    document.body.style.cursor = 'row-resize';
+});
+
+document.addEventListener('mousemove', (e) => {
+    if (!isResizing) return;
+    const appRect = document.getElementById('app').getBoundingClientRect();
+    const headerHeight = document.querySelector('#meeting-screen header').offsetHeight;
+    let newHeight = e.clientY - appRect.top - headerHeight;
+    const minHeight = 80;
+    const maxHeight = appRect.height * 0.6;
+    if (newHeight < minHeight) newHeight = minHeight;
+    if (newHeight > maxHeight) newHeight = maxHeight;
+    treeContainer.style.height = `${newHeight}px`;
+});
+
+document.addEventListener('mouseup', () => {
+    isResizing = false;
+    document.body.style.cursor = 'default';
+});
+
+// --- Memo Logic ---
+function addMemo() {
+    const memo = prompt('メモを入力してください:');
+    if (memo) {
+        addSystemMessage(`📝 メモ: ${memo}`);
+    }
 }
 
-async function analyzeMeeting(type) {
-    const resultArea = document.getElementById('ai-result');
-    const instruction = document.getElementById('ai-instruction').value;
-    
-    if (type === 'custom' && !instruction) {
-        return alert('AIへの指示を入力してください');
+// --- Topic Tree Analysis Logic ---
+async function analyzeTopicTree() {
+    if (!state.roomId) return alert('ルームIDがありません');
+    const newUtterances = state.currentUtterances.slice(state.lastAnalyzedIndex + 1);
+    if (newUtterances.length === 0 && state.lastAnalyzedIndex !== -1) {
+        return alert('新しい発言がありません');
     }
+    const originalHTML = treeContent.innerHTML;
+    treeContent.innerHTML = '<span class="placeholder-text">解析中...</span>';
 
-    resultArea.innerText = 'AIが解析中...（数秒かかる場合があります）';
-    
+    const currentTreeText = Array.from(treeContent.querySelectorAll('.topic-node'))
+        .map(node => {
+            const level = parseInt(node.dataset.level);
+            const text = node.querySelector('span:last-child').innerText;
+            return '  '.repeat(level) + (level > 0 ? '└ ' : '') + text;
+        }).join('\n');
+
     try {
         const res = await fetch(`/rooms/${state.roomId}/analyze`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ type, instruction })
+            body: JSON.stringify({ 
+                type: 'topic_tree',
+                last_timestamp: state.lastProcessedTimestamp,
+                current_tree: currentTreeText,
+                instruction: state.lastProcessedTimestamp ? 'これは差分解析です。既存のツリーに新しい議論を統合してください。' : '',
+                ai_config: {
+                    provider: state.aiProvider,
+                    model: state.aiModel
+                }
+            })
         });
-        
         const data = await res.json();
         if (data.error) throw new Error(data.error);
-        
+        if (data.result) {
+            renderTreeNodes(data.result);
+            state.lastProcessedTimestamp = data.latest_timestamp;
+        }
+        state.lastAnalyzedIndex = state.currentUtterances.length - 1;
+    } catch (e) {
+        console.error('Analysis error:', e);
+        alert('解析に失敗しました: ' + e.message);
+        treeContent.innerHTML = originalHTML;
+    }
+}
+
+function renderTreeNodes(text) {
+    treeContent.innerHTML = '';
+    const lines = text.split('\n').filter(l => l.trim().length > 0);
+    const nodeData = lines.map(line => {
+        const leadingSpaces = line.search(/\S/);
+        let level = Math.floor(leadingSpaces / 2);
+        if (line.includes('├') || line.includes('└')) level = Math.max(level, 1);
+        const cleanText = line.replace(/[└├│\-|]/g, '').trim();
+        return { text: cleanText, level: Math.min(level, 3) };
+    });
+
+    nodeData.forEach((data, index) => {
+        const node = document.createElement('span');
+        node.className = `topic-node level-${data.level}`;
+        node.dataset.index = index;
+        node.dataset.level = data.level;
+        const hasChildren = nodeData[index + 1] && nodeData[index + 1].level > data.level;
+        if (hasChildren) {
+            node.classList.add('collapsible');
+            const stateIcon = document.createElement('span');
+            stateIcon.className = 'state-icon';
+            stateIcon.innerText = '▼ ';
+            node.appendChild(stateIcon);
+        } else if (data.level > 0) {
+            const icon = document.createElement('span');
+            icon.className = 'node-icon';
+            icon.innerText = '↳ ';
+            node.appendChild(icon);
+        }
+        const textSpan = document.createElement('span');
+        textSpan.innerText = data.text;
+        node.appendChild(textSpan);
+        node.onclick = () => toggleNode(node, index, data.level);
+        treeContent.appendChild(node);
+    });
+    if (treeContent.children.length === 0) {
+        treeContent.innerHTML = '<span class="placeholder-text">解析結果が空でした</span>';
+    }
+}
+
+function toggleNode(clickedNode, index, level) {
+    if (!clickedNode.classList.contains('collapsible')) return;
+    const isCollapsing = !clickedNode.classList.contains('collapsed');
+    clickedNode.classList.toggle('collapsed');
+    const stateIcon = clickedNode.querySelector('.state-icon');
+    if (stateIcon) stateIcon.innerText = isCollapsing ? '▶ ' : '▼ ';
+    const allNodes = Array.from(treeContent.querySelectorAll('.topic-node'));
+    for (let i = index + 1; i < allNodes.length; i++) {
+        const nextNode = allNodes[i];
+        const nextLevel = parseInt(nextNode.dataset.level);
+        if (nextLevel <= level) break;
+        if (isCollapsing) { nextNode.classList.add('node-hidden'); }
+        else {
+            nextNode.classList.remove('node-hidden');
+            if (nextNode.classList.contains('collapsible')) {
+                nextNode.classList.remove('collapsed');
+                const subIcon = nextNode.querySelector('.state-icon');
+                if (subIcon) subIcon.innerText = '▼ ';
+            }
+        }
+    }
+}
+
+// --- UI Core Logic ---
+function switchTab(tab) {
+    document.querySelectorAll('.tab-btn').forEach(btn => btn.classList.remove('active'));
+    document.querySelectorAll('.tab-panel').forEach(panel => panel.classList.remove('active'));
+    document.getElementById(`tab-${tab}`).classList.add('active');
+    document.getElementById(`panel-${tab}`).classList.add('active');
+}
+
+document.getElementById('tab-log').onclick = () => switchTab('log');
+document.getElementById('tab-ai').onclick = () => switchTab('ai');
+document.getElementById('btn-ai-summary').onclick = () => analyzeMeeting('summary');
+document.getElementById('btn-ai-agenda').onclick = () => analyzeMeeting('agenda');
+document.getElementById('btn-ai-custom').onclick = () => analyzeMeeting('custom');
+
+async function analyzeMeeting(type) {
+    const resultArea = document.getElementById('ai-result');
+    const instruction = document.getElementById('ai-instruction').value;
+    resultArea.innerText = 'AIが解析中...';
+    try {
+        const res = await fetch(`/rooms/${state.roomId}/analyze`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ 
+                type, 
+                instruction,
+                ai_config: {
+                    provider: state.aiProvider,
+                    model: state.aiModel
+                }
+            })
+        });
+        const data = await res.json();
         resultArea.innerHTML = `<div class="ai-provider-badge">解析エンジン: ${data.provider}</div>` + 
                              `<div class="ai-text">${data.result.replace(/\n/g, '<br>')}</div>`;
-    } catch (e) {
-        if (window.DebugMonitor) window.DebugMonitor.log('error', `AI Analysis failed: ${type}`, e.message);
-        console.error(e);
-        resultArea.innerText = '解析に失敗しました: ' + e.message;
-    }
+    } catch (e) { resultArea.innerText = '失敗: ' + e.message; }
 }
 
 async function downloadMinutes() {
@@ -80,15 +242,12 @@ async function downloadMinutes() {
 
 function copyRoomId() {
     if (!state.roomId) return;
-    navigator.clipboard.writeText(state.roomId).then(() => {
-        alert('ルームIDをコピーしました: ' + state.roomId);
-    });
+    navigator.clipboard.writeText(state.roomId).then(() => alert('ルームIDをコピーしました'));
 }
 
 async function createRoom() {
     const displayName = document.getElementById('display-name').value;
     if (!displayName) return alert('表示名を入力してください');
-
     try {
         const res = await fetch('/rooms', {
             method: 'POST',
@@ -96,21 +255,14 @@ async function createRoom() {
             body: JSON.stringify({ owner_id: 'browser-user' })
         });
         const room = await res.json();
-        
-        // Auto join after create
         await joinRoomProcess(room.id, displayName);
-    } catch (e) {
-        if (window.DebugMonitor) window.DebugMonitor.log('error', 'Room creation failed', e.message);
-        console.error(e);
-        alert('ルーム作成に失敗しました');
-    }
+    } catch (e) { alert('ルーム作成に失敗しました'); }
 }
 
 async function joinRoom() {
     const displayName = document.getElementById('display-name').value;
     const roomId = document.getElementById('room-id').value;
     if (!displayName || !roomId) return alert('表示名とルームIDを入力してください');
-
     await joinRoomProcess(roomId, displayName);
 }
 
@@ -121,22 +273,14 @@ async function joinRoomProcess(roomId, displayName) {
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ display_name: displayName, location_id: 'web-browser' })
         });
-        
         if (!res.ok) throw new Error('Join failed');
-        
         const participant = await res.json();
         state.roomId = roomId;
         state.participantId = participant.id;
         state.displayName = displayName;
-
         showMeetingScreen();
         initWebSocket();
-        // startRecording() is called after WS is 'ready' for stability
-    } catch (e) {
-        if (window.DebugMonitor) window.DebugMonitor.log('error', `Join room failed: ${roomId}`, e.message);
-        console.error(e);
-        alert('ルーム参加に失敗しました。IDが正しいか確認してください。');
-    }
+    } catch (e) { alert('ルーム参加に失敗しました'); }
 }
 
 function showMeetingScreen() {
@@ -144,90 +288,50 @@ function showMeetingScreen() {
     meetingScreen.classList.add('active');
     summaryScreen.classList.remove('active');
     roomInfo.innerText = `ルーム: ${state.roomId}`;
-    selfInfo.innerText = `参加者: ${state.displayName} (ID: ${state.participantId})`;
+    selfInfo.innerText = `参加者: ${state.displayName}`;
 }
 
 function showSummaryScreen() {
     meetingScreen.classList.remove('active');
     summaryScreen.classList.add('active');
-    summaryInfo.innerText = `ルーム: ${state.roomId} | 参加者: ${state.displayName}`;
-    
-    // Default to log tab
+    summaryInfo.innerText = `ルーム: ${state.roomId}`;
     switchTab('log');
-    document.getElementById('ai-result').innerText = 'AIによる解析結果がここに表示されます。';
-    document.getElementById('ai-instruction').value = '';
-
-    // Copy the final log content to summary preview
     summaryLog.innerHTML = timeline.innerHTML;
 }
 
-let reconnectAttempts = 0;
 function initWebSocket() {
-    if (state.ws) {
-        state.ws.onclose = null;
-        state.ws.close();
-    }
-
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
     state.ws = new WebSocket(`${protocol}//${window.location.host}?participantId=${state.participantId}`);
-
     state.ws.onopen = () => {
         addSystemMessage('サーバーに接続しました。');
-        reconnectAttempts = 0;
         state.ws.send(JSON.stringify({ type: 'hello' }));
     };
-
     state.ws.onmessage = (event) => {
         const msg = JSON.parse(event.data);
-        if (msg.type === 'transcript') {
-            addUtterance(msg);
-        } else if (msg.type === 'ready') {
-            console.log('Server is ready for audio');
-            if (msg.history && Array.isArray(msg.history)) {
-                msg.history.forEach(utterance => addUtterance(utterance));
-            }
-            startRecording(); // Start recording only after WS is validated and ready
-        } else if (msg.type === 'error') {
-            addSystemMessage(`エラー: ${msg.message}`);
+        if (msg.type === 'transcript') addUtterance(msg);
+        else if (msg.type === 'ready') {
+            if (msg.history) msg.history.forEach(u => addUtterance(u));
+            startRecording();
         } else if (msg.type === 'terminated') {
             stopRecording();
             showSummaryScreen();
         }
     };
-
-    state.ws.onclose = (e) => {
-        if (window.DebugMonitor) window.DebugMonitor.log('warn', `WS Closed. Code: ${e.code}, Reason: ${e.reason}`);
+    state.ws.onclose = () => {
         addSystemMessage('接続が切れました。再接続を試みます...');
-        const delay = Math.min(1000 * Math.pow(2, reconnectAttempts), 30000);
-        reconnectAttempts++;
-        setTimeout(initWebSocket, delay);
-    };
-
-    state.ws.onerror = (e) => {
-        if (window.DebugMonitor) window.DebugMonitor.log('error', 'WebSocket Error', e);
-        console.error('WS Error:', e);
+        setTimeout(initWebSocket, 3000);
     };
 }
 
 async function startRecording() {
-    if (state.audioContext) return; // Already recording
-
+    if (state.audioContext) return;
     try {
         state.stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-        
         const audioContext = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: 16000 });
-        
-        // Resume context if suspended (common browser requirement)
-        if (audioContext.state === 'suspended') {
-            await audioContext.resume();
-        }
-
         const source = audioContext.createMediaStreamSource(state.stream);
         const processor = audioContext.createScriptProcessor(4096, 1, 1);
-
         source.connect(processor);
         processor.connect(audioContext.destination);
-
         processor.onaudioprocess = (e) => {
             const inputData = e.inputBuffer.getChannelData(0);
             const pcmData = new Int16Array(inputData.length);
@@ -238,71 +342,36 @@ async function startRecording() {
                 state.ws.send(pcmData.buffer);
             }
         };
-
         state.audioContext = audioContext;
-        console.log('Recording started with AudioContext (PCM 16kHz)');
-    } catch (e) {
-        if (window.DebugMonitor) window.DebugMonitor.log('error', 'Microphone retrieval failed', { name: e.name, message: e.message });
-        console.error('Recording error:', e);
-        if (!navigator.mediaDevices) {
-            addSystemMessage('マイクの取得に失敗しました: 安全な接続(HTTPS)ではないか、ブラウザが未対応です。');
-        } else {
-            addSystemMessage('マイクの取得に失敗しました: ' + (e.name || 'Unknown') + ' - ' + (e.message || e));
-        }
-    }
+    } catch (e) { addSystemMessage('マイク取得失敗'); }
 }
 
 function stopRecording() {
-    if (state.audioContext) {
-        state.audioContext.close();
-        state.audioContext = null;
-    }
-    if (state.stream) {
-        state.stream.getTracks().forEach(track => track.stop());
-        state.stream = null;
-    }
+    if (state.audioContext) { state.audioContext.close(); state.audioContext = null; }
+    if (state.stream) { state.stream.getTracks().forEach(track => track.stop()); state.stream = null; }
 }
 
 async function endRoom() {
-    if (!confirm('会議を終了しますか？終了後は他の参加者も録音が停止されます。')) return;
-    
-    try {
-        await fetch(`/rooms/${state.roomId}/end`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ owner_id: 'browser-user' })
-        });
-        
-        // WebSocket will receive 'terminated' and showSummaryScreen will be called
-    } catch (e) {
-        console.error(e);
-        alert('終了処理に失敗しました');
-    }
+    if (!confirm('終了しますか？')) return;
+    await fetch(`/rooms/${state.roomId}/end`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ owner_id: 'browser-user' })
+    });
 }
 
 function addUtterance(msg) {
+    state.currentUtterances.push(msg);
     if (!state.speakerColors.has(msg.participant_id)) {
         state.speakerColors.set(msg.participant_id, state.speakerColors.size % 5);
     }
     const colorIndex = state.speakerColors.get(msg.participant_id);
-
     const div = document.createElement('div');
     div.className = `utterance ${msg.participant_id === state.participantId ? 'self' : ''} speaker-${colorIndex}`;
-    
     const time = new Date(msg.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-    
-    div.innerHTML = `
-        <div class="speaker-name">${msg.display_name}</div>
-        <div class="text">${msg.transcript}</div>
-        <div class="timestamp">${time}</div>
-    `;
-    
+    div.innerHTML = `<div class="speaker-name">${msg.display_name}</div><div class="text">${msg.transcript}</div><div class="timestamp">${time}</div>`;
     timeline.appendChild(div);
-    
-    // Smooth scroll to bottom
-    setTimeout(() => {
-        timeline.scrollTo({ top: timeline.scrollHeight, behavior: 'smooth' });
-    }, 50);
+    timeline.scrollTo({ top: timeline.scrollHeight, behavior: 'smooth' });
 }
 
 function addSystemMessage(text) {
@@ -312,33 +381,20 @@ function addSystemMessage(text) {
     timeline.appendChild(div);
 }
 
-// Check API status on load
 async function checkApiStatus() {
     const container = document.getElementById('api-status-container');
     if (!container) return;
-    
     try {
         const res = await fetch('/api/status');
         const status = await res.json();
-        
         const sttColor = status.google_stt ? 'green' : 'red';
-        const sttText = status.google_stt ? 'OK' : '未設定';
-        
         const aiColor = status.gemini_ai ? 'green' : 'red';
-        const aiText = status.gemini_ai ? 'OK' : '未設定';
-        
         container.innerHTML = `
             <div style="font-size: 0.9em; padding: 10px; background: #f8f9fa; border-radius: 4px; border: 1px solid #ddd; margin-bottom: 20px;">
-                <div style="margin-bottom: 5px;"><strong>API設定状況:</strong></div>
-                <div>音声認識 (Google): <span style="color: ${sttColor}; font-weight: bold;">${sttText}</span></div>
-                <div>AI解析 (Gemini): <span style="color: ${aiColor}; font-weight: bold;">${aiText}</span></div>
-            </div>
-        `;
-    } catch(e) {
-        console.error('API Status check failed', e);
-        container.innerHTML = '<p style="color: gray; font-size: 0.9em;">(API設定状況の取得に失敗しました)</p>';
-    }
+                <div>音声認識: <span style="color: ${sttColor}; font-weight: bold;">${status.google_stt ? 'OK' : '未設定'}</span></div>
+                <div>AI解析: <span style="color: ${aiColor}; font-weight: bold;">${status.gemini_ai ? 'OK' : '未設定'}</span></div>
+            </div>`;
+    } catch(e) { container.innerHTML = '<p>(ステータス取得失敗)</p>'; }
 }
 
-// Call on load
 document.addEventListener('DOMContentLoaded', checkApiStatus);

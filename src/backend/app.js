@@ -119,20 +119,46 @@ function createApp(repositories = {}) {
     app.post('/rooms/:id/analyze', async (req, res) => {
         try {
             const { id: roomId } = req.params;
-            const { type, instruction } = req.body;
-
-            // Fetch all utterances for context
-            const utterances = await utteranceRepo.findByRoomIdWithParticipants(roomId);
-            if (utterances.length === 0) {
-                return res.status(400).json({ error: 'No utterances found to analyze.' });
+            const { type, instruction, last_timestamp, current_tree, ai_config } = req.body;
+            
+            // Fetch utterances for context (all or only new ones)
+            let utterances;
+            if (last_timestamp) {
+                utterances = await utteranceRepo.findNewerThan(roomId, last_timestamp);
+                console.log(`[AI-Incremental] Analyzing ${utterances.length} NEW utterances for room ${roomId}. (Since: ${last_timestamp})`);
+            } else {
+                utterances = await utteranceRepo.findByRoomIdWithParticipants(roomId);
+                console.log(`[AI-Full] Analyzing ALL ${utterances.length} utterances for room ${roomId}.`);
             }
 
-            // Perform AI analysis
-            if (!aiService || !aiService.enabled) {
+            if (utterances.length === 0) {
+                return res.status(200).json({ result: current_tree || '', provider: 'none', message: 'No new utterances.' });
+            }
+
+            // Decide which AI service/config to use
+            let activeAiService = aiService;
+            if (ai_config && ai_config.provider) {
+                const { AIService } = require('./services/ai-service');
+                // Create a temporary service instance with the requested config
+                activeAiService = new AIService({
+                    provider: ai_config.provider,
+                    geminiModel: ai_config.provider === 'gemini' ? ai_config.model : null,
+                    ollamaModel: ai_config.provider === 'ollama' ? ai_config.model : null,
+                    apiKey: process.env.GEMINI_API_KEY
+                });
+            }
+
+            if (!activeAiService || !activeAiService.enabled) {
                 return res.status(503).json({ error: 'AI Service is not configured or disabled.' });
             }
 
-            const { result, prompt, provider } = await aiService.analyzeMeeting(utterances, type, instruction);
+            // Pass current_tree to aiService as instruction if provided
+            const combinedInstruction = current_tree 
+                ? `現在のトピックツリーは以下の通りです：\n${current_tree}\n\nこのツリーに、以下の新しい発言内容を反映・統合して、最新のツリーのみを出力してください。\n${instruction}`
+                : instruction;
+
+            const { result, prompt, provider } = await activeAiService.analyzeMeeting(utterances, type, combinedInstruction);
+            const latestTimestamp = utterances[utterances.length - 1].started_at;
 
             // Save analysis result
             const analysis = {
@@ -146,7 +172,7 @@ function createApp(repositories = {}) {
                 await analysisRepo.add(analysis);
             }
 
-            res.status(200).json({ result, provider });
+            res.status(200).json({ result, provider, latest_timestamp: latestTimestamp });
         } catch (error) {
             console.error('[API] Analysis error:', error);
             res.status(500).json({ error: error.message || 'Failed to perform AI analysis' });
