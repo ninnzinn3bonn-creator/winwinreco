@@ -481,11 +481,28 @@ function stopRecording() {
 
 async function endRoom() {
     if (!confirm('終了しますか？')) return;
-    await fetch(`/rooms/${state.roomId}/end`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ owner_id: 'browser-user' })
-    });
+    
+    try {
+        const res = await fetch(`/rooms/${state.roomId}/end`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ owner_id: 'browser-user' })
+        });
+        
+        if (!res.ok) {
+            const data = await res.json();
+            throw new Error(data.error || 'サーバーエラーが発生しました');
+        }
+
+        DebugMonitor.log('info', 'Room ended successfully via API');
+        // UI遷移を即座に行う（WebSocketメッセージを待たずにレスポンスを向上させる）
+        stopRecording();
+        showSummaryScreen();
+        
+    } catch (e) {
+        DebugMonitor.log('error', 'Failed to end room', e.message);
+        alert('終了処理に失敗しました: ' + e.message);
+    }
 }
 
 function addUtterance(msg) {

@@ -70,16 +70,19 @@ function createApp(repositories = {}) {
 
             // Notify all clients in this room via WebSocket
             const wss = repositories.wss;
+            let notifiedCount = 0;
             if (wss && wss.rooms && wss.rooms.has(roomId)) {
                 const roomClients = wss.rooms.get(roomId);
                 for (const client of roomClients) {
                     if (client.readyState === WebSocket.OPEN) {
                         client.send(JSON.stringify({ type: 'terminated' }));
+                        notifiedCount++;
                     }
                 }
             }
+            console.log(`[Room End] Room ${roomId} ended. Notified ${notifiedCount} clients.`);
 
-            res.status(200).json({ message: 'Room ended' });
+            res.status(200).json({ message: 'Room ended', notified: notifiedCount });
         } catch (error) {
             console.error(error);
             res.status(500).json({ error: 'Failed to end room' });
