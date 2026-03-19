@@ -90,8 +90,8 @@ class AIService {
             case 'summary':
                 systemPrompt = '以下の会議ログを要約してください。重要な議論のポイントを簡潔にまとめてください。';
                 break;
-            case 'agenda':
-                systemPrompt = '以下の会議ログから、決定事項 (Decisions) とネクストアクション (TODO) を箇条書きで抽出してください。';
+            case 'todo':
+                systemPrompt = '以下の会議ログから、決定事項 (Decisions) とネクストアクション (TODO) を箇条書きで抽出してください。誰がいつまでに何をするかを明確にしてください。必ず日本語で出力してください。';
                 break;
             case 'topic_tree':
                 systemPrompt = `あなたは会議の議論をトピックツリー形式で整理する専門家です。

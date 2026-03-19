@@ -141,9 +141,9 @@ function createApp(repositories = {}) {
             // Decide which AI service/config to use
             let activeAiService = aiService;
             if (ai_config && ai_config.provider) {
-                const { AIService } = require('./services/ai-service');
+                const { AIService: AIServiceClass } = require('./services/ai-service');
                 // Create a temporary service instance with the requested config
-                activeAiService = new AIService({
+                activeAiService = new AIServiceClass({
                     provider: ai_config.provider,
                     geminiModel: ai_config.provider === 'gemini' ? ai_config.model : null,
                     ollamaModel: ai_config.provider === 'ollama' ? ai_config.model : null,
@@ -216,46 +216,63 @@ function setupWebSocket(server, repositories = {}) {
         const startSTTStream = () => {
             if (sttStream || !sttService) return;
             
+            console.log(`[STT] Starting new stream for participant ${participantId}`);
             sttStream = sttService.createStream(
                 async (transcript) => {
-                    const utterance = {
-                        id: `u-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
-                        room_id: ws.roomId,
-                        participant_id: participantId,
-                        started_at: new Date().toISOString(),
-                        ended_at: new Date().toISOString(),
-                        transcript: transcript
-                    };
+                    try {
+                        const utterance = {
+                            id: `u-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
+                            room_id: ws.roomId,
+                            participant_id: participantId,
+                            started_at: new Date().toISOString(),
+                            ended_at: new Date().toISOString(),
+                            transcript: transcript
+                        };
 
-                    await utteranceRepo.add(utterance);
+                        await utteranceRepo.add(utterance);
 
-                    const broadcastMsg = JSON.stringify({
-                        type: 'transcript',
-                        participant_id: participantId,
-                        display_name: ws.participant.display_name,
-                        transcript: transcript,
-                        timestamp: new Date().toISOString()
-                    });
+                        const broadcastMsg = JSON.stringify({
+                            type: 'transcript',
+                            participant_id: participantId,
+                            display_name: ws.participant.display_name,
+                            transcript: transcript,
+                            timestamp: new Date().toISOString()
+                        });
 
-                    const roomClients = wss.rooms.get(ws.roomId);
-                    if (roomClients) {
-                        for (const client of roomClients) {
-                            if (client.readyState === WebSocket.OPEN) {
-                                client.send(broadcastMsg);
+                        const roomClients = wss.rooms.get(ws.roomId);
+                        if (roomClients) {
+                            for (const client of roomClients) {
+                                if (client.readyState === WebSocket.OPEN) {
+                                    client.send(broadcastMsg);
+                                }
                             }
                         }
+                    } catch (err) {
+                        console.error('[STT Callback Error]', err.message);
                     }
                 },
                 (err) => {
                     console.error('[STT Stream Error]', err.message);
-                    ws.send(JSON.stringify({ type: 'error', message: '音声認識ストリームでエラーが発生しました' }));
-                    sttStream = null; // Reset to allow restart on next chunk
+                    if (ws.readyState === WebSocket.OPEN) {
+                        ws.send(JSON.stringify({ type: 'error', message: '音声認識ストリームでエラーが発生しました' }));
+                    }
+                    sttStream = null;
                 }
             );
+
+            // Important: Handle graceful closure (e.g. Google's 305s limit)
+            sttStream.on('end', () => {
+                console.log('[STT Stream End] Stream closed gracefully by provider');
+                sttStream = null;
+            });
+            sttStream.on('close', () => {
+                sttStream = null;
+            });
         };
 
         ws.on('message', async (data, isBinary) => {
             try {
+                // Initialize/Validate on first message if not already done
                 if (!ws.validated && !ws.validating) {
                     ws.validating = true;
                     const participant = await participantRepo.findById(participantId);
@@ -284,30 +301,46 @@ function setupWebSocket(server, repositories = {}) {
                             timestamp: h.started_at
                         }))
                     }));
-                    
-                    if (!isBinary && !Buffer.isBuffer(data)) {
-                        try {
-                            const msg = JSON.parse(data.toString());
-                            if (msg.type === 'hello') return;
-                        } catch(e) {}
-                    }
+                    // Do not return here, process the current data if it's audio
                 }
 
+                // Wait for validation to complete before processing any data
                 if (!ws.validated) return;
 
                 if (isBinary || Buffer.isBuffer(data)) {
-                    if (!sttStream) startSTTStream();
-                    if (sttStream) {
-                        sttStream.write(data);
+                    // Start or restart stream if needed
+                    if (!sttStream || !sttStream.writable) {
+                        startSTTStream();
+                    }
+                    
+                    if (sttStream && sttStream.writable) {
+                        try {
+                            sttStream.write(data);
+                        } catch (e) {
+                            console.error('[STT Write Error]', e.message);
+                            sttStream = null; // Force restart on next chunk
+                        }
                     }
                 } else {
-                    const roomClients = wss.rooms.get(ws.roomId);
-                    if (roomClients) {
-                        for (const client of roomClients) {
-                            if (client !== ws && client.readyState === WebSocket.OPEN) {
-                                client.send(data.toString());
+                    // Handle text messages (JSON)
+                    try {
+                        const msgStr = data.toString();
+                        const msg = JSON.parse(msgStr);
+                        
+                        // Ignore 'hello' if it was already used for validation
+                        if (msg.type === 'hello') return;
+
+                        // Broadcast other system messages to the room
+                        const roomClients = wss.rooms.get(ws.roomId);
+                        if (roomClients) {
+                            for (const client of roomClients) {
+                                if (client !== ws && client.readyState === WebSocket.OPEN) {
+                                    client.send(msgStr);
+                                }
                             }
                         }
+                    } catch (e) {
+                        // Not JSON or other error
                     }
                 }
             } catch (error) {

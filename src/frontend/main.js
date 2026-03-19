@@ -3,7 +3,6 @@ let state = {
     participantId: null,
     displayName: null,
     ws: null,
-    mediaRecorder: null,
     stream: null,
     speakerColors: new Map(), // participantId -> colorIndex
     lastAnalyzedIndex: -1,
@@ -22,9 +21,11 @@ const summaryLog = document.getElementById('summary-log');
 const roomInfo = document.getElementById('room-info');
 const summaryInfo = document.getElementById('summary-info');
 const selfInfo = document.getElementById('self-info');
+const sidePanel = document.querySelector('.side-panel');
 const treeContainer = document.getElementById('topic-tree-container');
 const treeContent = document.getElementById('topic-tree-content');
-const resizer = document.getElementById('resizer');
+const resizerH = document.getElementById('resizer');
+const resizerV = document.getElementById('resizer-v');
 
 // Event Listeners
 document.getElementById('btn-create').onclick = createRoom;
@@ -36,9 +37,21 @@ document.getElementById('btn-download-final').onclick = downloadMinutes;
 document.getElementById('btn-home').onclick = () => location.reload();
 
 // Meeting Footer Actions
-document.getElementById('btn-analyze').onclick = analyzeTopicTree;
 document.getElementById('btn-memo').onclick = addMemo;
 document.getElementById('btn-save').onclick = downloadMinutes;
+
+// Quick AI (In-Meeting)
+document.getElementById('btn-quick-tree').onclick = analyzeTopicTree;
+document.getElementById('btn-quick-summary').onclick = () => analyzeMeeting('summary', 'quick');
+document.getElementById('btn-quick-todo').onclick = () => analyzeMeeting('todo', 'quick');
+
+// AI Summary Screen Actions
+document.getElementById('tab-log').onclick = () => switchTab('log');
+document.getElementById('tab-ai').onclick = () => switchTab('ai');
+document.getElementById('btn-ai-tree').onclick = () => analyzeMeeting('topic_tree', 'full');
+document.getElementById('btn-ai-summary').onclick = () => analyzeMeeting('summary', 'full');
+document.getElementById('btn-ai-todo').onclick = () => analyzeMeeting('todo', 'full');
+document.getElementById('btn-ai-custom').onclick = () => analyzeMeeting('custom', 'full');
 
 // --- AI Engine Config Logic ---
 document.getElementById('ai-provider').onchange = (e) => {
@@ -58,26 +71,47 @@ document.getElementById('ai-model').oninput = (e) => {
 };
 
 // --- Resizer Logic ---
-let isResizing = false;
-resizer.addEventListener('mousedown', (e) => {
-    isResizing = true;
+let isResizingH = false;
+let isResizingV = false;
+
+// Horizontal Resizer (for Mobile height)
+resizerH.addEventListener('mousedown', (e) => {
+    isResizingH = true;
     document.body.style.cursor = 'row-resize';
 });
 
+// Vertical Resizer (for PC width)
+resizerV.addEventListener('mousedown', (e) => {
+    isResizingV = true;
+    document.body.style.cursor = 'col-resize';
+});
+
 document.addEventListener('mousemove', (e) => {
-    if (!isResizing) return;
-    const appRect = document.getElementById('app').getBoundingClientRect();
-    const headerHeight = document.querySelector('#meeting-screen header').offsetHeight;
-    let newHeight = e.clientY - appRect.top - headerHeight;
-    const minHeight = 80;
-    const maxHeight = appRect.height * 0.6;
-    if (newHeight < minHeight) newHeight = minHeight;
-    if (newHeight > maxHeight) newHeight = maxHeight;
-    treeContainer.style.height = `${newHeight}px`;
+    if (isResizingH) {
+        const appRect = document.getElementById('app').getBoundingClientRect();
+        const headerHeight = document.querySelector('#meeting-screen header').offsetHeight;
+        let newHeight = e.clientY - appRect.top - headerHeight;
+        const minHeight = 100;
+        const maxHeight = appRect.height * 0.7;
+        if (newHeight < minHeight) newHeight = minHeight;
+        if (newHeight > maxHeight) newHeight = maxHeight;
+        sidePanel.style.height = `${newHeight}px`;
+    }
+    
+    if (isResizingV) {
+        const appRect = document.getElementById('app').getBoundingClientRect();
+        let newWidth = e.clientX - appRect.left;
+        const minWidth = 200;
+        const maxWidth = appRect.width * 0.6;
+        if (newWidth < minWidth) newWidth = minWidth;
+        if (newWidth > maxWidth) newWidth = maxWidth;
+        sidePanel.style.width = `${newWidth}px`;
+    }
 });
 
 document.addEventListener('mouseup', () => {
-    isResizing = false;
+    isResizingH = false;
+    isResizingV = false;
     document.body.style.cursor = 'default';
 });
 
@@ -92,9 +126,11 @@ function addMemo() {
 // --- Topic Tree Analysis Logic ---
 async function analyzeTopicTree() {
     if (!state.roomId) return alert('ルームIDがありません');
-    if (document.getElementById('btn-analyze').classList.contains('analyzing')) return;
+    if (document.getElementById('btn-quick-tree').classList.contains('analyzing')) return;
 
-    const newUtterances = state.currentUtterances.slice(state.lastAnalyzedIndex + 1);
+    const snapshotIndex = state.currentUtterances.length - 1;
+    const newUtterances = state.currentUtterances.slice(state.lastAnalyzedIndex + 1, snapshotIndex + 1);
+    
     if (newUtterances.length === 0 && state.lastAnalyzedIndex !== -1) {
         return alert('新しい発言がありません');
     }
@@ -105,11 +141,9 @@ async function analyzeTopicTree() {
     }
 
     setAnalyzingState(true);
-    DebugMonitor.log('info', `Starting Topic Tree Analysis... (New: ${newUtterances.length})`);
+    DebugMonitor.log('info', `Starting Topic Tree Analysis... (New: ${newUtterances.length}, Up to: ${snapshotIndex})`);
     
-    const originalHTML = treeContent.innerHTML;
-    treeContent.innerHTML = '<span class="placeholder-text">解析中... (他の参加者にも共有されています)</span>';
-
+    // Capture current tree text
     const currentTreeText = Array.from(treeContent.querySelectorAll('.topic-node'))
         .map(node => {
             const level = parseInt(node.dataset.level);
@@ -135,6 +169,10 @@ async function analyzeTopicTree() {
             body: JSON.stringify(payload)
         });
         
+        if (res.status === 429) {
+            throw new Error('AIの利用制限（クォータ）を超えました。30秒ほど待つか、設定で「Ollama (ローカル)」に切り替えてください。');
+        }
+        
         const data = await res.json();
         if (data.error) throw new Error(data.error);
         
@@ -144,14 +182,12 @@ async function analyzeTopicTree() {
                 type: 'topic_update',
                 result: data.result,
                 latest_timestamp: data.latest_timestamp,
-                last_analyzed_index: state.currentUtterances.length - 1,
+                last_analyzed_index: snapshotIndex,
                 provider: data.provider
             };
             
-            // Apply locally
             applyTopicUpdate(updateMsg);
 
-            // Broadcast to others
             if (state.ws && state.ws.readyState === WebSocket.OPEN) {
                 state.ws.send(JSON.stringify(updateMsg));
             }
@@ -159,19 +195,41 @@ async function analyzeTopicTree() {
     } catch (e) {
         DebugMonitor.log('error', 'Topic Tree Analysis Failed', e.message);
         alert('解析に失敗しました: ' + e.message);
-        treeContent.innerHTML = originalHTML;
         setAnalyzingState(false);
     }
 }
 
 function setAnalyzingState(isAnalyzing) {
-    const btn = document.getElementById('btn-analyze');
+    const btn = document.getElementById('btn-quick-tree');
+    const container = document.getElementById('topic-tree-container');
+    const indicator = document.querySelector('.recording-indicator');
+    
     if (isAnalyzing) {
         btn.classList.add('analyzing');
         btn.innerText = '解析中...';
+        container.classList.add('loading');
+        
+        // Reflect the "unfixable specification" in the UI
+        if (indicator) indicator.classList.add('paused');
+        addSystemMessage('トピック解析中のため、文字起こしを一時停止しています...');
+        
+        // Stop recording to avoid resource conflict during heavy AI task
+        // We still keep the stream/context, just stop the processor data flow
+        if (state.processor) {
+            state.processor.disconnect();
+            state.processor.onaudioprocess = null;
+            state.processor = null;
+        }
     } else {
         btn.classList.remove('analyzing');
-        btn.innerText = '解析';
+        btn.innerText = 'トピック';
+        container.classList.remove('loading');
+        
+        if (indicator) indicator.classList.remove('paused');
+        addSystemMessage('文字起こしを再開しました。');
+        
+        // Resume recording
+        startRecording();
     }
 }
 
@@ -256,13 +314,20 @@ function switchTab(tab) {
 
 document.getElementById('tab-log').onclick = () => switchTab('log');
 document.getElementById('tab-ai').onclick = () => switchTab('ai');
-document.getElementById('btn-ai-summary').onclick = () => analyzeMeeting('summary');
-document.getElementById('btn-ai-agenda').onclick = () => analyzeMeeting('agenda');
-document.getElementById('btn-ai-custom').onclick = () => analyzeMeeting('custom');
+document.getElementById('btn-ai-tree').onclick = () => analyzeMeeting('topic_tree', 'full');
+document.getElementById('btn-ai-summary').onclick = () => analyzeMeeting('summary', 'full');
+document.getElementById('btn-ai-todo').onclick = () => analyzeMeeting('todo', 'full');
+document.getElementById('btn-ai-custom').onclick = () => analyzeMeeting('custom', 'full');
 
-async function analyzeMeeting(type) {
-    const resultArea = document.getElementById('ai-result');
-    const instruction = document.getElementById('ai-instruction').value;
+async function analyzeMeeting(type, target = 'full') {
+    const resultArea = target === 'quick' 
+        ? document.getElementById('quick-ai-result') 
+        : document.getElementById('ai-result');
+    
+    const instruction = target === 'full' 
+        ? document.getElementById('ai-instruction').value 
+        : '';
+
     resultArea.innerText = 'AIが解析中...';
     try {
         const res = await fetch(`/rooms/${state.roomId}/analyze`, {
@@ -280,6 +345,7 @@ async function analyzeMeeting(type) {
         const data = await res.json();
         resultArea.innerHTML = `<div class="ai-provider-badge">解析エンジン: ${data.provider}</div>` + 
                              `<div class="ai-text">${data.result.replace(/\n/g, '<br>')}</div>`;
+        resultArea.scrollTo({ top: 0, behavior: 'smooth' });
     } catch (e) { resultArea.innerText = '失敗: ' + e.message; }
 }
 
@@ -297,24 +363,18 @@ function copyRoomId() {
 async function prepareAudio() {
     DebugMonitor.log('info', 'prepareAudio: Requesting permission on user gesture');
     try {
-        // 1. Get Stream immediately
         if (!state.stream) {
             state.stream = await navigator.mediaDevices.getUserMedia({ audio: true });
             DebugMonitor.log('info', 'prepareAudio: Stream acquired');
         }
-        
-        // 2. Initialize AudioContext (must be in user gesture for iOS)
         if (!state.audioContext) {
             state.audioContext = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: 16000 });
             DebugMonitor.log('info', `prepareAudio: AudioContext created. State: ${state.audioContext.state}`);
         }
-        
-        // 3. Resume if suspended
         if (state.audioContext.state === 'suspended') {
             await state.audioContext.resume();
             DebugMonitor.log('info', 'prepareAudio: AudioContext resumed');
         }
-        
         return true;
     } catch (e) {
         DebugMonitor.log('error', 'prepareAudio: Failed', { name: e.name, message: e.message });
@@ -326,10 +386,7 @@ async function prepareAudio() {
 async function createRoom() {
     const displayName = document.getElementById('display-name').value;
     if (!displayName) return alert('表示名を入力してください');
-    
-    // Request mic permission as part of the click event
     if (!await prepareAudio()) return;
-
     try {
         const res = await fetch('/rooms', {
             method: 'POST',
@@ -345,10 +402,7 @@ async function joinRoom() {
     const displayName = document.getElementById('display-name').value;
     const roomId = document.getElementById('room-id').value;
     if (!displayName || !roomId) return alert('表示名とルームIDを入力してください');
-    
-    // Request mic permission as part of the click event
     if (!await prepareAudio()) return;
-
     await joinRoomProcess(roomId, displayName);
 }
 
@@ -389,7 +443,6 @@ function initWebSocket() {
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
     const wsUrl = `${protocol}//${window.location.host}?participantId=${state.participantId}`;
     DebugMonitor.log('info', `Connecting to WebSocket: ${wsUrl}`);
-    
     state.ws = new WebSocket(wsUrl);
     state.ws.onopen = () => {
         DebugMonitor.log('info', 'WebSocket Connected');
@@ -410,9 +463,7 @@ function initWebSocket() {
         } else if (msg.type === 'topic_analyzing') {
             DebugMonitor.log('info', 'Another participant started analysis');
             setAnalyzingState(true);
-            if (msg.participant_id !== state.participantId) {
-                treeContent.innerHTML = '<span class="placeholder-text">他の参加者が解析中です...</span>';
-            }
+            // DO NOT clear treeContent here, just let the state handle the overlay
         } else if (msg.type === 'topic_update') {
             applyTopicUpdate(msg);
         }
@@ -422,56 +473,63 @@ function initWebSocket() {
         addSystemMessage('接続が切れました。再接続を試みます...');
         setTimeout(initWebSocket, 3000);
     };
-    state.ws.onerror = (e) => {
-        DebugMonitor.log('error', 'WebSocket Error occurred');
-    };
+    state.ws.onerror = (e) => { DebugMonitor.log('error', 'WebSocket Error occurred'); };
 }
 
 async function startRecording() {
-    // If already initialized by prepareAudio, just connect nodes
-    if (state.audioContext && state.audioContext.state === 'running' && state.stream) {
-        DebugMonitor.log('info', 'startRecording: Using existing AudioContext and Stream');
-    } else {
-        DebugMonitor.log('info', 'startRecording: Requesting Microphone access (Fallback)...');
-        try {
-            if (!state.stream) {
-                state.stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-            }
-            if (!state.audioContext) {
-                state.audioContext = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: 16000 });
-            }
-            if (state.audioContext.state === 'suspended') {
-                await state.audioContext.resume();
-            }
-        } catch (e) {
-            DebugMonitor.log('error', 'startRecording: FAILED', { name: e.name, message: e.message });
-            addSystemMessage(`マイク取得失敗: ${e.name}`);
-            return;
-        }
+    if (state.audioContext && state.audioContext.state === 'running' && state.stream && state.processor) {
+        DebugMonitor.log('info', 'startRecording: Already recording, skipping');
+        return;
     }
 
     try {
+        if (!state.stream) state.stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        if (!state.audioContext) state.audioContext = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: 16000 });
+        if (state.audioContext.state === 'suspended') await state.audioContext.resume();
+    } catch (e) {
+        DebugMonitor.log('error', 'startRecording: FAILED', { name: e.name, message: e.message });
+        addSystemMessage(`マイク取得失敗: ${e.name}`);
+        return;
+    }
+
+    try {
+        // Clean up existing processor if any
+        if (state.processor) {
+            state.processor.onaudioprocess = null;
+            state.processor.disconnect();
+        }
+
         const source = state.audioContext.createMediaStreamSource(state.stream);
         const processor = state.audioContext.createScriptProcessor(4096, 1, 1);
         source.connect(processor);
         processor.connect(state.audioContext.destination);
-        
         processor.onaudioprocess = (e) => {
+            // Watchdog: Update last process time
+            state.lastAudioProcessTime = Date.now();
+
             const inputData = e.inputBuffer.getChannelData(0);
             const pcmData = new Int16Array(inputData.length);
             for (let i = 0; i < inputData.length; i++) {
                 pcmData[i] = Math.max(-1, Math.min(1, inputData[i])) * 0x7FFF;
             }
-            if (state.ws && state.ws.readyState === WebSocket.OPEN) {
-                state.ws.send(pcmData.buffer);
-            }
+            if (state.ws && state.ws.readyState === WebSocket.OPEN) state.ws.send(pcmData.buffer);
         };
-        // Keep a reference to prevent garbage collection
         state.processor = processor;
         DebugMonitor.log('info', 'Audio Processor connected and running');
-    } catch (e) {
-        DebugMonitor.log('error', 'startRecording: Node connection FAILED', e.message);
-    }
+        
+        // Start Watchdog monitor
+        if (!state.watchdogInterval) {
+            state.watchdogInterval = setInterval(() => {
+                if (state.roomId && state.ws && state.ws.readyState === WebSocket.OPEN) {
+                    const silenceTime = Date.now() - (state.lastAudioProcessTime || 0);
+                    if (silenceTime > 2000) { // 2 seconds of silence/freeze
+                        DebugMonitor.log('warn', `Watchdog: Audio pipeline frozen for ${silenceTime}ms. Restarting...`);
+                        startRecording();
+                    }
+                }
+            }, 1000);
+        }
+    } catch (e) { DebugMonitor.log('error', 'startRecording: Node connection FAILED', e.message); }
 }
 
 function stopRecording() {
@@ -481,24 +539,19 @@ function stopRecording() {
 
 async function endRoom() {
     if (!confirm('終了しますか？')) return;
-    
     try {
         const res = await fetch(`/rooms/${state.roomId}/end`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ owner_id: 'browser-user' })
         });
-        
         if (!res.ok) {
             const data = await res.json();
             throw new Error(data.error || 'サーバーエラーが発生しました');
         }
-
         DebugMonitor.log('info', 'Room ended successfully via API');
-        // UI遷移を即座に行う（WebSocketメッセージを待たずにレスポンスを向上させる）
         stopRecording();
         showSummaryScreen();
-        
     } catch (e) {
         DebugMonitor.log('error', 'Failed to end room', e.message);
         alert('終了処理に失敗しました: ' + e.message);
@@ -507,9 +560,7 @@ async function endRoom() {
 
 function addUtterance(msg) {
     state.currentUtterances.push(msg);
-    if (!state.speakerColors.has(msg.participant_id)) {
-        state.speakerColors.set(msg.participant_id, state.speakerColors.size % 5);
-    }
+    if (!state.speakerColors.has(msg.participant_id)) state.speakerColors.set(msg.participant_id, state.speakerColors.size % 5);
     const colorIndex = state.speakerColors.get(msg.participant_id);
     const div = document.createElement('div');
     div.className = `utterance ${msg.participant_id === state.participantId ? 'self' : ''} speaker-${colorIndex}`;
@@ -541,5 +592,4 @@ async function checkApiStatus() {
             </div>`;
     } catch(e) { container.innerHTML = '<p>(ステータス取得失敗)</p>'; }
 }
-
 document.addEventListener('DOMContentLoaded', checkApiStatus);

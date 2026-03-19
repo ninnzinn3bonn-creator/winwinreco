@@ -75,24 +75,41 @@
                 <button id="btn-end" class="danger">終了</button>
             </header>
 
-            <div id="topic-tree-container">
-                <div class="container-label">トピックツリー</div>
-                <div id="topic-tree-content" class="tree-nodes">
-                    <!-- 解析されたノードがここにカード形式で入る -->
-                    <span class="placeholder-text">解析ボタンを押すと生成されます</span>
-                </div>
+            <div class="meeting-layout">
+                <aside class="side-panel">
+                    <div id="topic-tree-container">
+                        <div class="container-label">トピックツリー</div>
+                        <div id="topic-tree-content" class="tree-nodes">
+                            <!-- 解析されたノードがここにカード形式で入る -->
+                            <span class="placeholder-text">解析ボタンを押すと生成されます</span>
+                        </div>
+                    </div>
+
+                    <div id="resizer" class="resizer-handle"></div>
+
+                    <div id="quick-ai-container">
+                        <div class="container-label">クイックAI解析</div>
+                        <div class="quick-ai-controls">
+                            <button id="btn-quick-tree" class="secondary mini">トピック</button>
+                            <button id="btn-quick-summary" class="secondary mini">要約</button>
+                            <button id="btn-quick-todo" class="secondary mini">TODO</button>
+                        </div>
+                        <div id="quick-ai-result" class="ai-preview-mini">
+                            <span class="placeholder-text">解析結果がここに表示されます</span>
+                        </div>
+                    </div>
+                </aside>
+
+                <div id="resizer-v" class="resizer-v-handle"></div>
+
+                <main id="timeline">
+                    <!-- 発話ログがここに挿入される -->
+                    <div class="system-message">接続を待機しています...</div>
+                </main>
             </div>
-
-            <div id="resizer" class="resizer-handle"></div>
-
-            <main id="timeline">
-                <!-- 発話ログがここに挿入される -->
-                <div class="system-message">接続を待機しています...</div>
-            </main>
 
             <footer id="meeting-footer">
                 <div class="footer-actions">
-                    <button id="btn-analyze" class="secondary">解析</button>
                     <button id="btn-memo" class="secondary">メモ</button>
                     <button id="btn-save" class="secondary">保存</button>
                 </div>
@@ -119,8 +136,9 @@
 
                 <div id="panel-ai" class="tab-panel">
                     <div class="ai-controls">
+                        <button id="btn-ai-tree" class="secondary">トピックツリー生成</button>
                         <button id="btn-ai-summary" class="secondary">要約生成</button>
-                        <button id="btn-ai-agenda" class="secondary">決定事項/TODO</button>
+                        <button id="btn-ai-todo" class="secondary">TODO抽出</button>
                     </div>
                     <div class="ai-custom">
                         <textarea id="ai-instruction" placeholder="AIへのカスタム指示（例：この会議の懸念点をまとめて）"></textarea>

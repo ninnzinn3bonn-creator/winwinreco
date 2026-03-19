@@ -21,6 +21,3 @@ yarn-error.log*
 # Workspace
 .kiro/
 .gemini/
-design.md.txt
-tasks.md.txt
-PLAN.txt
