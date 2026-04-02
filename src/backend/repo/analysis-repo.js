@@ -29,6 +29,22 @@ class AnalysisRepository {
             );
         });
     }
+
+    async findLatestByTypes(roomId, types = []) {
+        if (!types.length) return null;
+
+        return new Promise((resolve, reject) => {
+            const placeholders = types.map(() => '?').join(', ');
+            this.db.get(
+                `SELECT * FROM room_analyses WHERE room_id = ? AND type IN (${placeholders}) ORDER BY created_at DESC LIMIT 1`,
+                [roomId, ...types],
+                (err, row) => {
+                    if (err) return reject(err);
+                    resolve(row || null);
+                }
+            );
+        });
+    }
 }
 
 module.exports = { AnalysisRepository };

@@ -22,13 +22,14 @@ describe('ParticipantRepository', () => {
     });
 
     test('should join and find a participant', async () => {
-        const participant = { id: 'p-1', room_id: 'room-1', display_name: 'Alice', location_id: 'loc-1' };
+        const participant = { id: 'p-1', room_id: 'room-1', user_id: 'user-1', display_name: 'Alice', location_id: 'loc-1' };
         await repo.join(participant);
         
         const found = await repo.findById('p-1');
         expect(found).toBeDefined();
         expect(found.display_name).toBe('Alice');
         expect(found.room_id).toBe('room-1');
+        expect(found.user_id).toBe('user-1');
     });
 
     test('should find all participants in a room', async () => {

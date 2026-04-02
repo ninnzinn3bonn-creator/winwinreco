@@ -5,6 +5,9 @@ const { RoomRepository } = require('./repo/room-repo');
 const { ParticipantRepository } = require('./repo/participant-repo');
 const { UtteranceRepository } = require('./repo/utterance-repo');
 const { AnalysisRepository } = require('./repo/analysis-repo');
+const { ActionRepository } = require('./repo/action-repo');
+const { UserRepository } = require('./repo/user-repo');
+const { UserContextRepository } = require('./repo/user-context-repo');
 const { initDB } = require('./repo/db');
 const { AudioProcessor } = require('./services/audio-processor');
 const { STTService } = require('./services/stt-service');
@@ -18,7 +21,10 @@ async function start() {
         roomRepo: new RoomRepository(db),
         participantRepo: new ParticipantRepository(db),
         utteranceRepo: new UtteranceRepository(db),
-        analysisRepo: new AnalysisRepository(db)
+        analysisRepo: new AnalysisRepository(db),
+        actionRepo: new ActionRepository(db),
+        userRepo: new UserRepository(db),
+        userContextRepo: new UserContextRepository(db)
     };
 
     const audioProcessor = new AudioProcessor({ chunkLimit: 10 }); 

@@ -38,6 +38,49 @@ class RoomRepository {
             );
         });
     }
+
+    async updateInsights(roomId, updates = {}) {
+        return new Promise((resolve, reject) => {
+            const fields = [];
+            const values = [];
+
+            if (typeof updates.summary_text === 'string') {
+                fields.push('summary_text = ?');
+                values.push(updates.summary_text);
+                fields.push('summary_updated_at = ?');
+                values.push(new Date().toISOString());
+            }
+
+            if (typeof updates.insights_status === 'string') {
+                fields.push('insights_status = ?');
+                values.push(updates.insights_status);
+            }
+
+            if (typeof updates.insights_dirty === 'boolean') {
+                fields.push('insights_dirty = ?');
+                values.push(updates.insights_dirty ? 1 : 0);
+            }
+
+            if (!fields.length) {
+                return this.findById(roomId).then(resolve).catch(reject);
+            }
+
+            values.push(roomId);
+            this.db.run(
+                `UPDATE rooms SET ${fields.join(', ')} WHERE id = ?`,
+                values,
+                async (err) => {
+                    if (err) return reject(err);
+                    try {
+                        const room = await this.findById(roomId);
+                        resolve(room);
+                    } catch (findErr) {
+                        reject(findErr);
+                    }
+                }
+            );
+        });
+    }
 }
 
 module.exports = { RoomRepository };

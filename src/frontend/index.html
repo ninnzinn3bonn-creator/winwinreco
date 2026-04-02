@@ -1,160 +1,345 @@
-<!DOCTYPE html>
+﻿<!DOCTYPE html>
 <html lang="ja">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>対面会議 議事録アプリ</title>
+    <title>会議ログアプリ</title>
     <link rel="stylesheet" href="style.css">
 </head>
 <body>
-    <!-- Mobile Debug Monitor (Overlay) -->
     <div id="debug-monitor" class="debug-monitor hidden">
         <div class="debug-header">
             <div class="debug-stats">
-                <span>🎤 Mic: <span id="debug-mic-status">不明</span></span> | 
-                <span>⚡ Ping: <span id="debug-ping">---</span>ms</span> | 
-                <span>🚨 Err: <span id="debug-error-count">0</span></span>
+                <span>Mic: <span id="debug-mic-status">---</span></span> |
+                <span>Ping: <span id="debug-ping">---</span>ms</span> |
+                <span>Err: <span id="debug-error-count">0</span></span>
             </div>
             <div class="debug-actions">
-                <button id="btn-debug-clear" title="ログをクリア">🧹</button>
-                <button id="btn-debug-copy" title="ログをコピー">📝</button>
-                <button id="btn-debug-download" title="ログをJSON保存">💾</button>
-                <button id="btn-debug-toggle" title="閉じる">×</button>
+                <button id="btn-debug-clear" title="ログをクリア">Clear</button>
+                <button id="btn-debug-copy" title="ログをコピー">Copy</button>
+                <button id="btn-debug-download" title="ログを保存">Save</button>
+                <button id="btn-debug-toggle" title="閉じる">X</button>
             </div>
         </div>
-        <div id="debug-log-view" class="debug-log-view">
-            <!-- ログがここに動的に追加される -->
-        </div>
+        <div id="debug-log-view" class="debug-log-view"></div>
     </div>
-    <!-- Floating toggle button for debug monitor -->
-    <button id="btn-debug-float" class="debug-float-btn" title="デバッグを開く">🛠️</button>
+    <button id="btn-debug-float" class="debug-float-btn" title="デバッグログを開く">Log</button>
 
     <div id="app">
-        <!-- 画面①: ルーム作成・参加 -->
         <section id="setup-screen" class="active">
             <h1>会議に参加する</h1>
             <div class="form-group">
                 <label for="display-name">表示名</label>
-                <input type="text" id="display-name" placeholder="例: 山田 太郎">
+                <input type="text" id="display-name" placeholder="例: 田中">
             </div>
             <div class="form-group">
-                <label for="room-id">場所ID / ルームID</label>
-                <input type="text" id="room-id" placeholder="例: room-123">
+                <label for="profile-text">得意なこと・スキル・担当プロジェクト</label>
+                <textarea id="profile-text" placeholder="例: 音声処理が得意。LLM評価を担当。研究テーマは会議支援UIの改善。"></textarea>
             </div>
-            
+            <div class="form-group">
+                <label for="room-id">ルームID</label>
+                <input type="text" id="room-id" placeholder="例: A7K9Q2">
+            </div>
+
             <div id="api-status-container" class="api-status">
-                <p>設定状況を確認中...</p>
+                <p>設定状態を確認しています...</p>
+            </div>
+
+            <div class="mic-check-card">
+                <div class="container-label">Mic Check</div>
+                <h3>マイク確認</h3>
+                <p id="mic-check-status" class="mic-check-status">参加前にマイクを確認できます。特にスマホでは先に許可と入力レベルを確認してください。</p>
+                <div class="mic-meter" aria-hidden="true">
+                    <div id="mic-level-bar" class="mic-meter-bar"></div>
+                </div>
+                <div class="actions">
+                    <button id="btn-mic-check" class="secondary">マイクを確認</button>
+                </div>
             </div>
 
             <div class="ai-config-group">
-                <h3>AIエンジン設定</h3>
+                <h3>AI設定</h3>
                 <div class="form-group-row">
                     <select id="ai-provider">
-                        <option value="gemini">Gemini (クラウド)</option>
-                        <option value="ollama">Ollama (ローカル)</option>
+                        <option value="gemini">Gemini</option>
+                        <option value="ollama">Ollama</option>
                     </select>
-                    <input type="text" id="ai-model" placeholder="モデル名 (例: gemini-2.5-flash)" value="gemini-2.5-flash">
+                    <input type="text" id="ai-model" placeholder="モデル名" value="gemini-2.5-flash">
                 </div>
             </div>
 
             <div class="actions">
                 <button id="btn-create" class="primary">新しくルームを作る</button>
-                <button id="btn-join">既存のルームに入る</button>
+                <button id="btn-join">既存ルームに参加</button>
             </div>
         </section>
 
-        <!-- 画面②: 録音・ログ画面 -->
         <section id="meeting-screen">
             <header>
                 <div class="status">
                     <span class="recording-indicator"></span>
                     <span id="room-info">ルーム: ---</span>
-                    <button id="btn-copy-room" class="icon-btn" title="ルームIDをコピー">📋</button>
-                    <button id="btn-download" class="icon-btn" title="議事録をダウンロード">📥</button>
+                    <button id="btn-copy-room" class="icon-btn" title="参加URLをコピー">Share</button>
+                    <button id="btn-download" class="icon-btn" title="ログをダウンロード">MD</button>
                 </div>
                 <button id="btn-end" class="danger">終了</button>
+                <button id="btn-toggle-mute" class="secondary">ミュート</button>
             </header>
 
             <div class="meeting-layout">
-                <aside class="side-panel">
-                    <div id="topic-tree-container">
-                        <div class="container-label">トピックツリー</div>
-                        <div id="topic-tree-content" class="tree-nodes">
-                            <!-- 解析されたノードがここにカード形式で入る -->
-                            <span class="placeholder-text">解析ボタンを押すと生成されます</span>
+                <aside class="memory-panel">
+                    <div class="panel-header">
+                        <div>
+                            <div class="container-label">Workspace</div>
+                            <h2>会話メモリ</h2>
                         </div>
+                        <button id="btn-jump-latest" class="secondary compact">最新へ</button>
                     </div>
 
-                    <div id="resizer" class="resizer-handle"></div>
-
-                    <div id="quick-ai-container">
-                        <div class="container-label">クイックAI解析</div>
-                        <div class="quick-ai-controls">
-                            <button id="btn-quick-tree" class="secondary mini">トピック</button>
-                            <button id="btn-quick-summary" class="secondary mini">要約</button>
-                            <button id="btn-quick-todo" class="secondary mini">TODO</button>
+                    <div class="log-toolbar">
+                        <input type="search" id="log-search" placeholder="発言・メモ・話者名で検索">
+                        <div class="toolbar-chips">
+                            <button id="filter-starred" class="filter-chip">重要のみ</button>
+                            <button id="filter-mine" class="filter-chip">自分のみ</button>
+                            <button id="filter-noted" class="filter-chip">メモ付き</button>
+                            <button id="btn-clear-search" class="ghost-btn">クリア</button>
                         </div>
-                        <div id="quick-ai-result" class="ai-preview-mini">
-                            <span class="placeholder-text">解析結果がここに表示されます</span>
+                        <div id="log-match-count" class="match-count">0件</div>
+                    </div>
+
+                    <div class="memory-section">
+                        <div class="memory-section-header">
+                            <span class="container-label">Starred</span>
+                            <span id="starred-count" class="pill-count">0</span>
+                        </div>
+                        <div id="starred-log-list" class="memory-list">
+                            <span class="placeholder-text">重要ログに星を付けると、ここに集約されます。</span>
                         </div>
                     </div>
                 </aside>
 
-                <div id="resizer-v" class="resizer-v-handle"></div>
-
-                <main id="timeline">
-                    <!-- 発話ログがここに挿入される -->
-                    <div class="system-message">接続を待機しています...</div>
+                <main class="conversation-panel">
+                    <div id="timeline" class="conversation-list">
+                        <div class="system-message">接続を待っています...</div>
+                    </div>
                 </main>
+
+                <aside class="meeting-ai-panel">
+                    <div class="panel-header">
+                        <div>
+                            <div class="container-label">Live AI</div>
+                            <h2>会議中の解析</h2>
+                        </div>
+                    </div>
+                    <p id="meeting-ai-status" class="meeting-ai-status">現時点までのログを使って、必要な解析だけ手動で確認できます。</p>
+                    <div class="meeting-ai-actions">
+                        <button id="btn-meeting-summary" class="primary">要約</button>
+                        <button id="btn-meeting-todo" class="secondary">ToDo</button>
+                        <button id="btn-meeting-agreements" class="secondary">合意点と未解決課題</button>
+                        <button id="btn-meeting-topics" class="secondary">トークテーマ一覧</button>
+                    </div>
+                    <div class="meeting-ai-card">
+                        <div class="container-label">Summary</div>
+                        <textarea id="meeting-ai-summary" class="meeting-ai-editor" placeholder="要約はここに表示されます。"></textarea>
+                    </div>
+                    <div class="meeting-ai-card">
+                        <div class="container-label">Todo</div>
+                        <textarea id="meeting-ai-todo" class="meeting-ai-editor" placeholder="ToDoはここに表示されます。"></textarea>
+                    </div>
+                    <div class="meeting-ai-card">
+                        <div class="container-label">Agreements & Issues</div>
+                        <textarea id="meeting-ai-agreements" class="meeting-ai-editor" placeholder="合意点と未解決課題はここに表示されます。"></textarea>
+                    </div>
+                    <div class="meeting-ai-card">
+                        <div class="container-label">Topics</div>
+                        <textarea id="meeting-ai-topics" class="meeting-ai-editor" placeholder="トークテーマ一覧はここに表示されます。"></textarea>
+                    </div>
+                </aside>
             </div>
 
             <footer id="meeting-footer">
                 <div class="footer-actions">
-                    <button id="btn-memo" class="secondary">メモ</button>
+                    <button id="btn-memo" class="secondary">全体メモ</button>
                     <button id="btn-save" class="secondary">保存</button>
                 </div>
                 <div id="self-info">参加者: ---</div>
             </footer>
         </section>
 
-        <!-- 画面③: 会議終了サマリー -->
         <section id="summary-screen">
-            <h1>会議が終了しました</h1>
-            <p id="summary-info">ルーム: ---</p>
-            
-            <div class="tabs">
-                <button id="tab-log" class="tab-btn active">全ログ</button>
-                <button id="tab-ai" class="tab-btn">AI解析</button>
+            <div class="review-hero">
+                <div>
+                    <div class="container-label">Review</div>
+                    <h1>会話ログの確認</h1>
+                    <p id="summary-info">ルーム: ---</p>
+                </div>
+                <div class="review-actions">
+                    <button id="btn-download-final" class="primary">Markdownで保存</button>
+                    <button id="btn-home">ホームへ戻る</button>
+                </div>
+            </div>
+
+            <div class="tabs review-tabs">
+                <button id="tab-log" class="tab-btn active">ログレビュー</button>
+                <button id="tab-ai" class="tab-btn">AI整理</button>
             </div>
 
             <div id="summary-content">
                 <div id="panel-log" class="tab-panel active">
-                    <div id="summary-log" class="timeline-preview">
-                        <!-- 最終的なログがここに表示される -->
+                    <div class="review-summary-bar">
+                        <div class="review-stat">
+                            <span class="container-label">All Logs</span>
+                            <strong id="summary-total-count">0</strong>
+                        </div>
+                        <div class="review-stat">
+                            <span class="container-label">Starred</span>
+                            <strong id="summary-starred-count">0</strong>
+                        </div>
+                        <div class="review-stat">
+                            <span class="container-label">Edited</span>
+                            <strong id="summary-edited-count">0</strong>
+                        </div>
+                        <div class="review-stat wide">
+                            <span class="container-label">Current Search</span>
+                            <strong id="summary-match-count">0件</strong>
+                        </div>
+                    </div>
+
+                    <div class="review-layout">
+                        <aside class="review-sidebar">
+                            <div class="review-sidebar-card">
+                                <div class="panel-header compact-header">
+                                    <div>
+                                        <div class="container-label">Search</div>
+                                        <h2>絞り込み</h2>
+                                    </div>
+                                </div>
+                                <div class="log-toolbar review-toolbar">
+                                    <input type="search" id="summary-search" placeholder="発言・メモ・話者名で検索">
+                                    <div class="toolbar-chips">
+                                        <button id="summary-filter-starred" class="filter-chip">重要のみ</button>
+                                        <button id="summary-filter-mine" class="filter-chip">自分のみ</button>
+                                        <button id="summary-filter-noted" class="filter-chip">メモ付き</button>
+                                        <button id="summary-clear-search" class="ghost-btn">クリア</button>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div class="review-sidebar-card">
+                                <div class="panel-header compact-header">
+                                    <div>
+                                        <div class="container-label">Focus</div>
+                                        <h2>重要ログ</h2>
+                                    </div>
+                                </div>
+                                <div id="summary-starred-log-list" class="memory-list review-memory-list">
+                                    <span class="placeholder-text">重要ログがここに表示されます。</span>
+                                </div>
+                            </div>
+                        </aside>
+
+                        <div class="review-main">
+                            <div class="review-log-frame">
+                                <div class="review-log-header">
+                                    <div>
+                                        <div class="container-label">Timeline</div>
+                                        <h2>会話ログ</h2>
+                                    </div>
+                                </div>
+                                <div id="summary-log" class="conversation-list summary-log-list"></div>
+                            </div>
+                        </div>
                     </div>
                 </div>
 
                 <div id="panel-ai" class="tab-panel">
-                    <div class="ai-controls">
-                        <button id="btn-ai-tree" class="secondary">トピックツリー生成</button>
-                        <button id="btn-ai-summary" class="secondary">要約生成</button>
-                        <button id="btn-ai-todo" class="secondary">TODO抽出</button>
-                    </div>
-                    <div class="ai-custom">
-                        <textarea id="ai-instruction" placeholder="AIへのカスタム指示（例：この会議の懸念点をまとめて）"></textarea>
-                        <button id="btn-ai-custom">実行</button>
-                    </div>
-                    <div id="ai-result" class="ai-preview">
-                        AIによる解析結果がここに表示されます。
+                    <div class="insight-panel">
+                        <div class="insight-panel-header">
+                            <div>
+                                <div class="container-label">AI整理</div>
+                                <h2>解析ワークスペース</h2>
+                                <p id="ai-workspace-status" class="insight-status">要約、話者別ネクストアクション、自由解析をここで実行できます。</p>
+                            </div>
+                            <div class="insight-actions">
+                                <button id="btn-ai-copy" class="secondary">コピー</button>
+                                <button id="btn-ai-download" class="secondary">ダウンロード</button>
+                            </div>
+                        </div>
+                        <div class="ai-workspace-controls">
+                            <div class="ai-action-row">
+                                <button id="btn-run-summary" class="primary">要約を解析</button>
+                                <button id="btn-run-actions" class="secondary">話者別ネクストアクションを解析</button>
+                            </div>
+                            <div class="insight-card ai-output-card" id="ai-output-card">
+                                <div class="container-label">Result Editor</div>
+                                <h3 id="ai-output-title" class="insight-card-title">解析結果</h3>
+                                <p class="ai-output-note">解析ボタンを押すと、結果はこのエディターに表示されます。</p>
+                                <textarea id="ai-output-editor" class="insight-text insight-result-box insight-editor ai-output-editor" placeholder="解析結果はここに表示されます。"></textarea>
+                            </div>
+                            <div class="ai-custom-row">
+                                <textarea id="custom-ai-instruction" class="custom-ai-textarea" placeholder="自由に解析指示を書けます。例: 論点ごとに整理して、担当者とリスクを明記して。"></textarea>
+                                <button id="btn-custom-generate" class="primary">この内容で解析</button>
+                            </div>
+                        </div>
                     </div>
                 </div>
             </div>
-
-            <div class="actions">
-                <button id="btn-download-final" class="primary">議事録をダウンロード (.md)</button>
-                <button id="btn-home">ホームに戻る</button>
-            </div>
         </section>
+    </div>
+
+    <div id="edit-modal-overlay" class="edit-modal-overlay hidden" aria-hidden="true">
+        <div class="edit-modal-card" role="dialog" aria-modal="true" aria-labelledby="edit-modal-title">
+            <div class="edit-modal-header">
+                <div>
+                    <div class="container-label">Log Edit</div>
+                    <h2 id="edit-modal-title">発言を編集</h2>
+                </div>
+                <button id="btn-close-edit-modal" class="ghost-btn" type="button">閉じる</button>
+            </div>
+            <div class="edit-modal-meta">
+                <strong id="edit-modal-speaker">-</strong>
+                <span id="edit-modal-time">--:--</span>
+            </div>
+            <div class="edit-modal-section">
+                <label class="container-label" for="edit-modal-original">修正前テキスト</label>
+                <div id="edit-modal-original" class="readonly-transcript"></div>
+            </div>
+            <div class="edit-modal-section">
+                <label class="container-label" for="edit-modal-textarea">修正後テキスト</label>
+                <textarea id="edit-modal-textarea" placeholder="表示用の文字起こしを修正できます。"></textarea>
+            </div>
+            <div class="edit-modal-actions">
+                <button id="btn-save-edit-modal" class="primary" type="button">保存</button>
+                <button id="btn-cancel-edit-modal" class="secondary" type="button">キャンセル</button>
+            </div>
+        </div>
+    </div>
+    <div id="memo-modal-overlay" class="edit-modal-overlay hidden" aria-hidden="true">
+        <div class="edit-modal-card" role="dialog" aria-modal="true" aria-labelledby="memo-modal-title">
+            <div class="edit-modal-header">
+                <div>
+                    <div class="container-label">Log Memo</div>
+                    <h2 id="memo-modal-title">発言にメモを付ける</h2>
+                </div>
+                <button id="btn-close-memo-modal" class="ghost-btn" type="button">閉じる</button>
+            </div>
+            <div class="edit-modal-meta">
+                <strong id="memo-modal-speaker">-</strong>
+                <span id="memo-modal-time">--:--</span>
+            </div>
+            <div class="edit-modal-section">
+                <label class="container-label" for="memo-modal-original">元発言</label>
+                <div id="memo-modal-original" class="readonly-transcript"></div>
+            </div>
+            <div class="edit-modal-section">
+                <label class="container-label" for="memo-modal-textarea">メモ</label>
+                <textarea id="memo-modal-textarea" placeholder="補足、解釈、気づきを記録できます。"></textarea>
+            </div>
+            <div class="edit-modal-actions">
+                <button id="btn-save-memo-modal" class="primary" type="button">保存</button>
+                <button id="btn-cancel-memo-modal" class="secondary" type="button">キャンセル</button>
+            </div>
+        </div>
     </div>
     <script src="debug.js"></script>
     <script src="main.js"></script>
