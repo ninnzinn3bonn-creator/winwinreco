@@ -14,6 +14,10 @@
     --radius: 18px;
 }
 
+#ai-output-card::before {
+    content: "結果表示";
+}
+
 * {
     box-sizing: border-box;
 }
@@ -256,6 +260,17 @@ header {
     padding: 8px 12px;
 }
 
+.header-actions {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    flex-wrap: wrap;
+}
+
+.mobile-only {
+    display: none;
+}
+
 #btn-toggle-mute.active {
     background: rgba(209, 59, 76, 0.12);
     color: var(--danger);
@@ -269,6 +284,23 @@ header {
     flex: 1;
     height: 100%;
     min-height: 0;
+}
+
+.mobile-meeting-menu {
+    display: none;
+    padding: 14px 20px;
+    border-bottom: 1px solid var(--line);
+    background: rgba(248, 250, 252, 0.96);
+}
+
+.mobile-meeting-menu.active {
+    display: block;
+}
+
+.mobile-menu-grid {
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 12px;
 }
 
 .summary-layout {
@@ -291,10 +323,18 @@ header {
     display: flex;
     gap: 10px;
     flex-wrap: wrap;
+    align-items: center;
 }
 
 .review-tabs {
     margin-bottom: 0;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: none;
+}
+
+.review-tabs::-webkit-scrollbar {
+    display: none;
 }
 
 .review-summary-bar {
@@ -732,6 +772,7 @@ header {
     color: var(--muted);
     border-radius: 0;
     border-bottom: 2px solid transparent;
+    flex: 0 0 auto;
 }
 
 .tab-btn.active {
@@ -779,6 +820,29 @@ header {
     border-radius: 999px;
 }
 
+#panel-minutes {
+    min-height: 0;
+    gap: 16px;
+    overflow-y: auto;
+    padding-right: 6px;
+    scrollbar-gutter: stable;
+    -webkit-overflow-scrolling: touch;
+}
+
+#panel-minutes::-webkit-scrollbar {
+    width: 10px;
+}
+
+#panel-minutes::-webkit-scrollbar-thumb {
+    background: #c4cfdd;
+    border-radius: 999px;
+}
+
+#panel-minutes::-webkit-scrollbar-track {
+    background: rgba(231, 237, 246, 0.7);
+    border-radius: 999px;
+}
+
 #panel-ai::-webkit-scrollbar-track {
     background: rgba(231, 237, 246, 0.7);
     border-radius: 999px;
@@ -816,6 +880,12 @@ header {
     flex-direction: column;
     gap: 18px;
     margin-bottom: 16px;
+}
+
+.ai-mobile-controls {
+    display: flex;
+    flex-direction: column;
+    gap: 18px;
 }
 
 .ai-action-row {
@@ -1124,6 +1194,25 @@ header {
         flex-direction: column;
     }
 
+    .review-actions {
+        width: 100%;
+    }
+
+    .review-actions button {
+        flex: 1 1 100%;
+        justify-content: center;
+    }
+
+    .review-tabs {
+        gap: 8px;
+        padding-bottom: 6px;
+    }
+
+    .review-tabs .tab-btn {
+        padding: 10px 12px;
+        white-space: nowrap;
+    }
+
     #summary-screen,
     #summary-content,
     #panel-log,
@@ -1157,6 +1246,49 @@ header {
     .review-sidebar-card,
     .review-log-frame {
         border-radius: 18px;
+    }
+
+    .review-stat {
+        padding: 12px 14px;
+    }
+
+    .review-stat strong {
+        font-size: 1.15rem;
+    }
+
+    .insight-panel {
+        padding: 16px;
+        border-radius: 18px;
+    }
+
+    .insight-actions {
+        width: 100%;
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 10px;
+    }
+
+    .insight-actions button {
+        width: 100%;
+        justify-content: center;
+    }
+
+    .ai-action-row {
+        display: grid;
+        grid-template-columns: 1fr;
+    }
+
+    .ai-action-row button,
+    .ai-custom-row > button {
+        width: 100%;
+    }
+
+    .custom-ai-textarea {
+        min-height: 88px;
+    }
+
+    .ai-output-editor {
+        min-height: 340px;
     }
 
     body {
@@ -1229,7 +1361,8 @@ body.summary-mode #summary-content {
 }
 
 body.summary-mode #panel-log,
-body.summary-mode #panel-ai {
+body.summary-mode #panel-ai,
+body.summary-mode #panel-minutes {
     height: auto;
     overflow: visible;
     padding-right: 0;
@@ -1264,6 +1397,12 @@ body.summary-mode .summary-log-list {
     padding-bottom: 28px;
 }
 
+body.summary-mode.summary-stats-collapsed #review-summary-bar,
+body.summary-mode.summary-sidebar-collapsed #review-sidebar,
+body.summary-mode.summary-ai-controls-collapsed #ai-mobile-controls {
+    display: none;
+}
+
 @media (max-width: 1023px) {
     body.setup-mode {
         padding: 0;
@@ -1288,12 +1427,29 @@ body.summary-mode .summary-log-list {
         min-height: auto;
     }
 
+    .mobile-only {
+        display: inline-flex;
+    }
+
+    .header-actions {
+        width: 100%;
+        justify-content: flex-end;
+    }
+
     .meeting-ai-panel {
         border-left: none;
         border-top: 1px solid var(--line);
     }
 
     .meeting-ai-actions {
+        grid-template-columns: 1fr;
+    }
+
+    .summary-mobile-menu {
+        margin-bottom: 16px;
+    }
+
+    .summary-mobile-menu .mobile-menu-grid {
         grid-template-columns: 1fr;
     }
 
@@ -1324,6 +1480,11 @@ body.summary-mode .summary-log-list {
         overflow: visible;
     }
 
+    body.meeting-mode.mobile-memory-collapsed .memory-panel,
+    body.meeting-mode.mobile-ai-collapsed .meeting-ai-panel {
+        display: none;
+    }
+
     body.meeting-mode .conversation-list {
         height: auto;
         min-height: 0;
@@ -1346,5 +1507,15 @@ body.summary-mode .summary-log-list {
         position: static;
         max-height: none;
         overflow: visible;
+    }
+
+    body.summary-mode.summary-stats-collapsed .review-layout,
+    body.summary-mode.summary-sidebar-collapsed .review-layout {
+        grid-template-columns: 1fr;
+    }
+
+    body.summary-mode.summary-sidebar-collapsed .review-main,
+    body.summary-mode.summary-ai-controls-collapsed #panel-ai {
+        width: 100%;
     }
 }

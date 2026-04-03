@@ -49,6 +49,14 @@
                 <div class="container-label">Mic Check</div>
                 <h3>マイク確認</h3>
                 <p id="mic-check-status" class="mic-check-status">参加前にマイクを確認できます。特にスマホでは先に許可と入力レベルを確認してください。</p>
+                <div class="form-group">
+                    <label for="mic-sensitivity">集音感度</label>
+                    <select id="mic-sensitivity">
+                        <option value="high">高め</option>
+                        <option value="standard" selected>標準</option>
+                        <option value="strict">被り抑制</option>
+                    </select>
+                </div>
                 <div class="mic-meter" aria-hidden="true">
                     <div id="mic-level-bar" class="mic-meter-bar"></div>
                 </div>
@@ -82,9 +90,29 @@
                     <button id="btn-copy-room" class="icon-btn" title="参加URLをコピー">Share</button>
                     <button id="btn-download" class="icon-btn" title="ログをダウンロード">MD</button>
                 </div>
-                <button id="btn-end" class="danger">終了</button>
-                <button id="btn-toggle-mute" class="secondary">ミュート</button>
+                <div class="header-actions">
+                    <button id="btn-reconnect-mic" class="secondary">マイクON</button>
+                    <button id="btn-toggle-mute" class="secondary">ミュート</button>
+                    <button id="btn-mobile-menu" class="secondary mobile-only" aria-expanded="false" aria-controls="mobile-meeting-menu">☰</button>
+                    <button id="btn-end" class="danger">終了</button>
+                </div>
             </header>
+
+            <div id="mobile-meeting-menu" class="mobile-meeting-menu hidden" aria-hidden="true">
+                <div class="container-label">Quick Controls</div>
+                <div class="mobile-menu-grid">
+                    <div class="form-group">
+                        <label for="meeting-mic-sensitivity">集音感度</label>
+                        <select id="meeting-mic-sensitivity">
+                            <option value="high">高め</option>
+                            <option value="standard" selected>標準</option>
+                            <option value="strict">被り抑制</option>
+                        </select>
+                    </div>
+                    <button id="btn-toggle-memory-panel" class="secondary">会話メモリを表示</button>
+                    <button id="btn-toggle-ai-panel" class="secondary">会議中AIを表示</button>
+                </div>
+            </div>
 
             <div class="meeting-layout">
                 <aside class="memory-panel">
@@ -174,19 +202,30 @@
                     <p id="summary-info">ルーム: ---</p>
                 </div>
                 <div class="review-actions">
+                    <button id="btn-summary-mobile-menu" class="secondary mobile-only" aria-expanded="false" aria-controls="summary-mobile-menu">☰</button>
                     <button id="btn-download-final" class="primary">Markdownで保存</button>
                     <button id="btn-home">ホームへ戻る</button>
+                </div>
+            </div>
+
+            <div id="summary-mobile-menu" class="mobile-meeting-menu hidden summary-mobile-menu" aria-hidden="true">
+                <div class="container-label">Review Controls</div>
+                <div class="mobile-menu-grid">
+                    <button id="btn-toggle-summary-stats" class="secondary">集計を折りたたむ</button>
+                    <button id="btn-toggle-summary-sidebar" class="secondary">絞り込みを折りたたむ</button>
+                    <button id="btn-toggle-summary-ai-controls" class="secondary">AI操作を折りたたむ</button>
                 </div>
             </div>
 
             <div class="tabs review-tabs">
                 <button id="tab-log" class="tab-btn active">ログレビュー</button>
                 <button id="tab-ai" class="tab-btn">AI整理</button>
+                <button id="tab-minutes" class="tab-btn">議事録</button>
             </div>
 
             <div id="summary-content">
                 <div id="panel-log" class="tab-panel active">
-                    <div class="review-summary-bar">
+                    <div class="review-summary-bar" id="review-summary-bar">
                         <div class="review-stat">
                             <span class="container-label">All Logs</span>
                             <strong id="summary-total-count">0</strong>
@@ -206,7 +245,7 @@
                     </div>
 
                     <div class="review-layout">
-                        <aside class="review-sidebar">
+                        <aside class="review-sidebar" id="review-sidebar">
                             <div class="review-sidebar-card">
                                 <div class="panel-header compact-header">
                                     <div>
@@ -266,9 +305,15 @@
                             </div>
                         </div>
                         <div class="ai-workspace-controls">
-                            <div class="ai-action-row">
-                                <button id="btn-run-summary" class="primary">要約を解析</button>
-                                <button id="btn-run-actions" class="secondary">話者別ネクストアクションを解析</button>
+                            <div id="ai-mobile-controls" class="ai-mobile-controls">
+                                <div class="ai-action-row">
+                                    <button id="btn-run-summary" class="primary">要約を解析</button>
+                                    <button id="btn-run-actions" class="secondary">話者別ネクストアクションを解析</button>
+                                </div>
+                                <div class="ai-custom-row">
+                                    <textarea id="custom-ai-instruction" class="custom-ai-textarea" placeholder="自由に解析指示を書けます。例: 論点ごとに整理して、担当者とリスクを明記して。"></textarea>
+                                    <button id="btn-custom-generate" class="primary">この内容で解析</button>
+                                </div>
                             </div>
                             <div class="insight-card ai-output-card" id="ai-output-card">
                                 <div class="container-label">Result Editor</div>
@@ -276,9 +321,32 @@
                                 <p class="ai-output-note">解析ボタンを押すと、結果はこのエディターに表示されます。</p>
                                 <textarea id="ai-output-editor" class="insight-text insight-result-box insight-editor ai-output-editor" placeholder="解析結果はここに表示されます。"></textarea>
                             </div>
-                            <div class="ai-custom-row">
-                                <textarea id="custom-ai-instruction" class="custom-ai-textarea" placeholder="自由に解析指示を書けます。例: 論点ごとに整理して、担当者とリスクを明記して。"></textarea>
-                                <button id="btn-custom-generate" class="primary">この内容で解析</button>
+                        </div>
+                    </div>
+                </div>
+
+                <div id="panel-minutes" class="tab-panel">
+                    <div class="insight-panel">
+                        <div class="insight-panel-header">
+                            <div>
+                                <div class="container-label">議事録</div>
+                                <h2>議事録ワークスペース</h2>
+                                <p id="minutes-workspace-status" class="insight-status">生ログを基に、自動調整した議事録をここで生成できます。</p>
+                            </div>
+                            <div class="insight-actions">
+                                <button id="btn-minutes-copy" class="secondary">コピー</button>
+                                <button id="btn-minutes-download" class="secondary">ダウンロード</button>
+                            </div>
+                        </div>
+                        <div class="ai-workspace-controls">
+                            <div class="ai-action-row">
+                                <button id="btn-run-minutes" class="primary">自動調整で議事録を生成</button>
+                            </div>
+                            <div class="insight-card ai-output-card">
+                                <div class="container-label">Minutes Editor</div>
+                                <h3 class="insight-card-title">議事録</h3>
+                                <p class="ai-output-note">生成後はこのエディターでそのまま手直しできます。</p>
+                                <textarea id="minutes-output-editor" class="insight-text insight-result-box insight-editor ai-output-editor" placeholder="生成した議事録はここに表示されます。"></textarea>
                             </div>
                         </div>
                     </div>

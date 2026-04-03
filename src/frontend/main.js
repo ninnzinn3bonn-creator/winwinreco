@@ -20,6 +20,14 @@ const state = {
         remainingFrames: 0,
         speaking: false
     },
+    micSensitivity: 'standard',
+    mobileMenuOpen: false,
+    mobileMemoryCollapsed: false,
+    mobileAiCollapsed: false,
+    summaryMobileMenuOpen: false,
+    summaryStatsCollapsed: false,
+    summarySidebarCollapsed: false,
+    summaryAiControlsCollapsed: false,
     activityItems: [],
     aiProvider: 'gemini',
     aiModel: 'gemini-2.5-flash',
@@ -46,6 +54,11 @@ const state = {
         result: '',
         savedAt: null,
         loading: false
+    },
+    minutesWorkspace: {
+        result: '',
+        loading: false,
+        updatedAt: null
     },
     liveMeetingAnalysis: {
         loadingKey: '',
@@ -74,12 +87,18 @@ const roomInfo = document.getElementById('room-info');
 const summaryInfo = document.getElementById('summary-info');
 const selfInfo = document.getElementById('self-info');
 const aiWorkspaceStatus = document.getElementById('ai-workspace-status');
+const minutesWorkspaceStatus = document.getElementById('minutes-workspace-status');
 const aiOutputTitle = document.getElementById('ai-output-title');
 const customAiInstruction = document.getElementById('custom-ai-instruction');
 const aiOutputEditor = document.getElementById('ai-output-editor');
+const minutesOutputEditor = document.getElementById('minutes-output-editor');
 const meetingAiStatus = document.getElementById('meeting-ai-status');
 const micCheckStatus = document.getElementById('mic-check-status');
 const micLevelBar = document.getElementById('mic-level-bar');
+const setupMicSensitivity = document.getElementById('mic-sensitivity');
+const meetingMicSensitivity = document.getElementById('meeting-mic-sensitivity');
+const mobileMeetingMenu = document.getElementById('mobile-meeting-menu');
+const summaryMobileMenu = document.getElementById('summary-mobile-menu');
 const editModalOverlay = document.getElementById('edit-modal-overlay');
 const editModalSpeaker = document.getElementById('edit-modal-speaker');
 const editModalTime = document.getElementById('edit-modal-time');
@@ -118,6 +137,14 @@ document.getElementById('btn-create').onclick = createRoom;
 document.getElementById('btn-join').onclick = joinRoom;
 document.getElementById('btn-end').onclick = endRoom;
 document.getElementById('btn-toggle-mute').onclick = toggleMute;
+document.getElementById('btn-reconnect-mic').onclick = reconnectMic;
+document.getElementById('btn-mobile-menu').onclick = toggleMobileMeetingMenu;
+document.getElementById('btn-toggle-memory-panel').onclick = toggleMobileMemoryPanel;
+document.getElementById('btn-toggle-ai-panel').onclick = toggleMobileAiPanel;
+document.getElementById('btn-summary-mobile-menu').onclick = toggleSummaryMobileMenu;
+document.getElementById('btn-toggle-summary-stats').onclick = toggleSummaryStats;
+document.getElementById('btn-toggle-summary-sidebar').onclick = toggleSummarySidebar;
+document.getElementById('btn-toggle-summary-ai-controls').onclick = toggleSummaryAiControls;
 document.getElementById('btn-copy-room').onclick = copyRoomId;
 document.getElementById('btn-download').onclick = downloadMinutes;
 document.getElementById('btn-download-final').onclick = downloadMinutes;
@@ -127,12 +154,18 @@ document.getElementById('btn-save').onclick = downloadMinutes;
 document.getElementById('btn-jump-latest').onclick = () => scrollLogToLatest(timeline);
 document.getElementById('tab-log').onclick = () => switchTab('log');
 document.getElementById('tab-ai').onclick = () => switchTab('ai');
+document.getElementById('tab-minutes').onclick = () => switchTab('minutes');
 document.getElementById('btn-ai-copy').onclick = copyAiWorkspaceResult;
 document.getElementById('btn-ai-download').onclick = downloadAiWorkspaceResult;
+document.getElementById('btn-run-minutes').onclick = runMinutesGeneration;
+document.getElementById('btn-minutes-copy').onclick = copyMinutesResult;
+document.getElementById('btn-minutes-download').onclick = downloadMinutesResult;
 document.getElementById('btn-run-summary').onclick = runSummaryInsights;
 document.getElementById('btn-run-actions').onclick = runActionInsights;
 document.getElementById('btn-custom-generate').onclick = generateCustomAiResult;
 document.getElementById('btn-mic-check').onclick = runMicCheck;
+setupMicSensitivity.addEventListener('change', (event) => setMicSensitivity(event.target.value));
+meetingMicSensitivity.addEventListener('change', (event) => setMicSensitivity(event.target.value));
 meetingAiButtons.summary.onclick = () => runMeetingAnalysis('summary');
 meetingAiButtons.todo.onclick = () => runMeetingAnalysis('todo');
 meetingAiButtons.agreements.onclick = () => runMeetingAnalysis('agreements');
@@ -175,6 +208,9 @@ aiOutputEditor.addEventListener('input', (event) => {
     state.aiWorkspace.result = event.target.value;
     state.aiWorkspace.savedAt = null;
 });
+minutesOutputEditor.addEventListener('input', (event) => {
+    state.minutesWorkspace.result = event.target.value;
+});
 Object.entries(meetingAiEditors).forEach(([key, editor]) => {
     editor.addEventListener('input', (event) => {
         state.liveMeetingAnalysis.outputs[key] = event.target.value;
@@ -207,6 +243,7 @@ function switchTab(tab) {
     document.querySelectorAll('.tab-panel').forEach((panel) => panel.classList.remove('active'));
     document.getElementById(`tab-${tab}`).classList.add('active');
     document.getElementById(`panel-${tab}`).classList.add('active');
+    renderSummaryMobileControls();
 }
 
 function generateLocalUserId() {
@@ -278,8 +315,192 @@ function updateMicStatus(message) {
     if (micCheckStatus) micCheckStatus.innerText = message;
 }
 
+function syncMuteUi() {
+    const button = document.getElementById('btn-toggle-mute');
+    const indicator = document.querySelector('.recording-indicator');
+    if (button) {
+        button.innerText = state.isMuted ? 'ミュート解除' : 'ミュート';
+        button.classList.toggle('active', state.isMuted);
+    }
+    if (indicator) {
+        indicator.classList.toggle('paused', state.isMuted);
+    }
+    selfInfo.innerText = `参加者: ${state.displayName || '---'}${state.isMuted ? ' / ミュート中' : ''}`;
+}
+
+function renderMobileMeetingControls() {
+    const mobile = isMobileViewport();
+    const menuButton = document.getElementById('btn-mobile-menu');
+    const memoryButton = document.getElementById('btn-toggle-memory-panel');
+    const aiButton = document.getElementById('btn-toggle-ai-panel');
+
+    if (!mobile) {
+        state.mobileMenuOpen = false;
+        state.mobileMemoryCollapsed = false;
+        state.mobileAiCollapsed = false;
+    }
+
+    document.body.classList.toggle('mobile-memory-collapsed', mobile && state.mobileMemoryCollapsed);
+    document.body.classList.toggle('mobile-ai-collapsed', mobile && state.mobileAiCollapsed);
+    mobileMeetingMenu.classList.toggle('active', mobile && state.mobileMenuOpen);
+    mobileMeetingMenu.classList.toggle('hidden', !(mobile && state.mobileMenuOpen));
+    mobileMeetingMenu.setAttribute('aria-hidden', mobile && state.mobileMenuOpen ? 'false' : 'true');
+    menuButton.setAttribute('aria-expanded', mobile && state.mobileMenuOpen ? 'true' : 'false');
+    memoryButton.innerText = state.mobileMemoryCollapsed ? '会話メモリを表示' : '会話メモリを隠す';
+    aiButton.innerText = state.mobileAiCollapsed ? '会議中AIを表示' : '会議中AIを隠す';
+}
+
+function toggleMobileMeetingMenu() {
+    state.mobileMenuOpen = !state.mobileMenuOpen;
+    renderMobileMeetingControls();
+}
+
+function toggleMobileMemoryPanel() {
+    state.mobileMemoryCollapsed = !state.mobileMemoryCollapsed;
+    renderMobileMeetingControls();
+}
+
+function toggleMobileAiPanel() {
+    state.mobileAiCollapsed = !state.mobileAiCollapsed;
+    renderMobileMeetingControls();
+}
+
+function updateMuteButton() {
+    syncMuteUi();
+}
+
+function syncMuteUi() {
+    const button = document.getElementById('btn-toggle-mute');
+    const indicator = document.querySelector('.recording-indicator');
+    if (button) {
+        button.innerText = state.isMuted ? '\u30df\u30e5\u30fc\u30c8\u89e3\u9664' : '\u30df\u30e5\u30fc\u30c8';
+        button.classList.toggle('active', state.isMuted);
+    }
+    if (indicator) {
+        indicator.classList.toggle('paused', state.isMuted);
+    }
+    selfInfo.innerText = `\u53c2\u52a0\u8005: ${state.displayName || '---'}${state.isMuted ? ' / \u30df\u30e5\u30fc\u30c8\u4e2d' : ''}`;
+}
+
+function renderMobileMeetingControls() {
+    const mobile = isMobileViewport();
+    const menuButton = document.getElementById('btn-mobile-menu');
+    const memoryButton = document.getElementById('btn-toggle-memory-panel');
+    const aiButton = document.getElementById('btn-toggle-ai-panel');
+
+    if (!mobile) {
+        state.mobileMenuOpen = false;
+        state.mobileMemoryCollapsed = false;
+        state.mobileAiCollapsed = false;
+    }
+
+    document.body.classList.toggle('mobile-memory-collapsed', mobile && state.mobileMemoryCollapsed);
+    document.body.classList.toggle('mobile-ai-collapsed', mobile && state.mobileAiCollapsed);
+
+    if (mobileMeetingMenu) {
+        mobileMeetingMenu.classList.toggle('active', mobile && state.mobileMenuOpen);
+        mobileMeetingMenu.classList.toggle('hidden', !(mobile && state.mobileMenuOpen));
+        mobileMeetingMenu.setAttribute('aria-hidden', mobile && state.mobileMenuOpen ? 'false' : 'true');
+    }
+    if (menuButton) {
+        menuButton.setAttribute('aria-expanded', mobile && state.mobileMenuOpen ? 'true' : 'false');
+        menuButton.innerText = mobile && state.mobileMenuOpen ? '\u2715' : '\u2630';
+    }
+    if (memoryButton) {
+        memoryButton.innerText = state.mobileMemoryCollapsed
+            ? '\u4f1a\u8a71\u30e1\u30e2\u30ea\u3092\u8868\u793a'
+            : '\u4f1a\u8a71\u30e1\u30e2\u30ea\u3092\u6298\u308a\u305f\u305f\u3080';
+    }
+    if (aiButton) {
+        aiButton.innerText = state.mobileAiCollapsed
+            ? '\u4f1a\u8b70\u4e2dAI\u3092\u8868\u793a'
+            : '\u4f1a\u8b70\u4e2dAI\u3092\u6298\u308a\u305f\u305f\u3080';
+    }
+}
+
+function renderSummaryMobileControls() {
+    const mobile = isMobileViewport();
+    const menuButton = document.getElementById('btn-summary-mobile-menu');
+    const statsButton = document.getElementById('btn-toggle-summary-stats');
+    const sidebarButton = document.getElementById('btn-toggle-summary-sidebar');
+    const aiControlsButton = document.getElementById('btn-toggle-summary-ai-controls');
+
+    if (!mobile) {
+        state.summaryMobileMenuOpen = false;
+        state.summaryStatsCollapsed = false;
+        state.summarySidebarCollapsed = false;
+        state.summaryAiControlsCollapsed = false;
+    }
+
+    document.body.classList.toggle('summary-stats-collapsed', mobile && state.summaryStatsCollapsed);
+    document.body.classList.toggle('summary-sidebar-collapsed', mobile && state.summarySidebarCollapsed);
+    document.body.classList.toggle('summary-ai-controls-collapsed', mobile && state.summaryAiControlsCollapsed);
+
+    if (summaryMobileMenu) {
+        summaryMobileMenu.classList.toggle('active', mobile && state.summaryMobileMenuOpen);
+        summaryMobileMenu.classList.toggle('hidden', !(mobile && state.summaryMobileMenuOpen));
+        summaryMobileMenu.setAttribute('aria-hidden', mobile && state.summaryMobileMenuOpen ? 'false' : 'true');
+    }
+    if (menuButton) {
+        menuButton.setAttribute('aria-expanded', mobile && state.summaryMobileMenuOpen ? 'true' : 'false');
+        menuButton.innerText = mobile && state.summaryMobileMenuOpen ? '\u2715' : '\u2630';
+    }
+    if (statsButton) {
+        statsButton.innerText = state.summaryStatsCollapsed
+            ? '\u96c6\u8a08\u3092\u8868\u793a'
+            : '\u96c6\u8a08\u3092\u6298\u308a\u305f\u305f\u3080';
+    }
+    if (sidebarButton) {
+        sidebarButton.innerText = state.summarySidebarCollapsed
+            ? '\u7d5e\u308a\u8fbc\u307f\u3068\u91cd\u8981\u30ed\u30b0\u3092\u8868\u793a'
+            : '\u7d5e\u308a\u8fbc\u307f\u3068\u91cd\u8981\u30ed\u30b0\u3092\u6298\u308a\u305f\u305f\u3080';
+    }
+    if (aiControlsButton) {
+        aiControlsButton.innerText = state.summaryAiControlsCollapsed
+            ? 'AI\u64cd\u4f5c\u3092\u8868\u793a'
+            : 'AI\u64cd\u4f5c\u3092\u6298\u308a\u305f\u305f\u3080';
+    }
+}
+
+function toggleSummaryMobileMenu() {
+    state.summaryMobileMenuOpen = !state.summaryMobileMenuOpen;
+    renderSummaryMobileControls();
+}
+
+function toggleSummaryStats() {
+    state.summaryStatsCollapsed = !state.summaryStatsCollapsed;
+    renderSummaryMobileControls();
+}
+
+function toggleSummarySidebar() {
+    state.summarySidebarCollapsed = !state.summarySidebarCollapsed;
+    renderSummaryMobileControls();
+}
+
+function toggleSummaryAiControls() {
+    state.summaryAiControlsCollapsed = !state.summaryAiControlsCollapsed;
+    renderSummaryMobileControls();
+}
+
 function isSecureContextForMedia() {
     return window.isSecureContext || location.hostname === 'localhost' || location.hostname === '127.0.0.1';
+}
+
+function isMobileViewport() {
+    return window.matchMedia('(max-width: 1023px)').matches;
+}
+
+function setMicSensitivity(level) {
+    const normalized = ['high', 'standard', 'strict'].includes(level) ? level : 'standard';
+    state.micSensitivity = normalized;
+    state.voiceGate.threshold = normalized === 'high'
+        ? 0.008
+        : normalized === 'strict'
+            ? 0.018
+            : 0.012;
+    localStorage.setItem('mic_sensitivity', normalized);
+    if (setupMicSensitivity) setupMicSensitivity.value = normalized;
+    if (meetingMicSensitivity) meetingMicSensitivity.value = normalized;
 }
 
 function getPreferredAudioConstraints() {
@@ -292,6 +513,33 @@ function getPreferredAudioConstraints() {
             sampleRate: 16000
         }
     };
+}
+
+function resampleToTargetRate(inputData, sourceRate, targetRate) {
+    if (!inputData || !inputData.length || sourceRate === targetRate) {
+        return inputData;
+    }
+
+    const ratio = sourceRate / targetRate;
+    const outputLength = Math.max(1, Math.round(inputData.length / ratio));
+    const output = new Float32Array(outputLength);
+
+    let outputIndex = 0;
+    let inputIndex = 0;
+    while (outputIndex < outputLength) {
+        const nextInputIndex = Math.min(inputData.length, Math.round((outputIndex + 1) * ratio));
+        let sum = 0;
+        let count = 0;
+        for (let i = inputIndex; i < nextInputIndex; i += 1) {
+            sum += inputData[i];
+            count += 1;
+        }
+        output[outputIndex] = count ? (sum / count) : inputData[Math.min(inputIndex, inputData.length - 1)];
+        outputIndex += 1;
+        inputIndex = nextInputIndex;
+    }
+
+    return output;
 }
 
 function bindStreamState(stream) {
@@ -408,6 +656,44 @@ async function syncMicrophonePermissionState() {
     }
 }
 
+async function runMicCheck() {
+    const ok = await prepareAudio({ updateStatus: true });
+    if (!ok) return;
+    updateMicStatus('\u30de\u30a4\u30af\u5165\u529b\u3092\u78ba\u8a8d\u4e2d\u3067\u3059\u3002\u30e1\u30fc\u30bf\u30fc\u304c\u52d5\u3051\u3070\u5165\u529b\u3067\u304d\u3066\u3044\u307e\u3059\u3002');
+}
+
+async function reconnectMic() {
+    try {
+        stopRecording();
+        const ok = await prepareAudio({ updateStatus: true });
+        if (!ok) return;
+        if (state.ws && state.ws.readyState === WebSocket.OPEN) {
+            await startRecording();
+        }
+        updateMicStatus('\u30de\u30a4\u30af\u3092\u518d\u63a5\u7d9a\u3057\u307e\u3057\u305f\u3002\u30e1\u30fc\u30bf\u30fc\u3068\u30ed\u30b0\u3067\u5165\u529b\u3092\u78ba\u8a8d\u3057\u3066\u304f\u3060\u3055\u3044\u3002');
+    } catch (error) {
+        alert(`\u30de\u30a4\u30af\u306e\u518d\u63a5\u7d9a\u306b\u5931\u6557\u3057\u307e\u3057\u305f: ${error.message}`);
+    }
+}
+
+async function syncMicrophonePermissionState() {
+    if (!navigator.permissions?.query) return;
+    try {
+        const status = await navigator.permissions.query({ name: 'microphone' });
+        const apply = () => {
+            if (status.state === 'granted') {
+                updateMicStatus('\u30de\u30a4\u30af\u8a31\u53ef\u306f\u6709\u52b9\u3067\u3059\u3002\u5fc3\u914d\u306a\u3068\u304d\u306f\u78ba\u8a8d\u30bf\u30f3\u3067\u5165\u529b\u30ec\u30d9\u30eb\u3092\u78ba\u8a8d\u3057\u3066\u304f\u3060\u3055\u3044\u3002');
+            } else if (status.state === 'denied') {
+                updateMicStatus('\u30de\u30a4\u30af\u8a31\u53ef\u304c\u62d2\u5426\u3055\u308c\u3066\u3044\u307e\u3059\u3002\u30d6\u30e9\u30a6\u30b6\u8a2d\u5b9a\u304b\u3089\u8a31\u53ef\u306b\u5909\u66f4\u3057\u3066\u304f\u3060\u3055\u3044\u3002');
+            }
+        };
+        apply();
+        status.onchange = apply;
+    } catch (error) {
+        DebugMonitor.log('info', 'Microphone permission query not available', error.message);
+    }
+}
+
 function addSystemMessage(text) {
     state.activityItems.push({
         type: 'system',
@@ -499,6 +785,7 @@ function renderAllLogs() {
     renderMemoModal();
     renderMeetingInsights();
     renderAiWorkspace();
+    renderMinutesWorkspace();
     renderMeetingAnalysis();
 
     const countText = `${getVisibleUtteranceCount()}\u4ef6`;
@@ -512,6 +799,23 @@ function renderAllLogs() {
     document.getElementById('summary-total-count').innerText = String(allUtterances.length);
     document.getElementById('summary-starred-count').innerText = String(starredCount);
     document.getElementById('summary-edited-count').innerText = String(editedCount);
+}
+
+function renderMinutesWorkspace() {
+    if (!minutesOutputEditor || !minutesWorkspaceStatus) return;
+    minutesOutputEditor.value = state.minutesWorkspace.result || 'ここに議事録が表示されます。';
+
+    if (state.minutesWorkspace.loading) {
+        minutesWorkspaceStatus.innerText = '議事録を生成中です...';
+        return;
+    }
+
+    if (state.minutesWorkspace.updatedAt) {
+        minutesWorkspaceStatus.innerText = `最終更新: ${new Date(state.minutesWorkspace.updatedAt).toLocaleString('ja-JP')}`;
+        return;
+    }
+
+    minutesWorkspaceStatus.innerText = '生ログを基に、自動調整した議事録をここで生成できます。';
 }
 
 function renderMeetingAnalysis() {
@@ -929,6 +1233,10 @@ function getFormattedAiWorkspaceText() {
     ].join('\n');
 }
 
+function getFormattedMinutesText() {
+    return minutesOutputEditor.value || state.minutesWorkspace.result || '';
+}
+
 async function saveMemoFromModal() {
     const utteranceId = state.activeMemoUtteranceId;
     if (!utteranceId) return;
@@ -973,6 +1281,30 @@ function downloadAiWorkspaceResult() {
         return;
     }
     downloadTextFile(`ai-workspace-${state.roomId || 'session'}.txt`, getFormattedAiWorkspaceText());
+}
+
+async function copyMinutesResult() {
+    const result = getFormattedMinutesText().trim();
+    if (!result) {
+        alert('コピーできる議事録がまだありません。');
+        return;
+    }
+
+    try {
+        await navigator.clipboard.writeText(result);
+        minutesWorkspaceStatus.innerText = '議事録をコピーしました。';
+    } catch (error) {
+        alert(`コピーに失敗しました: ${error.message}`);
+    }
+}
+
+function downloadMinutesResult() {
+    const result = getFormattedMinutesText().trim();
+    if (!result) {
+        alert('ダウンロードできる議事録がまだありません。');
+        return;
+    }
+    downloadTextFile(`meeting-minutes-${state.roomId || 'session'}.txt`, result);
 }
 
 async function saveAiWorkspaceResult() {
@@ -1167,6 +1499,47 @@ async function runActionInsights() {
     await runDirectAnalysis('todo', '話者別ネクストアクション');
 }
 
+async function runMinutesGeneration() {
+    if (!state.roomId) return;
+
+    state.minutesWorkspace.loading = true;
+    renderMinutesWorkspace();
+
+    try {
+        const res = await fetch(`/rooms/${state.roomId}/analyze`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                type: 'minutes',
+                ai_config: {
+                    provider: 'gemini',
+                    model: state.aiProvider === 'gemini' && state.aiModel ? state.aiModel : 'gemini-2.5-flash'
+                }
+            })
+        });
+        const data = await readApiResponse(res);
+        if (!res.ok) throw new Error(data.error || '議事録の生成に失敗しました');
+
+        const resultText = String(data.result || '').trim();
+        if (!resultText) {
+            throw new Error('AIから空の議事録が返りました');
+        }
+
+        state.minutesWorkspace.result = resultText;
+        state.minutesWorkspace.updatedAt = new Date().toISOString();
+        minutesOutputEditor.value = resultText;
+        minutesWorkspaceStatus.innerText = '議事録を生成しました。必要ならそのまま手直ししてください。';
+        minutesOutputEditor.focus();
+        minutesOutputEditor.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    } catch (error) {
+        minutesWorkspaceStatus.innerText = `議事録生成に失敗しました: ${error.message}`;
+        alert(`議事録生成に失敗しました: ${error.message}`);
+    } finally {
+        state.minutesWorkspace.loading = false;
+        renderMinutesWorkspace();
+    }
+}
+
 async function ensureMeetingInsights() {
     await loadMeetingInsights({ silent: true });
 }
@@ -1354,7 +1727,11 @@ async function prepareAudio(options = {}) {
         if (state.audioContext.state === 'suspended') await state.audioContext.resume();
         ensureAudioNodes();
         if (options.updateStatus) {
-            updateMicStatus('マイクの許可が取れました。口元マイク前提でブラウザ側の加工を弱めています。メーターが動けば準備完了です。');
+            const actualRate = Math.round(state.audioContext?.sampleRate || 0);
+            const resampleNote = actualRate && actualRate !== 16000
+                ? ` 実入力 ${actualRate}Hz を 16000Hz に変換して送ります。`
+                : '';
+            updateMicStatus(`マイクの許可が取れました。口元マイク前提でブラウザ側の加工を弱めています。メーターが動けば準備完了です。${resampleNote}`);
         }
         return true;
     } catch (error) {
@@ -1433,7 +1810,16 @@ function showMeetingScreen() {
     summaryScreen.classList.remove('active');
     meetingScreen.classList.add('active');
     roomInfo.innerText = `\u30eb\u30fc\u30e0: ${state.roomId}`;
-    updateMuteButton();
+    syncMuteUi();
+    state.mobileMenuOpen = false;
+    if (isMobileViewport()) {
+        state.mobileMemoryCollapsed = true;
+        state.mobileAiCollapsed = true;
+    } else {
+        state.mobileMemoryCollapsed = false;
+        state.mobileAiCollapsed = false;
+    }
+    renderMobileMeetingControls();
     requestWakeLock();
 }
 
@@ -1446,6 +1832,21 @@ function showSummaryScreen() {
     document.body.classList.remove('setup-mode');
     document.body.classList.remove('meeting-mode');
     document.body.classList.add('summary-mode');
+    state.mobileMenuOpen = false;
+    state.mobileMemoryCollapsed = false;
+    state.mobileAiCollapsed = false;
+    renderMobileMeetingControls();
+    state.summaryMobileMenuOpen = false;
+    if (isMobileViewport()) {
+        state.summaryStatsCollapsed = true;
+        state.summarySidebarCollapsed = true;
+        state.summaryAiControlsCollapsed = false;
+    } else {
+        state.summaryStatsCollapsed = false;
+        state.summarySidebarCollapsed = false;
+        state.summaryAiControlsCollapsed = false;
+    }
+    renderSummaryMobileControls();
     meetingScreen.classList.remove('active');
     summaryScreen.classList.add('active');
     summaryInfo.innerText = `\u30eb\u30fc\u30e0: ${state.roomId}`;
@@ -1570,9 +1971,13 @@ async function startRecording() {
             }
 
             state.lastAudioProcessTime = Date.now();
-            const pcmData = new Int16Array(inputData.length);
-            for (let i = 0; i < inputData.length; i += 1) {
-                pcmData[i] = Math.max(-1, Math.min(1, inputData[i])) * 0x7fff;
+            const actualSampleRate = Math.round(state.audioContext?.sampleRate || 16000);
+            const normalizedInput = actualSampleRate === 16000
+                ? inputData
+                : resampleToTargetRate(inputData, actualSampleRate, 16000);
+            const pcmData = new Int16Array(normalizedInput.length);
+            for (let i = 0; i < normalizedInput.length; i += 1) {
+                pcmData[i] = Math.max(-1, Math.min(1, normalizedInput[i])) * 0x7fff;
             }
             if (state.ws && state.ws.readyState === WebSocket.OPEN) {
                 state.ws.send(pcmData.buffer);
@@ -1623,7 +2028,7 @@ function toggleMute() {
             track.enabled = !state.isMuted;
         });
     }
-    updateMuteButton();
+    syncMuteUi();
     addSystemMessage(state.isMuted ? 'この端末の文字起こしを停止しました。' : 'この端末の文字起こしを再開しました。');
 }
 
@@ -1643,6 +2048,19 @@ async function endRoom() {
     } catch (error) {
         alert(`\u7d42\u4e86\u51e6\u7406\u306b\u5931\u6557\u3057\u307e\u3057\u305f: ${error.message}`);
     }
+}
+
+function toggleMute() {
+    state.isMuted = !state.isMuted;
+    if (state.stream) {
+        state.stream.getAudioTracks().forEach((track) => {
+            track.enabled = !state.isMuted;
+        });
+    }
+    syncMuteUi();
+    addSystemMessage(state.isMuted
+        ? '\u3053\u306e\u7aef\u672b\u306e\u6587\u5b57\u8d77\u3053\u3057\u3092\u30df\u30e5\u30fc\u30c8\u3057\u307e\u3057\u305f\u3002'
+        : '\u3053\u306e\u7aef\u672b\u306e\u6587\u5b57\u8d77\u3053\u3057\u30df\u30e5\u30fc\u30c8\u3092\u89e3\u9664\u3057\u307e\u3057\u305f\u3002');
 }
 
 async function checkApiStatus() {
@@ -1679,7 +2097,7 @@ document.addEventListener('DOMContentLoaded', () => {
     document.body.classList.add('setup-mode');
     syncFilterControls();
     renderAllLogs();
-    updateMuteButton();
+    syncMuteUi();
     updateMicStatus('参加前にマイクを確認できます。特にスマホでは先に許可と入力レベルを確認してください。');
     checkApiStatus();
     syncMicrophonePermissionState();
@@ -1733,4 +2151,146 @@ window.addEventListener('online', () => {
 
 window.addEventListener('offline', () => {
     updateMicStatus('オフラインになりました。通信復帰まで文字起こしは不安定になる可能性があります。');
+});
+async function checkApiStatus() {
+    const container = document.getElementById('api-status-container');
+    if (!container) return;
+
+    try {
+        const res = await fetch('/api/status');
+        const status = await readApiResponse(res);
+        const sttText = status.google_stt ? 'OK' : '\u672a\u8a2d\u5b9a';
+        const aiText = status.gemini_ai ? 'OK' : '\u672a\u8a2d\u5b9a';
+        const secureText = isSecureContextForMedia() ? 'OK' : 'HTTPS\u5fc5\u9808';
+        container.innerHTML = `<div class="system-message">\u97f3\u58f0\u8a8d\u8b58: ${sttText} / AI: ${aiText} / HTTPS: ${secureText}</div>`;
+    } catch (error) {
+        container.innerHTML = '<p>\u30b9\u30c6\u30fc\u30bf\u30b9\u78ba\u8a8d\u306b\u5931\u6557\u3057\u307e\u3057\u305f\u3002</p>';
+    }
+}
+
+async function prepareAudio(options = {}) {
+    DebugMonitor.log('info', 'prepareAudio: Requesting permission on user gesture');
+    try {
+        if (!isSecureContextForMedia()) {
+            throw new Error('\u30de\u30a4\u30af\u5229\u7528\u306b\u306f HTTPS \u307e\u305f\u306f localhost \u304c\u5fc5\u8981\u3067\u3059');
+        }
+        if (!state.stream) {
+            state.stream = await navigator.mediaDevices.getUserMedia(getPreferredAudioConstraints());
+            bindStreamState(state.stream);
+        }
+        state.stream.getAudioTracks().forEach((track) => {
+            track.enabled = !state.isMuted;
+        });
+        if (!state.audioContext) {
+            state.audioContext = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: 16000 });
+            state.audioContext.onstatechange = () => {
+                const currentState = state.audioContext ? state.audioContext.state : 'closed';
+                if (currentState === 'interrupted') {
+                    updateMicStatus('\u97f3\u58f0\u5165\u529b\u304c\u7aef\u672b\u5074\u3067\u4e2d\u65ad\u3055\u308c\u307e\u3057\u305f\u3002\u5fa9\u5e30\u5f8c\u306b\u30de\u30a4\u30afON\u3067\u518d\u63a5\u7d9a\u3092\u8a66\u3057\u3066\u304f\u3060\u3055\u3044\u3002');
+                }
+            };
+        }
+        if (state.audioContext.state === 'suspended') await state.audioContext.resume();
+        ensureAudioNodes();
+        if (options.updateStatus) {
+            const actualRate = Math.round(state.audioContext?.sampleRate || 0);
+            const resampleNote = actualRate && actualRate !== 16000
+                ? ` \u5b9f\u5165\u529b ${actualRate}Hz \u3092 16000Hz \u306b\u5909\u63db\u3057\u3066\u9001\u308a\u307e\u3059\u3002`
+                : '';
+            updateMicStatus(`\u30de\u30a4\u30af\u306e\u8a31\u53ef\u304c\u53d6\u308c\u307e\u3057\u305f\u3002\u53e3\u5143\u306e\u30de\u30a4\u30af\u3067\u30d6\u30e9\u30a6\u30b6\u4e0b\u306e\u5165\u529b\u30e1\u30fc\u30bf\u30fc\u3092\u78ba\u8a8d\u3057\u3066\u304f\u3060\u3055\u3044\u3002${resampleNote}`);
+        }
+        return true;
+    } catch (error) {
+        DebugMonitor.log('error', 'prepareAudio failed', error.message);
+        if (options.updateStatus) {
+            updateMicStatus(`\u30de\u30a4\u30af\u78ba\u8a8d\u306b\u5931\u6557\u3057\u307e\u3057\u305f: ${error.message}`);
+        }
+        alert(`\u30de\u30a4\u30af\u306e\u8a31\u53ef\u306b\u5931\u6557\u3057\u307e\u3057\u305f: ${error.message}`);
+        return false;
+    }
+}
+
+function initializeSetupUi() {
+    ensureLocalUserId();
+    const savedDisplayName = localStorage.getItem('display_name');
+    const savedProfileText = localStorage.getItem('profile_text');
+    const savedSensitivity = localStorage.getItem('mic_sensitivity');
+    const roomIdFromUrl = new URLSearchParams(window.location.search).get('room');
+
+    if (savedDisplayName) {
+        document.getElementById('display-name').value = savedDisplayName;
+    }
+    if (savedProfileText) {
+        document.getElementById('profile-text').value = savedProfileText;
+    }
+    if (roomIdFromUrl) {
+        document.getElementById('room-id').value = roomIdFromUrl.toUpperCase();
+        updateMicStatus(`\u5171\u6709URL\u304b\u3089\u30eb\u30fc\u30e0 ${roomIdFromUrl.toUpperCase()} \u3092\u8aad\u307f\u8fbc\u307f\u307e\u3057\u305f\u3002\u8868\u793a\u540d\u3092\u5165\u308c\u308c\u3070\u53c2\u52a0\u3067\u304d\u307e\u3059\u3002`);
+    }
+
+    document.body.classList.add('setup-mode');
+    setMicSensitivity(savedSensitivity || 'standard');
+    syncFilterControls();
+    renderAllLogs();
+    syncMuteUi();
+    renderMobileMeetingControls();
+    renderSummaryMobileControls();
+    updateMicStatus('\u53c2\u52a0\u524d\u306b\u30de\u30a4\u30af\u3092\u78ba\u8a8d\u3067\u304d\u307e\u3059\u3002\u7279\u306b\u30b9\u30de\u30db\u3067\u306f\u5148\u306b\u8a31\u53ef\u3068\u5165\u529b\u30ec\u30d9\u30eb\u3092\u78ba\u8a8d\u3057\u3066\u304f\u3060\u3055\u3044\u3002');
+    checkApiStatus();
+    syncMicrophonePermissionState();
+}
+
+if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', initializeSetupUi);
+} else {
+    initializeSetupUi();
+}
+
+document.addEventListener('visibilitychange', async () => {
+    if (!meetingScreen.classList.contains('active')) return;
+
+    if (document.hidden) {
+        updateMicStatus('\u753b\u9762\u304c\u975e\u8868\u793a\u3067\u3059\u3002\u30e2\u30d0\u30a4\u30eb\u30d6\u30e9\u30a6\u30b6\u3067\u306f\u30d0\u30c3\u30af\u30b0\u30e9\u30a6\u30f3\u30c9\u4e2d\u306e\u9332\u97f3\u304c\u6b62\u307e\u308b\u3053\u3068\u304c\u3042\u308a\u307e\u3059\u3002\u5fa9\u5e30\u5f8c\u306b\u30de\u30a4\u30afON\u3067\u7acb\u3061\u4e0a\u3052\u76f4\u305b\u307e\u3059\u3002');
+        return;
+    }
+
+    if (state.audioContext && state.audioContext.state === 'suspended') {
+        try {
+            await state.audioContext.resume();
+        } catch (error) {
+            DebugMonitor.log('warn', 'AudioContext resume failed', error.message);
+        }
+    }
+    if (state.stream && !state.processor) {
+        startRecording();
+    }
+    requestWakeLock();
+    updateMicStatus('\u753b\u9762\u306b\u623b\u308a\u307e\u3057\u305f\u3002\u30de\u30a4\u30af\u5165\u529b\u3068\u30ed\u30b0\u306e\u53cd\u5fdc\u3092\u78ba\u8a8d\u3057\u3066\u304f\u3060\u3055\u3044\u3002');
+});
+
+window.addEventListener('pageshow', async () => {
+    if (!meetingScreen.classList.contains('active')) return;
+    if (state.audioContext && state.audioContext.state === 'suspended') {
+        try {
+            await state.audioContext.resume();
+        } catch (error) {
+            DebugMonitor.log('warn', 'AudioContext resume failed on pageshow', error.message);
+        }
+    }
+    requestWakeLock();
+    renderMobileMeetingControls();
+    renderSummaryMobileControls();
+});
+
+window.addEventListener('online', () => {
+    updateMicStatus('\u30cd\u30c3\u30c8\u30ef\u30fc\u30af\u306b\u5fa9\u5e30\u3057\u307e\u3057\u305f\u3002\u5fc5\u8981\u306a\u3089\u30de\u30a4\u30afON\u3067\u5165\u529b\u3092\u518d\u958b\u3057\u3066\u304f\u3060\u3055\u3044\u3002');
+});
+
+window.addEventListener('offline', () => {
+    updateMicStatus('\u30aa\u30d5\u30e9\u30a4\u30f3\u306b\u306a\u308a\u307e\u3057\u305f\u3002\u518d\u63a5\u7d9a\u307e\u3067\u6587\u5b57\u8d77\u3053\u3057\u304c\u6b62\u307e\u308b\u53ef\u80fd\u6027\u304c\u3042\u308a\u307e\u3059\u3002');
+});
+
+window.addEventListener('resize', () => {
+    renderMobileMeetingControls();
+    renderSummaryMobileControls();
 });

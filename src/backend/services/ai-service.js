@@ -66,6 +66,14 @@ function cleanTask(task) {
     return String(task || '').trim();
 }
 
+function formatMinuteTimestamp(start, end) {
+    const startValue = String(start || '').trim();
+    const endValue = String(end || '').trim();
+    if (!startValue && !endValue) return '';
+    if (!endValue || startValue === endValue) return startValue;
+    return `${startValue} - ${endValue}`;
+}
+
 function jp(text) {
     return text;
 }
@@ -100,6 +108,36 @@ class AIService {
             text: u.transcript || '',
             timestamp: u.started_at || u.timestamp || ''
         }));
+    }
+
+    toMinuteMessages(utterances = []) {
+        const merged = [];
+        utterances.forEach((utterance) => {
+            const speaker = utterance.display_name || utterance.speaker || 'Unknown';
+            const rawText = String(utterance.raw_transcript || utterance.transcript || '').trim();
+            if (!rawText) return;
+
+            const start = utterance.started_at || utterance.timestamp || '';
+            const end = utterance.ended_at || utterance.timestamp || start;
+            const previous = merged[merged.length - 1];
+
+            if (previous && previous.speaker === speaker) {
+                previous.text = `${previous.text} ${rawText}`.trim();
+                previous.end = end || previous.end;
+                previous.timestamp = formatMinuteTimestamp(previous.start, previous.end);
+                return;
+            }
+
+            merged.push({
+                speaker,
+                text: rawText,
+                start,
+                end,
+                timestamp: formatMinuteTimestamp(start, end)
+            });
+        });
+
+        return merged.map(({ speaker, text, timestamp }) => ({ speaker, text, timestamp }));
     }
 
     buildUserContextBlock(participants = [], userContexts = []) {
@@ -250,6 +288,39 @@ class AIService {
                 result: structured.overall_summary,
                 prompt: structured.prompt,
                 provider: structured.provider
+            };
+        }
+
+        if (type === 'minutes') {
+            const messages = this.toMinuteMessages(utterances);
+            const prompt = [
+                jp('あなたは研究室ゼミの議事録作成を支援するアシスタントです。'),
+                jp('以下の生ログを基に、そのまま議事録として配れる一歩手前の、読みやすい日本語の議事録を作成してください。'),
+                '',
+                jp('# 目的'),
+                jp('- 短く分断された生ログを、同じ話者の連続発話ごとに自然なまとまりへ統合する'),
+                jp('- 明らかな誤字や言い直しは、文脈上自然な表現へ整える'),
+                jp('- ただし、内容の捏造はしない'),
+                '',
+                jp('# 出力ルール'),
+                jp('- 日本語で出力する'),
+                jp('- 話者ごとにまとまった段落で並べる'),
+                jp('- 各段落は `- 話者名: 内容` の形式で始める'),
+                jp('- 時系列順を守る'),
+                jp('- 会議の議事録として、そのまま軽く手直しすれば使える読みやすさにする'),
+                jp('- 不明瞭な固有名詞は、推測しすぎず自然な範囲で補正する'),
+                jp('- 箇条書きだけを返し、前置きや説明は書かない'),
+                '',
+                this.buildUserContextBlock(participants, userContexts),
+                jp('# 生ログ'),
+                JSON.stringify({ messages }, null, 2)
+            ].join('\n');
+
+            const resultText = await this.provider.generate(prompt);
+            return {
+                result: resultText.trim(),
+                prompt,
+                provider: this.provider.name
             };
         }
 

@@ -167,3 +167,69 @@
     - 人名、担当、研究テーマなどの固有語の認識改善を狙っている。
 - **STT設定の改善**:
     - 自動句読点、`latest_long` モデル、`NEARFIELD` 前提のメタデータを設定した。
+
+## 15. iPhone実機向けサンプリング周波数対策 (2026-04-03)
+- **原因仮説**:
+    - iPhone / Safari 系では実入力が 48kHz になることがあり、16kHz 前提のまま PCM を送ると STT 側の解釈が崩れる可能性がある。
+- **対策**:
+    - クライアント送信前に、実際の `AudioContext.sampleRate` を見て 16kHz へリサンプリングする処理を追加した。
+    - マイク確認時の文言にも、実入力が 16kHz 以外なら変換して送ることを表示するようにした。
+
+## 16. モバイル会議中の再接続導線と折りたたみUI (2026-04-03)
+- **マイク感度の調整追加**:
+    - 参加前と会議中の両方に `集音感度` セレクトを追加した。
+    - `高め / 標準 / 被り抑制` の3段階で簡易VADのしきい値を切り替えられるようにした。
+    - 設定は `localStorage` に保存し、次回参加時にも引き継がれる。
+- **会議中のマイクONボタンを追加**:
+    - モバイル復帰時に入力処理が止まった場合でも、その場で `マイクON` を押して録音系を再初期化できるようにした。
+    - 再接続時は `getUserMedia` と `AudioContext` を再準備し、WebSocket が開いていれば録音も再開する。
+- **モバイル縦長対策として折りたたみUIを追加**:
+    - 会議中ヘッダにハンバーガメニューを追加した。
+    - モバイルでは `会話メモリ` と `会議中AI` を個別に折りたためるようにし、初期状態では両方を閉じてログ中心で見られるようにした。
+    - 画面回転やリサイズ時にも折りたたみ状態とメニュー表示を再計算する。
+- **文字化けの追加修正**:
+    - マイク状態、権限状態、オンライン/オフライン、復帰案内、AI結果ラベルなど、今回の導線で目に入る主要文言を正常な日本語へ戻した。
+- **今回の確認**:
+    - `node --check src/frontend/main.js`
+    - `npm test -- tests/e2e-audio.test.js tests/ws.test.js tests/stt-service.test.js tests/api-rooms.test.js --runInBand`
+    - 配信HTML上で `btn-reconnect-mic`, `mic-sensitivity`, `meeting-mic-sensitivity`, `mobile-meeting-menu` が存在することを確認した。
+
+## 17. 会議後レビュー画面のモバイル折りたたみ対応 (2026-04-03)
+- **会議後専用のモバイルメニューを追加**:
+    - `ログレビュー` / `AI整理` 共通で使えるハンバーガメニューを追加した。
+    - モバイル時のみ `集計`, `絞り込みと重要ログ`, `AI操作` を個別に折りたためる。
+- **主操作を大きく表示する初期状態に変更**:
+    - 会議後画面へ入った直後、モバイルでは `集計` と `絞り込み・重要ログ` をたたんだ状態で始まる。
+    - これにより、まず `会話ログ` を大きく読める。
+- **AI整理タブでも結果優先に調整**:
+    - 解析ボタン群と自由解析入力を `ai-mobile-controls` としてまとめ、結果エディタを残したまま操作群だけ折りたためるようにした。
+- **今回の確認**:
+    - `node --check src/frontend/main.js`
+    - 配信HTML上で `summary-mobile-menu`, `btn-summary-mobile-menu`, `btn-toggle-summary-stats`, `btn-toggle-summary-sidebar`, `btn-toggle-summary-ai-controls`, `ai-mobile-controls` が存在することを確認した。
+
+## 18. 会議後レビュー画面に議事録専用タブを追加 (2026-04-03)
+- **議事録専用タブを追加**:
+    - 会議終了後の `ログレビュー` / `AI整理` に加えて、`議事録` タブを追加した。
+    - タブ内には `自動調整で議事録を生成` ボタン、編集可能な議事録エディタ、`コピー` / `ダウンロード` を配置した。
+- **生ログベースの議事録生成**:
+    - バックエンドの AI 解析に `minutes` タイプを追加した。
+    - `raw_transcript` を優先し、同じ話者の連続発話は AI に渡す前にひとまとまりへマージする。
+    - そのうえで、会議でそのまま配れる一歩手前の読みやすい議事録へ整えるプロンプトを追加した。
+- **編集しやすい運用に調整**:
+    - 生成された議事録は textarea に入り、そのまま手直しできる。
+    - 入力した内容は state に同期し、コピーやダウンロードも編集後の内容を使う。
+- **今回の確認**:
+    - `node --check src/frontend/main.js`
+    - `node --check src/backend/services/ai-service.js`
+    - 配信HTML上で `tab-minutes`, `panel-minutes`, `btn-run-minutes`, `minutes-output-editor`, `btn-minutes-copy`, `btn-minutes-download` が存在することを確認した。
+
+## 19. 会議後レビュー画面のモバイル可読性を追加調整 (2026-04-03)
+- **モバイルでの主操作を見やすく調整**:
+    - 会議後画面の `レビュー操作`, `タブ列`, `AI整理`, `議事録` の各ボタン列をモバイルで全幅寄りに整えた。
+    - `AI整理` と `議事録` のエディタはモバイルで極端に縦長になりすぎない最小高さへ調整した。
+- **タブ列の詰まり対策**:
+    - `ログレビュー / AI整理 / 議事録` の3タブは、モバイルで横スクロールしながら切り替えられるまま、ボタン内余白を見直して読みやすくした。
+- **今回の確認**:
+    - `node --check src/frontend/main.js`
+    - `node --check src/backend/services/ai-service.js`
+    - `npm test -- tests/api-rooms.test.js tests/e2e-audio.test.js tests/ws.test.js tests/stt-service.test.js --runInBand`
