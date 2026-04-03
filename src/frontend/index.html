@@ -28,14 +28,9 @@
     <div id="app">
         <section id="setup-screen" class="active">
             <h1>会議に参加する</h1>
-            <div class="form-group">
-                <label for="display-name">表示名</label>
-                <input type="text" id="display-name" placeholder="例: 田中">
-            </div>
-            <div class="form-group">
-                <label for="profile-text">得意なこと・スキル・担当プロジェクト</label>
-                <textarea id="profile-text" placeholder="例: 音声処理が得意。LLM評価を担当。研究テーマは会議支援UIの改善。"></textarea>
-            </div>
+            <p class="setup-intro">ホストはここからルームを作成し、参加者は共有URLとルームIDで参加します。名前は自動で割り振られます。</p>
+            <input type="hidden" id="display-name" value="">
+            <input type="hidden" id="profile-text" value="">
             <div class="form-group">
                 <label for="room-id">ルームID</label>
                 <input type="text" id="room-id" placeholder="例: A7K9Q2">
@@ -65,16 +60,8 @@
                 </div>
             </div>
 
-            <div class="ai-config-group">
-                <h3>AI設定</h3>
-                <div class="form-group-row">
-                    <select id="ai-provider">
-                        <option value="gemini">Gemini</option>
-                        <option value="ollama">Ollama</option>
-                    </select>
-                    <input type="text" id="ai-model" placeholder="モデル名" value="gemini-2.5-flash">
-                </div>
-            </div>
+            <input type="hidden" id="ai-provider" value="gemini">
+            <input type="hidden" id="ai-model" value="gemini-2.5-flash">
 
             <div class="actions">
                 <button id="btn-create" class="primary">新しくルームを作る</button>
@@ -150,6 +137,11 @@
                     <div id="timeline" class="conversation-list">
                         <div class="system-message">接続を待っています...</div>
                     </div>
+                    <div id="participant-live-card" class="participant-live-card hidden">
+                        <div class="container-label">Live</div>
+                        <h2>現在、文字起こし中です</h2>
+                        <p id="participant-live-status">マイク状態を確認しながら、このまま会議を続けてください。</p>
+                    </div>
                 </main>
 
                 <aside class="meeting-ai-panel">
@@ -219,7 +211,6 @@
 
             <div class="tabs review-tabs">
                 <button id="tab-log" class="tab-btn active">ログレビュー</button>
-                <button id="tab-ai" class="tab-btn">AI整理</button>
                 <button id="tab-minutes" class="tab-btn">議事録</button>
             </div>
 
@@ -291,17 +282,13 @@
                     </div>
                 </div>
 
-                <div id="panel-ai" class="tab-panel">
+                <div id="panel-ai" class="tab-panel hidden" aria-hidden="true">
                     <div class="insight-panel">
                         <div class="insight-panel-header">
                             <div>
                                 <div class="container-label">AI整理</div>
                                 <h2>解析ワークスペース</h2>
-                                <p id="ai-workspace-status" class="insight-status">要約、話者別ネクストアクション、自由解析をここで実行できます。</p>
-                            </div>
-                            <div class="insight-actions">
-                                <button id="btn-ai-copy" class="secondary">コピー</button>
-                                <button id="btn-ai-download" class="secondary">ダウンロード</button>
+                                <p id="ai-workspace-status" class="insight-status">簡易版ではこのタブは使いません。</p>
                             </div>
                         </div>
                         <div class="ai-workspace-controls">
@@ -311,14 +298,14 @@
                                     <button id="btn-run-actions" class="secondary">話者別ネクストアクションを解析</button>
                                 </div>
                                 <div class="ai-custom-row">
-                                    <textarea id="custom-ai-instruction" class="custom-ai-textarea" placeholder="自由に解析指示を書けます。例: 論点ごとに整理して、担当者とリスクを明記して。"></textarea>
+                                    <textarea id="custom-ai-instruction" class="custom-ai-textarea" placeholder="自由に解析指示を書けます。"></textarea>
                                     <button id="btn-custom-generate" class="primary">この内容で解析</button>
                                 </div>
                             </div>
                             <div class="insight-card ai-output-card" id="ai-output-card">
                                 <div class="container-label">Result Editor</div>
                                 <h3 id="ai-output-title" class="insight-card-title">解析結果</h3>
-                                <p class="ai-output-note">解析ボタンを押すと、結果はこのエディターに表示されます。</p>
+                                <p class="ai-output-note">解析結果はここに表示されます。</p>
                                 <textarea id="ai-output-editor" class="insight-text insight-result-box insight-editor ai-output-editor" placeholder="解析結果はここに表示されます。"></textarea>
                             </div>
                         </div>

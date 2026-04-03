@@ -52,4 +52,27 @@ describe('Room API', () => {
         expect(roomResponse.status).toBe(201);
         expect(roomResponse.body.id).toMatch(/^[A-Z2-9]{6}$/);
     });
+
+    test('POST /rooms/:id/join should auto-assign host and participant names', async () => {
+        const roomResponse = await request(app)
+            .post('/rooms')
+            .send({ owner_id: 'host-user' });
+        const roomId = roomResponse.body.id;
+
+        const hostJoin = await request(app)
+            .post(`/rooms/${roomId}/join`)
+            .send({ user_id: 'host-user', location_id: 'host-browser' });
+
+        const participantJoin = await request(app)
+            .post(`/rooms/${roomId}/join`)
+            .send({ user_id: 'guest-user', location_id: 'guest-browser' });
+
+        expect(hostJoin.status).toBe(201);
+        expect(hostJoin.body.display_name).toBe('ホスト');
+        expect(hostJoin.body.is_host).toBe(true);
+
+        expect(participantJoin.status).toBe(201);
+        expect(participantJoin.body.display_name).toBe('参加者1');
+        expect(participantJoin.body.is_host).toBe(false);
+    });
 });

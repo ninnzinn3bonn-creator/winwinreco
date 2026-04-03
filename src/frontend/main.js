@@ -3,6 +3,7 @@ const state = {
     participantId: null,
     userId: null,
     displayName: null,
+    isHost: false,
     ws: null,
     stream: null,
     audioContext: null,
@@ -99,6 +100,8 @@ const setupMicSensitivity = document.getElementById('mic-sensitivity');
 const meetingMicSensitivity = document.getElementById('meeting-mic-sensitivity');
 const mobileMeetingMenu = document.getElementById('mobile-meeting-menu');
 const summaryMobileMenu = document.getElementById('summary-mobile-menu');
+const participantLiveCard = document.getElementById('participant-live-card');
+const participantLiveStatus = document.getElementById('participant-live-status');
 const editModalOverlay = document.getElementById('edit-modal-overlay');
 const editModalSpeaker = document.getElementById('edit-modal-speaker');
 const editModalTime = document.getElementById('edit-modal-time');
@@ -133,37 +136,42 @@ const filterButtons = {
     noted: [document.getElementById('filter-noted'), document.getElementById('summary-filter-noted')]
 };
 
-document.getElementById('btn-create').onclick = createRoom;
-document.getElementById('btn-join').onclick = joinRoom;
-document.getElementById('btn-end').onclick = endRoom;
-document.getElementById('btn-toggle-mute').onclick = toggleMute;
-document.getElementById('btn-reconnect-mic').onclick = reconnectMic;
-document.getElementById('btn-mobile-menu').onclick = toggleMobileMeetingMenu;
-document.getElementById('btn-toggle-memory-panel').onclick = toggleMobileMemoryPanel;
-document.getElementById('btn-toggle-ai-panel').onclick = toggleMobileAiPanel;
-document.getElementById('btn-summary-mobile-menu').onclick = toggleSummaryMobileMenu;
-document.getElementById('btn-toggle-summary-stats').onclick = toggleSummaryStats;
-document.getElementById('btn-toggle-summary-sidebar').onclick = toggleSummarySidebar;
-document.getElementById('btn-toggle-summary-ai-controls').onclick = toggleSummaryAiControls;
-document.getElementById('btn-copy-room').onclick = copyRoomId;
-document.getElementById('btn-download').onclick = downloadMinutes;
-document.getElementById('btn-download-final').onclick = downloadMinutes;
-document.getElementById('btn-home').onclick = () => location.reload();
-document.getElementById('btn-memo').onclick = addMemo;
-document.getElementById('btn-save').onclick = downloadMinutes;
-document.getElementById('btn-jump-latest').onclick = () => scrollLogToLatest(timeline);
-document.getElementById('tab-log').onclick = () => switchTab('log');
-document.getElementById('tab-ai').onclick = () => switchTab('ai');
-document.getElementById('tab-minutes').onclick = () => switchTab('minutes');
-document.getElementById('btn-ai-copy').onclick = copyAiWorkspaceResult;
-document.getElementById('btn-ai-download').onclick = downloadAiWorkspaceResult;
-document.getElementById('btn-run-minutes').onclick = runMinutesGeneration;
-document.getElementById('btn-minutes-copy').onclick = copyMinutesResult;
-document.getElementById('btn-minutes-download').onclick = downloadMinutesResult;
-document.getElementById('btn-run-summary').onclick = runSummaryInsights;
-document.getElementById('btn-run-actions').onclick = runActionInsights;
-document.getElementById('btn-custom-generate').onclick = generateCustomAiResult;
-document.getElementById('btn-mic-check').onclick = runMicCheck;
+function bindClick(id, handler) {
+    const element = document.getElementById(id);
+    if (element) element.onclick = handler;
+}
+
+bindClick('btn-create', createRoom);
+bindClick('btn-join', joinRoom);
+bindClick('btn-end', endRoom);
+bindClick('btn-toggle-mute', toggleMute);
+bindClick('btn-reconnect-mic', reconnectMic);
+bindClick('btn-mobile-menu', toggleMobileMeetingMenu);
+bindClick('btn-toggle-memory-panel', toggleMobileMemoryPanel);
+bindClick('btn-toggle-ai-panel', toggleMobileAiPanel);
+bindClick('btn-summary-mobile-menu', toggleSummaryMobileMenu);
+bindClick('btn-toggle-summary-stats', toggleSummaryStats);
+bindClick('btn-toggle-summary-sidebar', toggleSummarySidebar);
+bindClick('btn-toggle-summary-ai-controls', toggleSummaryAiControls);
+bindClick('btn-copy-room', copyRoomId);
+bindClick('btn-download', downloadMinutes);
+bindClick('btn-download-final', downloadMinutes);
+bindClick('btn-home', () => location.reload());
+bindClick('btn-memo', addMemo);
+bindClick('btn-save', downloadMinutes);
+bindClick('btn-jump-latest', () => scrollLogToLatest(timeline));
+bindClick('tab-log', () => switchTab('log'));
+bindClick('tab-ai', () => switchTab('ai'));
+bindClick('tab-minutes', () => switchTab('minutes'));
+bindClick('btn-ai-copy', copyAiWorkspaceResult);
+bindClick('btn-ai-download', downloadAiWorkspaceResult);
+bindClick('btn-run-minutes', runMinutesGeneration);
+bindClick('btn-minutes-copy', copyMinutesResult);
+bindClick('btn-minutes-download', downloadMinutesResult);
+bindClick('btn-run-summary', runSummaryInsights);
+bindClick('btn-run-actions', runActionInsights);
+bindClick('btn-custom-generate', generateCustomAiResult);
+bindClick('btn-mic-check', runMicCheck);
 setupMicSensitivity.addEventListener('change', (event) => setMicSensitivity(event.target.value));
 meetingMicSensitivity.addEventListener('change', (event) => setMicSensitivity(event.target.value));
 meetingAiButtons.summary.onclick = () => runMeetingAnalysis('summary');
@@ -480,6 +488,37 @@ function toggleSummarySidebar() {
 function toggleSummaryAiControls() {
     state.summaryAiControlsCollapsed = !state.summaryAiControlsCollapsed;
     renderSummaryMobileControls();
+}
+
+function applyRoleMode() {
+    document.body.classList.add('simple-app');
+    document.body.classList.toggle('host-role', state.isHost);
+    document.body.classList.toggle('guest-role', !state.isHost);
+
+    const endButton = document.getElementById('btn-end');
+    const copyRoomButton = document.getElementById('btn-copy-room');
+    const downloadButton = document.getElementById('btn-download');
+    const downloadFinalButton = document.getElementById('btn-download-final');
+    const homeButton = document.getElementById('btn-home');
+    const summaryMenuButton = document.getElementById('btn-summary-mobile-menu');
+    const summaryMenu = document.getElementById('summary-mobile-menu');
+
+    if (endButton) endButton.classList.toggle('hidden', !state.isHost);
+    if (copyRoomButton) copyRoomButton.classList.toggle('hidden', !state.isHost);
+    if (downloadButton) downloadButton.classList.toggle('hidden', true);
+    if (downloadFinalButton) downloadFinalButton.classList.toggle('hidden', !state.isHost);
+    if (homeButton) homeButton.classList.toggle('hidden', !state.isHost);
+    if (summaryMenuButton) summaryMenuButton.classList.toggle('hidden', !state.isHost);
+    if (summaryMenu) summaryMenu.classList.toggle('hidden', !state.isHost);
+
+    if (participantLiveCard) {
+        participantLiveCard.classList.toggle('hidden', state.isHost);
+    }
+    if (participantLiveStatus) {
+        participantLiveStatus.innerText = state.isHost
+            ? ''
+            : 'マイク状態を確認しながら、このまま会議を続けてください。';
+    }
 }
 
 function isSecureContextForMedia() {
@@ -1104,39 +1143,7 @@ function createUtteranceElement(utterance) {
         ${rawDiffers ? `<div class="note-preview">RAW: ${highlightText(utterance.raw_transcript, state.filters.query)}</div>` : ''}
         ${rawDiffers ? `<div class="note-preview">\u5dee\u5206: ${renderDiff(utterance.raw_transcript, utterance.transcript)}</div>` : ''}
         ${utterance.memo_text ? `<div class="note-preview">\u30e1\u30e2: ${highlightText(utterance.memo_text, state.filters.query)}</div>` : ''}
-        <div class="utterance-actions">
-            <button class="icon-toggle ${utterance.is_starred ? 'active' : ''}" data-action="star">${utterance.is_starred ? '\u2605 \u91cd\u8981' : '\u2606 \u91cd\u8981'}</button>
-            <button class="icon-toggle" data-action="note">\u30e1\u30e2</button>
-            <button class="icon-toggle" data-action="edit">\u7de8\u96c6</button>
-        </div>
     `;
-
-    article.tabIndex = 0;
-    article.addEventListener('click', (event) => {
-        if (event.target.closest('button, textarea')) return;
-        openTranscriptModal(utterance.id);
-    });
-    article.addEventListener('keydown', (event) => {
-        if (event.key === 'Enter' || event.key === ' ') {
-            event.preventDefault();
-            openTranscriptModal(utterance.id);
-        }
-    });
-
-    article.querySelector('[data-action="star"]').onclick = (event) => {
-        event.stopPropagation();
-        updateUtteranceMemory(utterance.id, { is_starred: !utterance.is_starred });
-    };
-
-    article.querySelector('[data-action="note"]').onclick = (event) => {
-        event.stopPropagation();
-        openMemoModal(utterance.id);
-    };
-
-    article.querySelector('[data-action="edit"]').onclick = (event) => {
-        event.stopPropagation();
-        openTranscriptModal(utterance.id);
-    };
 
     return article;
 }
@@ -1745,41 +1752,37 @@ async function prepareAudio(options = {}) {
 }
 
 async function createRoom() {
-    const displayName = document.getElementById('display-name').value.trim();
-    const profileText = document.getElementById('profile-text').value.trim();
-    if (!displayName) return alert('\u8868\u793a\u540d\u3092\u5165\u529b\u3057\u3066\u304f\u3060\u3055\u3044');
     if (!await prepareAudio()) return;
 
     try {
+        const userId = ensureLocalUserId();
         const res = await fetch('/rooms', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ owner_id: 'browser-user' })
+            body: JSON.stringify({ owner_id: userId })
         });
         const room = await readApiResponse(res);
-        await joinRoomProcess(room.id, displayName, profileText);
+        await joinRoomProcess(room.id);
     } catch (error) {
         alert('\u30eb\u30fc\u30e0\u4f5c\u6210\u306b\u5931\u6557\u3057\u307e\u3057\u305f');
     }
 }
 
 async function joinRoom() {
-    const displayName = document.getElementById('display-name').value.trim();
-    const profileText = document.getElementById('profile-text').value.trim();
     const roomId = document.getElementById('room-id').value.trim().toUpperCase();
-    if (!displayName || !roomId) return alert('\u8868\u793a\u540d\u3068\u30eb\u30fc\u30e0ID\u3092\u5165\u529b\u3057\u3066\u304f\u3060\u3055\u3044');
+    if (!roomId) return alert('\u30eb\u30fc\u30e0ID\u3092\u5165\u529b\u3057\u3066\u304f\u3060\u3055\u3044');
     if (!await prepareAudio()) return;
-    await joinRoomProcess(roomId, displayName, profileText);
+    await joinRoomProcess(roomId);
 }
 
-async function joinRoomProcess(roomId, displayName, profileText = '') {
+async function joinRoomProcess(roomId) {
     try {
         const normalizedRoomId = roomId.trim().toUpperCase();
         const userId = ensureLocalUserId();
         const res = await fetch(`/rooms/${normalizedRoomId}/join`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ user_id: userId, display_name: displayName, location_id: 'web-browser', profile_text: profileText })
+            body: JSON.stringify({ user_id: userId, location_id: 'web-browser', profile_text: '' })
         });
         if (!res.ok) throw new Error('Join failed');
 
@@ -1787,9 +1790,8 @@ async function joinRoomProcess(roomId, displayName, profileText = '') {
         state.roomId = normalizedRoomId;
         state.participantId = participant.id;
         state.userId = userId;
-        state.displayName = displayName;
-        localStorage.setItem('display_name', displayName);
-        localStorage.setItem('profile_text', profileText);
+        state.displayName = participant.display_name || (participant.is_host ? 'ホスト' : '参加者');
+        state.isHost = !!participant.is_host;
         showMeetingScreen();
         initWebSocket();
     } catch (error) {
@@ -1810,6 +1812,7 @@ function showMeetingScreen() {
     summaryScreen.classList.remove('active');
     meetingScreen.classList.add('active');
     roomInfo.innerText = `\u30eb\u30fc\u30e0: ${state.roomId}`;
+    applyRoleMode();
     syncMuteUi();
     state.mobileMenuOpen = false;
     if (isMobileViewport()) {
@@ -1824,6 +1827,13 @@ function showMeetingScreen() {
 }
 
 function showSummaryScreen() {
+    if (!state.isHost) {
+        meetingScreen.classList.add('active');
+        if (participantLiveStatus) {
+            participantLiveStatus.innerText = '会議は終了しました。ホスト側で議事録を確認できます。';
+        }
+        return;
+    }
     state.activeModalUtteranceId = null;
     state.activeMemoUtteranceId = null;
     document.body.classList.remove('modal-open');
@@ -1850,13 +1860,12 @@ function showSummaryScreen() {
     meetingScreen.classList.remove('active');
     summaryScreen.classList.add('active');
     summaryInfo.innerText = `\u30eb\u30fc\u30e0: ${state.roomId}`;
+    applyRoleMode();
     releaseWakeLock();
     switchTab('log');
     loadRoomLogs().then(() => {
         renderAllLogs();
         window.scrollTo({ top: 0, behavior: 'auto' });
-        loadMeetingInsights({ silent: true });
-        loadCustomAiResult();
     });
 }
 
@@ -1882,6 +1891,9 @@ function initWebSocket() {
 
     state.ws.onopen = () => {
         addSystemMessage('\u30b5\u30fc\u30d0\u30fc\u306b\u63a5\u7d9a\u3057\u307e\u3057\u305f\u3002');
+        if (!state.isHost && participantLiveStatus) {
+            participantLiveStatus.innerText = '接続しました。現在、文字起こし中です。';
+        }
         state.ws.send(JSON.stringify({ type: 'hello' }));
     };
 
@@ -1895,6 +1907,9 @@ function initWebSocket() {
         } else if (msg.type === 'ready') {
             (msg.history || []).forEach((entry) => upsertUtterance(entry));
             renderAllLogs();
+            if (!state.isHost && participantLiveStatus) {
+                participantLiveStatus.innerText = '現在、文字起こし中です。マイク状態を確認しながら会議を続けてください。';
+            }
             startRecording();
         } else if (msg.type === 'terminated') {
             addSystemMessage('\u4f1a\u8b70\u304c\u7d42\u4e86\u3057\u307e\u3057\u305f\u3002');
@@ -1905,6 +1920,9 @@ function initWebSocket() {
 
     state.ws.onclose = () => {
         addSystemMessage('\u63a5\u7d9a\u304c\u5207\u308c\u307e\u3057\u305f\u3002\u518d\u63a5\u7d9a\u3092\u8a66\u307f\u307e\u3059...');
+        if (!state.isHost && participantLiveStatus) {
+            participantLiveStatus.innerText = '接続が切れました。再接続を試みています。必要ならマイクONで再接続してください。';
+        }
         if (meetingScreen.classList.contains('active')) {
             setTimeout(initWebSocket, 3000);
         }
@@ -2033,13 +2051,14 @@ function toggleMute() {
 }
 
 async function endRoom() {
+    if (!state.isHost) return;
     if (!confirm('\u4f1a\u8b70\u3092\u7d42\u4e86\u3057\u307e\u3059\u304b\uff1f')) return;
 
     try {
         const res = await fetch(`/rooms/${state.roomId}/end`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ owner_id: 'browser-user' })
+            body: JSON.stringify({ owner_id: state.userId })
         });
         const data = await readApiResponse(res);
         if (!res.ok) throw new Error(data.error || '\u7d42\u4e86\u306b\u5931\u6557\u3057\u307e\u3057\u305f');
@@ -2225,10 +2244,11 @@ function initializeSetupUi() {
     }
     if (roomIdFromUrl) {
         document.getElementById('room-id').value = roomIdFromUrl.toUpperCase();
-        updateMicStatus(`\u5171\u6709URL\u304b\u3089\u30eb\u30fc\u30e0 ${roomIdFromUrl.toUpperCase()} \u3092\u8aad\u307f\u8fbc\u307f\u307e\u3057\u305f\u3002\u8868\u793a\u540d\u3092\u5165\u308c\u308c\u3070\u53c2\u52a0\u3067\u304d\u307e\u3059\u3002`);
+        updateMicStatus(`\u5171\u6709URL\u304b\u3089\u30eb\u30fc\u30e0 ${roomIdFromUrl.toUpperCase()} \u3092\u8aad\u307f\u8fbc\u307f\u307e\u3057\u305f\u3002\u30de\u30a4\u30af\u3092\u78ba\u8a8d\u3057\u3066\u304b\u3089\u53c2\u52a0\u3067\u304d\u307e\u3059\u3002`);
     }
 
     document.body.classList.add('setup-mode');
+    applyRoleMode();
     setMicSensitivity(savedSensitivity || 'standard');
     syncFilterControls();
     renderAllLogs();

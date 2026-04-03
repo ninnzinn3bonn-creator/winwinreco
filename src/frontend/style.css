@@ -75,6 +75,12 @@ body.modal-open {
     -webkit-overflow-scrolling: touch;
 }
 
+.setup-intro {
+    text-align: center;
+    color: var(--muted);
+    margin-bottom: 18px;
+}
+
 #summary-screen {
     flex: 1 1 auto;
     min-height: 0;
@@ -284,6 +290,20 @@ header {
     flex: 1;
     height: 100%;
     min-height: 0;
+}
+
+.participant-live-card {
+    border: 1px solid var(--line);
+    border-radius: 24px;
+    background: rgba(255, 255, 255, 0.92);
+    padding: 28px 24px;
+    max-width: 720px;
+    margin: 24px auto;
+    text-align: center;
+}
+
+.participant-live-card h2 {
+    margin-bottom: 10px;
 }
 
 .mobile-meeting-menu {
@@ -778,6 +798,55 @@ header {
 .tab-btn.active {
     color: var(--accent);
     border-bottom-color: var(--accent);
+}
+
+body.simple-app #setup-screen .ai-config-group,
+body.simple-app #meeting-screen .memory-panel,
+body.simple-app #meeting-screen .meeting-ai-panel,
+body.simple-app #meeting-screen #btn-download,
+body.simple-app #meeting-screen #btn-memo,
+body.simple-app #meeting-screen #btn-save,
+body.simple-app #summary-screen #summary-mobile-menu,
+body.simple-app #summary-screen #btn-summary-mobile-menu,
+body.simple-app #summary-screen #review-summary-bar,
+body.simple-app #summary-screen #review-sidebar,
+body.simple-app #summary-screen #panel-ai,
+body.simple-app #summary-screen #tab-ai {
+    display: none !important;
+}
+
+body.simple-app.host-role #meeting-screen .meeting-layout {
+    grid-template-columns: minmax(0, 1fr);
+}
+
+body.simple-app.host-role #meeting-screen .conversation-panel {
+    padding: 18px 20px;
+}
+
+body.simple-app.host-role #meeting-screen #participant-live-card {
+    display: none !important;
+}
+
+body.simple-app.guest-role #meeting-screen .conversation-panel {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 20px;
+}
+
+body.simple-app.guest-role #meeting-screen #timeline,
+body.simple-app.guest-role #meeting-screen #btn-copy-room,
+body.simple-app.guest-role #meeting-screen #btn-end {
+    display: none !important;
+}
+
+body.simple-app #summary-screen .review-layout {
+    grid-template-columns: minmax(0, 1fr);
+}
+
+body.simple-app #summary-screen .review-main,
+body.simple-app #summary-screen .review-log-frame {
+    overflow: visible;
 }
 
 .tab-panel {

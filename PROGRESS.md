@@ -233,3 +233,21 @@
     - `node --check src/frontend/main.js`
     - `node --check src/backend/services/ai-service.js`
     - `npm test -- tests/api-rooms.test.js tests/e2e-audio.test.js tests/ws.test.js tests/stt-service.test.js --runInBand`
+
+## 20. 簡易版アプリ向けの役割分岐を開始 (2026-04-03)
+- **名前入力を廃止**:
+    - 初期画面から表示名入力欄を外し、共有URLやルームIDでそのまま参加できる構成に寄せた。
+    - ホストは `ホスト`、参加者は `参加者1` から自動命名するようにした。
+- **ホスト/参加者の表示分岐を追加**:
+    - 参加者は会議中に `現在、文字起こし中です` とマイク状態だけを見る最小画面に寄せた。
+    - ホストは会議中に生ログだけ見られるようにし、検索・重要ログ・会議中AI・ログ編集導線は隠した。
+- **会議後画面をホスト前提へ整理**:
+    - 会議後タブは `ログレビュー` と `議事録` を主軸にし、AI整理タブはUI上から外した。
+    - 参加者は会議終了後にレビュー画面へ進まず、終了メッセージを見るだけにした。
+- **ログ操作を無効化**:
+    - ログカードから星・メモ・編集の操作を外し、簡易版では閲覧専用にした。
+- **今回の確認**:
+    - `node --check src/frontend/main.js`
+    - `node --check src/backend/app.js`
+    - `npm test -- tests/api-rooms.test.js tests/ws.test.js tests/e2e-audio.test.js --runInBand`
+    - 配信HTML上で表示名入力欄が見えないこと、`ログレビュー` と `議事録` タブがあること、参加者向けライブカードがあることを確認した。

@@ -515,19 +515,28 @@ function createApp(repositories = {}) {
             }
 
             let resolvedUserId = user_id || null;
+            const existingParticipants = await participantRepo.findByRoomId(roomId);
+            const isHost = !!resolvedUserId && resolvedUserId === room.owner_id;
+            const generatedDisplayName = isHost
+                ? 'ホスト'
+                : `参加者${existingParticipants.filter((participant) => participant.user_id !== room.owner_id).length + 1}`;
+            const resolvedDisplayName = (display_name || '').trim() || generatedDisplayName;
             if (resolvedUserId && userRepo) {
                 const existingUser = await userRepo.findById(resolvedUserId);
                 const nextProfileText = profile_text.trim() || existingUser?.profile_text || '';
-                await userRepo.upsert({ id: resolvedUserId, name: display_name, profile_text: nextProfileText });
+                await userRepo.upsert({ id: resolvedUserId, name: resolvedDisplayName, profile_text: nextProfileText });
             }
 
             const participantId = `p-${Date.now()}-${Math.floor(Math.random() * 1000)}`;
-            const participant = { id: participantId, room_id: roomId, user_id: resolvedUserId, display_name, location_id };
+            const participant = { id: participantId, room_id: roomId, user_id: resolvedUserId, display_name: resolvedDisplayName, location_id };
             
             await participantRepo.join(participant);
             const joinedParticipant = await participantRepo.findById(participantId);
 
-            res.status(201).json(joinedParticipant);
+            res.status(201).json({
+                ...joinedParticipant,
+                is_host: isHost
+            });
         } catch (error) {
             console.error(error);
             res.status(500).json({ error: 'Failed to join room' });
