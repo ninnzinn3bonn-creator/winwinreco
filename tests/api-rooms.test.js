@@ -35,9 +35,20 @@ describe('Room API', () => {
             .send({ owner_id: 'owner-1' });
         const roomId = roomResponse.body.id;
 
+        const joinResponse = await request(app)
+            .post(`/rooms/${roomId}/join`)
+            .send({
+                user_id: 'owner-1',
+                display_name: 'Host',
+                location_id: 'web-browser'
+            });
+
         const endResponse = await request(app)
             .post(`/rooms/${roomId}/end`)
-            .send({ owner_id: 'owner-1' });
+            .send({
+                participant_id: joinResponse.body.id,
+                control_token: joinResponse.body.control_token
+            });
 
         expect(endResponse.status).toBe(200);
         expect(endResponse.body.status).toBe('ended');
@@ -51,5 +62,47 @@ describe('Room API', () => {
 
         expect(roomResponse.status).toBe(201);
         expect(roomResponse.body.id).toMatch(/^[A-Z2-9]{6}$/);
+    });
+
+    test('POST /rooms/:id/join should include is_host for the room owner', async () => {
+        const roomResponse = await request(app)
+            .post('/rooms')
+            .send({ owner_id: 'host-user' });
+
+        const joinResponse = await request(app)
+            .post(`/rooms/${roomResponse.body.id}/join`)
+            .send({
+                user_id: 'host-user',
+                display_name: 'Host',
+                location_id: 'web-browser'
+            });
+
+        expect(joinResponse.status).toBe(201);
+        expect(joinResponse.body.is_host).toBe(true);
+        expect(typeof joinResponse.body.control_token).toBe('string');
+        expect(joinResponse.body.control_token.length).toBeGreaterThan(10);
+    });
+
+    test('POST /rooms/:id/end should reject invalid control tokens', async () => {
+        const roomResponse = await request(app)
+            .post('/rooms')
+            .send({ owner_id: 'host-user-2' });
+
+        const joinResponse = await request(app)
+            .post(`/rooms/${roomResponse.body.id}/join`)
+            .send({
+                user_id: 'host-user-2',
+                display_name: 'Host',
+                location_id: 'web-browser'
+            });
+
+        const endResponse = await request(app)
+            .post(`/rooms/${roomResponse.body.id}/end`)
+            .send({
+                participant_id: joinResponse.body.id,
+                control_token: 'invalid-token'
+            });
+
+        expect(endResponse.status).toBe(403);
     });
 });

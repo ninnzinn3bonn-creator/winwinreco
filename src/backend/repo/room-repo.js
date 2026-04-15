@@ -51,6 +51,20 @@ class RoomRepository {
                 values.push(new Date().toISOString());
             }
 
+            if (typeof updates.minutes_text === 'string') {
+                fields.push('minutes_text = ?');
+                values.push(updates.minutes_text);
+                fields.push('minutes_updated_at = ?');
+                values.push(new Date().toISOString());
+            }
+
+            if (typeof updates.todo_text === 'string') {
+                fields.push('todo_text = ?');
+                values.push(updates.todo_text);
+                fields.push('todo_updated_at = ?');
+                values.push(new Date().toISOString());
+            }
+
             if (typeof updates.insights_status === 'string') {
                 fields.push('insights_status = ?');
                 values.push(updates.insights_status);

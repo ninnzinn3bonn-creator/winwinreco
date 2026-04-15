@@ -233,3 +233,96 @@
     - `node --check src/frontend/main.js`
     - `node --check src/backend/services/ai-service.js`
     - `npm test -- tests/api-rooms.test.js tests/e2e-audio.test.js tests/ws.test.js tests/stt-service.test.js --runInBand`
+
+## 20. 共有AI生成の Phase 1 着手 (2026-04-08)
+- **Gemini 2.5 Pro に統一**:
+    - AI 設定の既定値を `gemini-2.5-pro` に揃えた。
+    - フロントの AI 設定 UI も Gemini 固定表示に寄せた。
+- **ホスト限定の共有生成 API を追加**:
+    - `POST /rooms/:id/shared-ai/:type` を追加し、`minutes / summary / todo` を room 単位で生成・保存できるようにした。
+    - ホスト判定は `room.owner_id` と参加者 `user_id` の一致で行う。
+    - 参加 API の返り値に `is_host` を追加した。
+- **room 単位の共有保存を追加**:
+    - `rooms` に `minutes_text / minutes_updated_at / todo_text / todo_updated_at` を追加した。
+    - 既存の `summary_text` とあわせて、会議後の共通成果物を room に保存する形へ寄せた。
+- **会議後フロントを共有前提に変更**:
+    - ホストは `要約 / TODO / 議事録` を生成、参加者は生成済み結果を表示するだけにした。
+    - 共有結果は `GET /rooms/:id/insights` から定期取得し、会議後画面で見えるようにした。
+- **今回の確認**:
+    - `node --check src/backend/app.js`
+    - `node --check src/backend/services/ai-service.js`
+    - `node --check src/frontend/main.js`
+    - `npm test -- --runInBand`
+
+## 21. 議事録ベースの自由解析と固定ヘッダー化 (2026-04-08)
+- **カスタムプロンプトを議事録依存に変更**:
+    - `POST /rooms/:id/custom-ai` を追加し、自由解析は保存済み議事録だけをコンテキストに使うようにした。
+    - 議事録未生成のまま自由解析を実行しようとした場合は 409 を返す。
+    - フロントの `自由解析` ボタンはこの新APIを使うように切り替えた。
+- **ヘッダーを固定表示に調整**:
+    - 会議中ヘッダーと会議後レビューのヒーロー部を sticky 表示にした。
+    - スクロールしても主要操作が上部に残るようにした。
+- **会議中の MD ボタンを削除**:
+    - 会議中ヘッダーから `MD` ボタンを削除した。
+    - 保存導線は会議後側の `Markdownで保存` に寄せる形へ整理した。
+- **スクロール補助ボタンを追加**:
+    - 右下固定の `↑ / ↓` ボタンを追加した。
+    - 現在表示中のタブ領域をスムーズスクロールで上端 / 下端へ移動できる。
+- **今回の確認**:
+    - `node --check src/backend/app.js`
+    - `node --check src/backend/services/ai-service.js`
+    - `node --check src/frontend/main.js`
+    - `npm test -- --runInBand`
+
+## 22. マイク調整UIをスライダー化 (2026-04-08)
+- **最小 / 最大閾値のスライダーを追加**:
+    - 参加前のマイク確認カードと会議中メニューに、`最小音量閾値` と `最大音量閾値` のスライダーを追加した。
+    - 既存の感度プリセットは後方互換として残しつつ、実際の調整はスライダー優先で反映するようにした。
+- **音量メーターに閾値ラインを追加**:
+    - メーター上に最小閾値ラインと最大閾値ラインを表示し、現在の入力と比較しやすくした。
+    - 大きすぎる入力に達したときはメーターの色が変わる。
+- **音声処理へリアルタイム反映**:
+    - 最小閾値は VAD の判定に使う。
+    - 最大閾値は PCM 送信前のクリップ制御に使う。
+    - 設定は `localStorage` に保存し、再訪時も復元する。
+- **今回の確認**:
+    - `node --check src/frontend/main.js`
+    - `node --check src/backend/app.js`
+    - `npm test -- --runInBand`
+
+## 23. 参加者制御トークンと保守メモの追加 (2026-04-08)
+- **参加者制御トークンを追加**:
+    - ルーム参加時に `control_token` を発行し、参加者ごとに保持するようにした。
+    - `shared-ai`、`custom-ai`、`end` では `participant_id + control_token` の両方で認証するように変更した。
+    - ホスト専用処理は、トークン認証に加えて `room.owner_id` と一致する参加者だけ許可する。
+- **セキュリティ回帰をテスト追加**:
+    - 不正トークンで会議終了できないことを API テストに追加した。
+    - `custom-ai` も無効トークンでは拒否されるようにした。
+    - 参加者リポジトリに `findByIdAndToken` のテストを追加した。
+- **保守メモを追加**:
+    - `docs/ARCHITECTURE.md` を追加し、画面モード、共有AIフロー、現状の技術的負債、次の分割方針を整理した。
+
+## 24. main.js の重複関数と文字化けブロック整理 (2026-04-09)
+- **重複定義を削減**:
+    - `updateMuteButton`、`syncMuteUi`、`runMicCheck`、`syncMicrophonePermissionState`、`prepareAudio`、`createRoom`、`joinRoomProcess`、`toggleMute`、`checkApiStatus` などの古い重複ブロックを整理した。
+    - 以前は後勝ちで動いていたが、今は意図した定義だけが残る状態に近づけた。
+- **文字化けブロックを正常化**:
+    - `renderMinutesWorkspace`、`renderMeetingAnalysis`、共有AIまわり、会議中AIまわりの表示文言を正常な日本語へ戻した。
+    - 構文を壊していた文字化け行も除去した。
+- **今回の確認**:
+    - `node --check src/frontend/main.js`
+    - `npm test -- --runInBand`
+
+## 25. フロントエンドの分割第一段 (2026-04-09)
+- **`main.js` の責務を分離**:
+    - `src/frontend/state.js` を追加し、アプリ状態を `window.AppState.state` に集約した。
+    - `src/frontend/dom.js` を追加し、主要DOM参照を `window.AppDom` に集約した。
+    - `src/frontend/bindings.js` を追加し、イベント束縛だけを `bindAppEvents()` に分離した。
+    - `src/frontend/utils.js` を追加し、ID生成、URL生成、音声制約、リサンプリング、表示整形、テキストダウンロードのような純粋ヘルパーを `window.AppUtils` に切り出した。
+- **`main.js` はオーケストレーション中心へ整理**:
+    - 画面遷移、音声処理、共有AI、ログ描画、モーダル制御、初期化処理を主責務にした。
+    - 復旧時に壊れていた初期化ブロックを修正し、`bootstrap()` とライフサイクルイベントを一本化した。
+- **今回の確認**:
+    - `node --check src/frontend/main.js`
+    - `node --check src/frontend/utils.js`
+    - `npm test -- --runInBand`

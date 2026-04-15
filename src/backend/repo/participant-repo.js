@@ -5,10 +5,10 @@ class ParticipantRepository {
 
     async join(participant) {
         return new Promise((resolve, reject) => {
-            const { id, room_id, user_id = null, display_name, location_id } = participant;
+            const { id, room_id, user_id = null, display_name, control_token = null, location_id } = participant;
             this.db.run(
-                'INSERT INTO participants (id, room_id, user_id, display_name, location_id) VALUES (?, ?, ?, ?, ?)',
-                [id, room_id, user_id, display_name, location_id],
+                'INSERT INTO participants (id, room_id, user_id, display_name, control_token, location_id) VALUES (?, ?, ?, ?, ?, ?)',
+                [id, room_id, user_id, display_name, control_token, location_id],
                 (err) => {
                     if (err) return reject(err);
                     resolve();
@@ -23,6 +23,19 @@ class ParticipantRepository {
                 if (err) return reject(err);
                 resolve(row);
             });
+        });
+    }
+
+    async findByIdAndToken(id, controlToken) {
+        return new Promise((resolve, reject) => {
+            this.db.get(
+                'SELECT * FROM participants WHERE id = ? AND control_token = ?',
+                [id, controlToken],
+                (err, row) => {
+                    if (err) return reject(err);
+                    resolve(row);
+                }
+            );
         });
     }
 

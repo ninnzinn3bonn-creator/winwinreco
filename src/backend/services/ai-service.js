@@ -4,7 +4,7 @@ class GeminiProvider {
     constructor(apiKey, modelName) {
         if (!apiKey) throw new Error('GEMINI_API_KEY is not set.');
         const genAI = new GoogleGenerativeAI(apiKey);
-        const actualModelName = modelName || process.env.GEMINI_MODEL || 'gemini-2.5-flash';
+        const actualModelName = modelName || process.env.GEMINI_MODEL || 'gemini-2.5-pro';
         this.model = genAI.getGenerativeModel({ model: actualModelName });
         this.name = `gemini (${actualModelName})`;
     }
@@ -80,20 +80,13 @@ function jp(text) {
 
 class AIService {
     constructor(config = {}) {
-        const providerType = config.provider || process.env.AI_PROVIDER || 'gemini';
+        const providerType = 'gemini';
 
         try {
-            if (providerType === 'ollama') {
-                this.provider = new OllamaProvider(
-                    config.ollamaUrl || process.env.OLLAMA_BASE_URL,
-                    config.ollamaModel || process.env.OLLAMA_MODEL || 'gpt-oss:20b'
-                );
-            } else {
-                this.provider = new GeminiProvider(
-                    config.apiKey || process.env.GEMINI_API_KEY,
-                    config.geminiModel || process.env.GEMINI_MODEL
-                );
-            }
+            this.provider = new GeminiProvider(
+                config.apiKey || process.env.GEMINI_API_KEY,
+                config.geminiModel || process.env.GEMINI_MODEL || 'gemini-2.5-pro'
+            );
             this.enabled = true;
             console.log(`[AIService] Initialized with provider: ${this.provider.name}`);
         } catch (error) {
@@ -360,6 +353,200 @@ class AIService {
         const resultText = await this.provider.generate(prompt);
         return {
             result: resultText,
+            prompt,
+            provider: this.provider.name
+        };
+    }
+
+    async generateMinutesFromTranscript(utterances, roomMeta = {}, participants = [], userContexts = []) {
+        if (!this.enabled) {
+            throw new Error('AI Service is not configured.');
+        }
+
+        const transcript = this.toMessages(utterances)
+            .map((message) => `[${message.timestamp || '-'}] ${message.speaker}: ${message.text}`)
+            .join('\n');
+
+        const participantNames = participants.map((participant) => participant.display_name).filter(Boolean).join('、') || '不明';
+        const prompt = [
+            '[SYSTEM]',
+            'あなたは高精度な議事録作成AIです。',
+            '音声文字起こしには誤認識・ノイズ・クロストークが含まれます。',
+            '文脈を理解し、正しい議事録に再構成してください。',
+            '',
+            '[CONTEXT]',
+            '以下は会議の文字起こしログです：',
+            transcript || '(ログなし)',
+            '',
+            this.buildUserContextBlock(participants, userContexts),
+            '[INSTRUCTION]',
+            '以下を実行してください：',
+            '1. ノイズ・誤変換・無意味な発言を削除',
+            '2. クロストークを文脈から整理',
+            '3. 発言者ごとに整理',
+            '4. 自然な日本語に修正',
+            '5. 意味単位で統合',
+            '6. 時系列を維持',
+            '',
+            '[FORMAT]',
+            '## 会議情報',
+            '',
+            `* 日時: ${roomMeta.date || '不明'}`,
+            `* 会議名: ${roomMeta.title || roomMeta.roomId || '会議'}`,
+            `* 参加者: ${participantNames}`,
+            '',
+            '## 議事録',
+            '',
+            '### セクション1: トピック名',
+            '',
+            '* 発言者A: 内容',
+            '* 発言者B: 内容',
+            '',
+            '### セクション2',
+            '',
+            '...',
+            '',
+            '[REPEAT]',
+            'ノイズを除去し、意味のある発言のみで構成してください。'
+        ].join('\n');
+
+        const result = await this.provider.generate(prompt);
+        return {
+            result: String(result || '').trim(),
+            prompt,
+            provider: this.provider.name
+        };
+    }
+
+    async generateSummaryFromMinutes(minutesText) {
+        if (!this.enabled) {
+            throw new Error('AI Service is not configured.');
+        }
+
+        const prompt = [
+            '[SYSTEM]',
+            'あなたは会議内容を構造的に要約するAIです。',
+            '',
+            '[CONTEXT]',
+            '以下は整理済み議事録です：',
+            minutesText || '(議事録なし)',
+            '',
+            '[INSTRUCTION]',
+            '以下を実行してください：',
+            '1. トピックごとに分割',
+            '2. 要点整理',
+            '3. 重要な議論のみ抽出',
+            '4. 無関係な内容を除外',
+            '',
+            '[FORMAT]',
+            '## 要約',
+            '',
+            '### 1. トピック名',
+            '',
+            '* 概要:',
+            '* 主な意見:',
+            '* 結論:',
+            '',
+            '### 2. トピック名',
+            '',
+            '...',
+            '',
+            '## 次回の重要論点',
+            '',
+            '* ○○の検討',
+            '* ○○の意思決定',
+            '',
+            '[REPEAT]',
+            '重要な議論のみ抽出してください。'
+        ].join('\n');
+
+        const result = await this.provider.generate(prompt);
+        return {
+            result: String(result || '').trim(),
+            prompt,
+            provider: this.provider.name
+        };
+    }
+
+    async generateTodoFromMinutes(minutesText) {
+        if (!this.enabled) {
+            throw new Error('AI Service is not configured.');
+        }
+
+        const prompt = [
+            '[SYSTEM]',
+            'あなたは会議から行動と次の議題を抽出するAIです。',
+            '',
+            '[CONTEXT]',
+            '以下は議事録です：',
+            minutesText || '(議事録なし)',
+            '',
+            '[INSTRUCTION]',
+            '以下を抽出してください：',
+            '',
+            '【TODO条件】',
+            '* 明確な行動',
+            '* 担当者が特定可能',
+            '* 実行意思がある',
+            '',
+            '【除外】',
+            '* 仮案',
+            '* 雑談',
+            '* 未確定事項',
+            '',
+            'さらに以下も生成：',
+            '',
+            '【次回会議のトピック】',
+            '* 未解決論点',
+            '* 確認事項',
+            '* 意思決定事項',
+            '',
+            '[FORMAT]',
+            '## TODO一覧',
+            '',
+            '* 担当者:',
+            '  内容:',
+            '  期限:',
+            '',
+            '## 次回会議の確認事項',
+            '',
+            '* ○○の進捗確認',
+            '* ○○の検討',
+            '* ○○の意思決定',
+            '',
+            '[REPEAT]',
+            '曖昧なものは含めない。'
+        ].join('\n');
+
+        const result = await this.provider.generate(prompt);
+        return {
+            result: String(result || '').trim(),
+            prompt,
+            provider: this.provider.name
+        };
+    }
+
+    async generateCustomFromMinutes(minutesText, customInstruction) {
+        if (!this.enabled) {
+            throw new Error('AI Service is not configured.');
+        }
+
+        const prompt = [
+            '[SYSTEM]',
+            'あなたは会議支援AIです。与えられた議事録だけを根拠に分析してください。',
+            '生ログは使わず、議事録の内容だけを参照してください。',
+            '',
+            '[CONTEXT]',
+            '以下は整理済み議事録です：',
+            minutesText || '(議事録なし)',
+            '',
+            '[INSTRUCTION]',
+            customInstruction || '議事録を整理してください。'
+        ].join('\n');
+
+        const result = await this.provider.generate(prompt);
+        return {
+            result: String(result || '').trim(),
             prompt,
             provider: this.provider.name
         };

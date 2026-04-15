@@ -1,5 +1,6 @@
 const express = require('express');
 const { WebSocketServer, WebSocket } = require('ws');
+const crypto = require('crypto');
 
 function generateShortRoomId() {
     const alphabet = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
@@ -48,12 +49,36 @@ function collectSpeechHints(participants = []) {
     return Array.from(phrases).slice(0, 40);
 }
 
+function generateControlToken() {
+    return crypto.randomBytes(24).toString('hex');
+}
+
 function createApp(repositories = {}) {
     const app = express();
     app.use(express.json());
     app.use(express.static('src/frontend'));
 
     const { roomRepo, participantRepo, utteranceRepo, analysisRepo, actionRepo, userRepo, userContextRepo, aiService } = repositories;
+
+    async function authorizeParticipant(roomId, participantId, controlToken) {
+        if (!participantRepo || !participantId || !controlToken) {
+            return null;
+        }
+
+        const participant = typeof participantRepo.findByIdAndToken === 'function'
+            ? await participantRepo.findByIdAndToken(participantId, controlToken)
+            : await participantRepo.findById(participantId);
+
+        if (!participant || participant.room_id !== roomId) {
+            return null;
+        }
+
+        if (participant.control_token && participant.control_token !== controlToken) {
+            return null;
+        }
+
+        return participant;
+    }
 
     async function buildInsightsResponse(roomId) {
         const [room, actions, speakerSummaryAnalysis] = await Promise.all([
@@ -74,6 +99,10 @@ function createApp(repositories = {}) {
         return {
             summary: room?.summary_text || '',
             summary_updated_at: room?.summary_updated_at || null,
+            minutes: room?.minutes_text || '',
+            minutes_updated_at: room?.minutes_updated_at || null,
+            todo: room?.todo_text || '',
+            todo_updated_at: room?.todo_updated_at || null,
             status: room?.insights_status || 'idle',
             dirty: !!room?.insights_dirty,
             actions: actions || [],
@@ -522,15 +551,139 @@ function createApp(repositories = {}) {
             }
 
             const participantId = `p-${Date.now()}-${Math.floor(Math.random() * 1000)}`;
-            const participant = { id: participantId, room_id: roomId, user_id: resolvedUserId, display_name, location_id };
+            const controlToken = generateControlToken();
+            const participant = { id: participantId, room_id: roomId, user_id: resolvedUserId, display_name, control_token: controlToken, location_id };
             
             await participantRepo.join(participant);
             const joinedParticipant = await participantRepo.findById(participantId);
 
-            res.status(201).json(joinedParticipant);
+            res.status(201).json({
+                ...joinedParticipant,
+                control_token: controlToken,
+                is_host: !!resolvedUserId && room.owner_id === resolvedUserId
+            });
         } catch (error) {
             console.error(error);
             res.status(500).json({ error: 'Failed to join room' });
+        }
+    });
+
+    app.post('/rooms/:id/custom-ai', async (req, res) => {
+        try {
+            const { id: roomId } = req.params;
+            const { instruction = '', participant_id, control_token } = req.body || {};
+
+            if (!roomRepo || !aiService || !aiService.enabled) {
+                return res.status(503).json({ error: 'AI generation is unavailable' });
+            }
+
+            const room = await roomRepo.findById(roomId);
+            if (!room) {
+                return res.status(404).json({ error: 'Room not found' });
+            }
+
+            const participant = await authorizeParticipant(roomId, participant_id, control_token);
+            if (!participant) {
+                return res.status(403).json({ error: 'Participant validation failed' });
+            }
+
+            const minutesText = String(room.minutes_text || '').trim();
+            if (!minutesText) {
+                return res.status(409).json({ error: 'Minutes must be generated first' });
+            }
+
+            const generated = await aiService.generateCustomFromMinutes(minutesText, instruction);
+            res.status(200).json({
+                result: generated.result,
+                provider: generated.provider
+            });
+        } catch (error) {
+            console.error(error);
+            res.status(500).json({ error: 'Failed to generate custom AI result' });
+        }
+    });
+
+    app.post('/rooms/:id/shared-ai/:type', async (req, res) => {
+        try {
+            const { id: roomId, type } = req.params;
+            const { participant_id, control_token } = req.body || {};
+
+            if (!roomRepo || !participantRepo || !utteranceRepo || !aiService) {
+                return res.status(503).json({ error: 'AI generation is unavailable' });
+            }
+
+            const room = await roomRepo.findById(roomId);
+            if (!room) {
+                return res.status(404).json({ error: 'Room not found' });
+            }
+
+            const participant = await authorizeParticipant(roomId, participant_id, control_token);
+            if (!participant) {
+                return res.status(403).json({ error: 'Participant validation failed' });
+            }
+
+            if (!participant.user_id || participant.user_id !== room.owner_id) {
+                return res.status(403).json({ error: 'Only the host can generate shared AI results' });
+            }
+
+            const participants = await enrichParticipantsWithProfiles(participantRepo, userRepo, roomId);
+            const userIds = participants.map((item) => item.user_id).filter(Boolean);
+            const userContexts = userContextRepo ? await userContextRepo.findByUserIds(userIds) : [];
+
+            if (type === 'minutes') {
+                const utterances = await utteranceRepo.findByRoomIdWithParticipants(roomId);
+                const generated = await aiService.generateMinutesFromTranscript(utterances, {
+                    roomId,
+                    date: new Date().toLocaleString('ja-JP'),
+                    title: `ルーム ${roomId}`
+                }, participants, userContexts);
+
+                await roomRepo.updateInsights(roomId, {
+                    minutes_text: generated.result
+                });
+
+                return res.status(200).json({
+                    type,
+                    result: generated.result,
+                    updated_at: (await roomRepo.findById(roomId))?.minutes_updated_at || null
+                });
+            }
+
+            const latestRoom = await roomRepo.findById(roomId);
+            const minutesText = String(latestRoom?.minutes_text || '').trim();
+            if (!minutesText) {
+                return res.status(409).json({ error: 'Minutes must be generated first' });
+            }
+
+            if (type === 'summary') {
+                const generated = await aiService.generateSummaryFromMinutes(minutesText);
+                await roomRepo.updateInsights(roomId, {
+                    summary_text: generated.result,
+                    insights_dirty: false
+                });
+                return res.status(200).json({
+                    type,
+                    result: generated.result,
+                    updated_at: (await roomRepo.findById(roomId))?.summary_updated_at || null
+                });
+            }
+
+            if (type === 'todo') {
+                const generated = await aiService.generateTodoFromMinutes(minutesText);
+                await roomRepo.updateInsights(roomId, {
+                    todo_text: generated.result
+                });
+                return res.status(200).json({
+                    type,
+                    result: generated.result,
+                    updated_at: (await roomRepo.findById(roomId))?.todo_updated_at || null
+                });
+            }
+
+            return res.status(400).json({ error: 'Unsupported shared AI type' });
+        } catch (error) {
+            console.error(error);
+            res.status(500).json({ error: 'Failed to generate shared AI result' });
         }
     });
 
@@ -538,6 +691,22 @@ function createApp(repositories = {}) {
     app.post('/rooms/:id/end', async (req, res) => {
         try {
             const { id: roomId } = req.params;
+            const { participant_id, control_token } = req.body || {};
+
+            const room = await roomRepo.findById(roomId);
+            if (!room) {
+                return res.status(404).json({ error: 'Room not found' });
+            }
+
+            const participant = await authorizeParticipant(roomId, participant_id, control_token);
+            if (!participant) {
+                return res.status(403).json({ error: 'Participant validation failed' });
+            }
+
+            if (!participant.user_id || participant.user_id !== room.owner_id) {
+                return res.status(403).json({ error: 'Only the host can end the room' });
+            }
+
             await roomRepo.endRoom(roomId);
             const endedRoom = await roomRepo.findById(roomId);
 

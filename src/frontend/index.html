@@ -50,14 +50,28 @@
                 <h3>マイク確認</h3>
                 <p id="mic-check-status" class="mic-check-status">参加前にマイクを確認できます。特にスマホでは先に許可と入力レベルを確認してください。</p>
                 <div class="form-group">
-                    <label for="mic-sensitivity">集音感度</label>
-                    <select id="mic-sensitivity">
+                    <label for="mic-min-threshold">マイク調整</label>
+                    <select id="mic-sensitivity" class="visually-hidden" aria-hidden="true">
                         <option value="high">高め</option>
                         <option value="standard" selected>標準</option>
                         <option value="strict">被り抑制</option>
                     </select>
+                    <div class="mic-threshold-grid">
+                        <label class="threshold-field" for="mic-min-threshold">
+                            <span>最小音量閾値</span>
+                            <input type="range" id="mic-min-threshold" min="1" max="40" step="1" value="12">
+                            <strong id="mic-min-threshold-value">12</strong>
+                        </label>
+                        <label class="threshold-field" for="mic-max-threshold">
+                            <span>最大音量閾値</span>
+                            <input type="range" id="mic-max-threshold" min="30" max="100" step="1" value="78">
+                            <strong id="mic-max-threshold-value">78</strong>
+                        </label>
+                    </div>
                 </div>
-                <div class="mic-meter" aria-hidden="true">
+                <div class="mic-meter meter-with-guides" id="mic-meter-shell" aria-hidden="true">
+                    <div id="mic-min-line" class="mic-threshold-line min-line"></div>
+                    <div id="mic-max-line" class="mic-threshold-line max-line"></div>
                     <div id="mic-level-bar" class="mic-meter-bar"></div>
                 </div>
                 <div class="actions">
@@ -68,11 +82,10 @@
             <div class="ai-config-group">
                 <h3>AI設定</h3>
                 <div class="form-group-row">
-                    <select id="ai-provider">
-                        <option value="gemini">Gemini</option>
-                        <option value="ollama">Ollama</option>
+                    <select id="ai-provider" disabled>
+                        <option value="gemini">Gemini 2.5 Pro</option>
                     </select>
-                    <input type="text" id="ai-model" placeholder="モデル名" value="gemini-2.5-flash">
+                    <input type="text" id="ai-model" placeholder="モデル名" value="gemini-2.5-pro" disabled>
                 </div>
             </div>
 
@@ -88,7 +101,6 @@
                     <span class="recording-indicator"></span>
                     <span id="room-info">ルーム: ---</span>
                     <button id="btn-copy-room" class="icon-btn" title="参加URLをコピー">Share</button>
-                    <button id="btn-download" class="icon-btn" title="ログをダウンロード">MD</button>
                 </div>
                 <div class="header-actions">
                     <button id="btn-reconnect-mic" class="secondary">マイクON</button>
@@ -102,12 +114,24 @@
                 <div class="container-label">Quick Controls</div>
                 <div class="mobile-menu-grid">
                     <div class="form-group">
-                        <label for="meeting-mic-sensitivity">集音感度</label>
-                        <select id="meeting-mic-sensitivity">
+                        <label for="meeting-mic-min-threshold">マイク調整</label>
+                        <select id="meeting-mic-sensitivity" class="visually-hidden" aria-hidden="true">
                             <option value="high">高め</option>
                             <option value="standard" selected>標準</option>
                             <option value="strict">被り抑制</option>
                         </select>
+                        <div class="mic-threshold-grid compact-threshold-grid">
+                            <label class="threshold-field" for="meeting-mic-min-threshold">
+                                <span>最小</span>
+                                <input type="range" id="meeting-mic-min-threshold" min="1" max="40" step="1" value="12">
+                                <strong id="meeting-mic-min-threshold-value">12</strong>
+                            </label>
+                            <label class="threshold-field" for="meeting-mic-max-threshold">
+                                <span>最大</span>
+                                <input type="range" id="meeting-mic-max-threshold" min="30" max="100" step="1" value="78">
+                                <strong id="meeting-mic-max-threshold-value">78</strong>
+                            </label>
+                        </div>
                     </div>
                     <button id="btn-toggle-memory-panel" class="secondary">会話メモリを表示</button>
                     <button id="btn-toggle-ai-panel" class="secondary">会議中AIを表示</button>
@@ -410,6 +434,14 @@
         </div>
     </div>
     <script src="debug.js"></script>
+    <div class="scroll-fab-group" aria-label="scroll controls">
+        <button id="btn-scroll-top" class="scroll-fab" title="一番上へ">↑</button>
+        <button id="btn-scroll-bottom" class="scroll-fab" title="一番下へ">↓</button>
+    </div>
+    <script src="state.js"></script>
+    <script src="dom.js"></script>
+    <script src="bindings.js"></script>
+    <script src="utils.js"></script>
     <script src="main.js"></script>
 </body>
 </html>

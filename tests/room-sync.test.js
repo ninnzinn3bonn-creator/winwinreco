@@ -39,10 +39,17 @@ describe('Room Termination Sync', () => {
         const roomId = 'room-sync';
         const ownerId = 'owner-1';
         const participantId = 'p-sync';
+        const controlToken = 'sync-token';
 
         (async () => {
             await repos.roomRepo.create({ id: roomId, owner_id: ownerId });
-            await repos.participantRepo.join({ id: participantId, room_id: roomId, display_name: 'SyncUser' });
+            await repos.participantRepo.join({
+                id: participantId,
+                room_id: roomId,
+                user_id: ownerId,
+                display_name: 'SyncUser',
+                control_token: controlToken
+            });
 
             const ws = new WebSocket(`ws://localhost:${port}?participantId=${participantId}`);
             
@@ -56,7 +63,10 @@ describe('Room Termination Sync', () => {
                     // API Call
                     await request(server)
                         .post(`/rooms/${roomId}/end`)
-                        .send({ owner_id: ownerId });
+                        .send({
+                            participant_id: participantId,
+                            control_token: controlToken
+                        });
                 }
             });
 

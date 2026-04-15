@@ -46,6 +46,7 @@ async function initDB(dbPath) {
                     room_id TEXT,
                     user_id TEXT,
                     display_name TEXT,
+                    control_token TEXT,
                     location_id TEXT,
                     joined_at DATETIME DEFAULT CURRENT_TIMESTAMP,
                     left_at DATETIME,
@@ -97,6 +98,7 @@ async function initDB(dbPath) {
                     Promise.all([
                         ensureColumn(db, 'users', 'profile_text', 'TEXT DEFAULT \'\''),
                         ensureColumn(db, 'participants', 'user_id', 'TEXT'),
+                        ensureColumn(db, 'participants', 'control_token', 'TEXT'),
                         ensureColumn(db, 'utterances', 'is_starred', 'INTEGER DEFAULT 0'),
                         ensureColumn(db, 'utterances', 'user_id', 'TEXT'),
                         ensureColumn(db, 'utterances', 'starred_at', 'DATETIME'),
@@ -108,6 +110,10 @@ async function initDB(dbPath) {
                         ensureColumn(db, 'utterances', 'corrected_at', 'DATETIME'),
                         ensureColumn(db, 'rooms', 'summary_text', 'TEXT DEFAULT \'\''),
                         ensureColumn(db, 'rooms', 'summary_updated_at', 'DATETIME'),
+                        ensureColumn(db, 'rooms', 'minutes_text', 'TEXT DEFAULT \'\''),
+                        ensureColumn(db, 'rooms', 'minutes_updated_at', 'DATETIME'),
+                        ensureColumn(db, 'rooms', 'todo_text', 'TEXT DEFAULT \'\''),
+                        ensureColumn(db, 'rooms', 'todo_updated_at', 'DATETIME'),
                         ensureColumn(db, 'rooms', 'insights_status', 'TEXT DEFAULT \'idle\''),
                         ensureColumn(db, 'rooms', 'insights_dirty', 'INTEGER DEFAULT 0')
                     ])
