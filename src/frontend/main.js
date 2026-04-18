@@ -17,6 +17,9 @@ const {
     meetingAiStatus,
     micCheckStatus,
     micLevelBar,
+    micPresetSummary,
+    micPresetTips,
+    micRequirements,
     setupMicSensitivity,
     meetingMicSensitivity,
     setupMicMinThreshold,
@@ -27,6 +30,7 @@ const {
     meetingMicMaxThreshold,
     meetingMicMinThresholdValue,
     meetingMicMaxThresholdValue,
+    meetingMicPresetSummary,
     micMeterShell,
     mobileMeetingMenu,
     summaryMobileMenu,
@@ -60,8 +64,14 @@ const {
     shortenText,
     downloadTextFile
 } = window.AppUtils;
+const {
+    presets: MIC_PRESETS = {},
+    requirements: MIC_REQUIREMENTS = [],
+    defaultMobile: DEFAULT_MOBILE_PRESET = 'smartphone',
+    defaultDesktop: DEFAULT_DESKTOP_PRESET = 'pin_mic'
+} = window.AppMicPresets || {};
 
-const DebugMonitor = {
+const AppDebug = {
     log(level, message, details) {
         if (window.DebugMonitor?.log) {
             window.DebugMonitor.log(level, message, details);
@@ -81,6 +91,110 @@ function updateMicStatus(message) {
     }
 }
 
+function getMicPresetConfig(key = state.micPresetKey) {
+    return MIC_PRESETS[key] || MIC_PRESETS[DEFAULT_DESKTOP_PRESET] || null;
+}
+
+function renderMicPresetUi() {
+    const preset = getMicPresetConfig();
+    if (micPresetSummary) {
+        micPresetSummary.innerText = preset
+            ? `${preset.label}向けの設定を使います。${preset.description}`
+            : 'マイクの利用シーンを選んでください。';
+    }
+    if (meetingMicPresetSummary) {
+        meetingMicPresetSummary.innerText = preset
+            ? `現在のプリセット: ${preset.label}`
+            : '現在のプリセット: 未設定';
+    }
+    if (micPresetTips) {
+        micPresetTips.innerHTML = '';
+        (preset?.bestPractices || []).forEach((tip) => {
+            const li = document.createElement('li');
+            li.innerText = tip;
+            micPresetTips.appendChild(li);
+        });
+    }
+    if (micRequirements) {
+        micRequirements.innerHTML = '';
+        MIC_REQUIREMENTS.forEach((item) => {
+            const li = document.createElement('li');
+            li.innerText = item;
+            micRequirements.appendChild(li);
+        });
+    }
+    document.querySelectorAll('[data-mic-preset]').forEach((button) => {
+        button.classList.toggle('is-active', button.dataset.micPreset === state.micPresetKey);
+    });
+}
+
+async function loadDictionary() {
+    try {
+        const res = await fetch('/api/dictionary');
+        const data = await readApiResponse(res);
+        state.dictionary = Array.isArray(data) ? data : [];
+        renderDictionary();
+    } catch (error) {
+        AppDebug.log('error', 'Failed to load dictionary', error.message);
+    }
+}
+
+function renderDictionary() {
+    const container = window.AppDom.dictionaryList;
+    if (!container) return;
+    container.innerHTML = '';
+    if (state.dictionary.length === 0) {
+        container.innerHTML = '<span class="placeholder-text">登録された用語はありません。</span>';
+        return;
+    }
+    state.dictionary.forEach((item) => {
+        const div = document.createElement('div');
+        div.className = 'dict-item';
+        div.innerHTML = `
+            <strong>${escapeHtml(item.term)}</strong>
+            ${item.reading ? `<span class="muted">(${escapeHtml(item.reading)})</span>` : ''}
+            <button class="btn-dict-del" data-id="${item.id}" title="削除">×</button>
+        `;
+        div.querySelector('.btn-dict-del').onclick = () => deleteDictionaryTerm(item.id);
+        container.appendChild(div);
+    });
+}
+
+async function addDictionaryTerm() {
+    const termInput = window.AppDom.dictTerm;
+    const readingInput = window.AppDom.dictReading;
+    const term = termInput.value.trim();
+    const reading = readingInput.value.trim();
+    if (!term) return alert('用語を入力してください');
+
+    try {
+        const res = await fetch('/api/dictionary', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ term, reading })
+        });
+        const data = await readApiResponse(res);
+        if (!res.ok) throw new Error(data.error || '追加に失敗しました');
+        termInput.value = '';
+        readingInput.value = '';
+        await loadDictionary();
+    } catch (error) {
+        alert(`追加に失敗しました: ${error.message}`);
+    }
+}
+
+async function deleteDictionaryTerm(id) {
+    if (!confirm('この用語を削除しますか？')) return;
+    try {
+        const res = await fetch(`/api/dictionary/${id}`, {
+            method: 'DELETE'
+        });
+        if (!res.ok) throw new Error('削除に失敗しました');
+        await loadDictionary();
+    } catch (error) {
+        alert(`削除に失敗しました: ${error.message}`);
+    }
+}
 
 function switchTab(tab) {
     document.querySelectorAll('.tab-btn').forEach((button) => button.classList.remove('active'));
@@ -285,6 +399,35 @@ function setMicSensitivity(level) {
     updateMicThresholdControls();
 }
 
+async function applyMicPreset(key, options = {}) {
+    const preset = getMicPresetConfig(key);
+    if (!preset) return;
+
+    state.micPresetKey = preset.key;
+    state.voiceGate.threshold = preset.thresholds.min;
+    state.voiceGate.maxThreshold = preset.thresholds.max;
+    localStorage.setItem('mic_preset', preset.key);
+    localStorage.setItem('mic_threshold_min', String(state.voiceGate.threshold));
+    localStorage.setItem('mic_threshold_max', String(state.voiceGate.maxThreshold));
+    updateMicThresholdControls();
+    renderMicPresetUi();
+
+    if (state.stream) {
+        const [track] = state.stream.getAudioTracks();
+        if (track?.applyConstraints) {
+            try {
+                await track.applyConstraints(getPreferredAudioConstraints(preset).audio);
+            } catch (error) {
+                AppDebug.log('warn', 'Mic preset applyConstraints failed', error.message);
+            }
+        }
+    }
+
+    if (!options.silent) {
+        updateMicStatus(`${preset.label}モードを適用しました。${preset.recommendedFor} に向いています。`);
+    }
+}
+
 function updateMicThresholdControls() {
     const minPercent = Math.round(state.voiceGate.threshold * 1000);
     const maxPercent = Math.round(state.voiceGate.maxThreshold * 100);
@@ -326,7 +469,7 @@ function bindStreamState(stream) {
 
     track.onended = () => {
         updateMicStatus('マイク入力が停止しました。端末設定やブラウザ権限を確認してください。');
-        DebugMonitor.log('warn', 'Microphone track ended');
+        AppDebug.log('warn', 'Microphone track ended');
     };
     track.onmute = () => {
         if (!state.isMuted) {
@@ -397,7 +540,7 @@ async function requestWakeLock() {
             state.wakeLockSentinel = null;
         });
     } catch (error) {
-        DebugMonitor.log('warn', 'Wake lock unavailable', error.message);
+        AppDebug.log('warn', 'Wake lock unavailable', error.message);
     }
 }
 
@@ -406,7 +549,7 @@ async function releaseWakeLock() {
     try {
         await state.wakeLockSentinel.release();
     } catch (error) {
-        DebugMonitor.log('warn', 'Wake lock release failed', error.message);
+        AppDebug.log('warn', 'Wake lock release failed', error.message);
     } finally {
         state.wakeLockSentinel = null;
     }
@@ -416,7 +559,7 @@ async function releaseWakeLock() {
 async function runMicCheck() {
     const ok = await prepareAudio({ updateStatus: true });
     if (!ok) return;
-    updateMicStatus('\u30de\u30a4\u30af\u5165\u529b\u3092\u78ba\u8a8d\u4e2d\u3067\u3059\u3002\u30e1\u30fc\u30bf\u30fc\u304c\u52d5\u3051\u3070\u5165\u529b\u3067\u304d\u3066\u3044\u307e\u3059\u3002');
+    updateMicStatus('マイク入力を確認中です。緑の帯が最小線を越え、赤い線を少し超える程度なら適正です。');
 }
 
 async function reconnectMic() {
@@ -447,7 +590,7 @@ async function syncMicrophonePermissionState() {
         apply();
         status.onchange = apply;
     } catch (error) {
-        DebugMonitor.log('info', 'Microphone permission query not available', error.message);
+        AppDebug.log('info', 'Microphone permission query not available', error.message);
     }
 }
 
@@ -619,6 +762,24 @@ function scheduleInsightsPoll() {
     }, 5000);
 }
 
+function syncSharedResultsIntoEditors() {
+    if (!state.minutesWorkspace.loading && state.meetingInsights.minutes) {
+        state.minutesWorkspace.result = state.meetingInsights.minutes;
+    }
+
+    if (state.aiWorkspace.loading) return;
+
+    const currentMode = state.aiWorkspace.mode || '';
+    if ((!currentMode || currentMode === 'summary') && state.meetingInsights.summary) {
+        setAiWorkspace('summary', '要約', state.meetingInsights.summary, '');
+        return;
+    }
+
+    if ((!currentMode || currentMode === 'todo') && state.meetingInsights.todo) {
+        setAiWorkspace('todo', 'TODO', state.meetingInsights.todo, '');
+    }
+}
+
 async function loadMeetingInsights(options = {}) {
     if (!state.roomId) return;
 
@@ -636,15 +797,12 @@ async function loadMeetingInsights(options = {}) {
         state.meetingInsights.dirty = !!data.dirty;
         state.meetingInsights.updatedAt = data.minutes_updated_at || data.summary_updated_at || data.todo_updated_at || null;
         state.meetingInsights.loading = data.status === 'processing';
-
-        if (!state.minutesWorkspace.loading && state.meetingInsights.minutes) {
-            state.minutesWorkspace.result = state.meetingInsights.minutes;
-            state.minutesWorkspace.updatedAt = data.minutes_updated_at || state.minutesWorkspace.updatedAt;
-            renderMinutesWorkspace();
-        }
+        state.minutesWorkspace.updatedAt = data.minutes_updated_at || state.minutesWorkspace.updatedAt;
+        syncSharedResultsIntoEditors();
 
         scheduleInsightsPoll();
         renderMeetingInsights();
+        renderMinutesWorkspace();
     } catch (error) {
         clearInsightsPoll();
         state.meetingInsights.status = 'error';
@@ -674,8 +832,8 @@ async function runDirectAnalysis(type, title, instruction = '') {
                 type,
                 instruction,
                 ai_config: {
-                    provider: 'gemini',
-                    model: state.aiModel || 'gemini-2.5-pro'
+                    provider: state.aiProvider || 'groq',
+                    model: state.aiModel || (state.aiProvider === 'groq' ? 'openai/gpt-oss-120b' : 'gemini-2.5-flash')
                 }
             })
         });
@@ -767,8 +925,8 @@ async function runMeetingAnalysis(key) {
                 type: config.type,
                 instruction: config.instruction || '',
                 ai_config: {
-                    provider: 'gemini',
-                    model: state.aiModel || 'gemini-2.5-pro'
+                    provider: state.aiProvider || 'groq',
+                    model: state.aiModel || (state.aiProvider === 'groq' ? 'openai/gpt-oss-120b' : 'gemini-2.5-flash')
                 }
             })
         });
@@ -1247,7 +1405,7 @@ function getFormattedAiWorkspaceText() {
     const title = state.aiWorkspace.title || '解析結果';
     const instruction = customAiInstruction.value || state.aiWorkspace.instruction || '';
     const result = aiOutputEditor.value || state.aiWorkspace.result || '';
-    return [`【${title}】`, result, '', '【指示】', instruction].join("`n");
+    return [`【${title}】`, result, '', '【指示】', instruction].join('\n');
 }
 
 function getFormattedMinutesText() {
@@ -1338,7 +1496,7 @@ async function updateUtteranceMemory(id, updates, options = {}) {
         }
         renderAllLogs();
     } catch (error) {
-        DebugMonitor.log('error', 'Failed to update log', error.message);
+        AppDebug.log('error', 'Failed to update log', error.message);
         alert(`ログ更新に失敗しました: ${error.message}`);
     }
 }
@@ -1371,14 +1529,24 @@ function copyRoomId() {
 }
 
 async function prepareAudio(options = {}) {
-    DebugMonitor.log('info', 'prepareAudio: Requesting permission on user gesture');
+    AppDebug.log('info', 'prepareAudio: Requesting permission on user gesture');
     try {
         if (!isSecureContextForMedia()) {
             throw new Error('マイク利用には HTTPS または localhost が必要です');
         }
+        const preset = getMicPresetConfig();
         if (!state.stream) {
-            state.stream = await navigator.mediaDevices.getUserMedia(getPreferredAudioConstraints());
+            state.stream = await navigator.mediaDevices.getUserMedia(getPreferredAudioConstraints(preset));
             bindStreamState(state.stream);
+        } else {
+            const [track] = state.stream.getAudioTracks();
+            if (track?.applyConstraints) {
+                try {
+                    await track.applyConstraints(getPreferredAudioConstraints(preset).audio);
+                } catch (constraintError) {
+                    AppDebug.log('warn', 'Failed to refresh audio constraints', constraintError.message);
+                }
+            }
         }
         state.stream.getAudioTracks().forEach((track) => {
             track.enabled = !state.isMuted;
@@ -1397,11 +1565,12 @@ async function prepareAudio(options = {}) {
         if (options.updateStatus) {
             const actualRate = Math.round(state.audioContext?.sampleRate || 0);
             const resampleNote = actualRate && actualRate !== 16000 ? ` 実入力 ${actualRate}Hz を 16000Hz に変換して送ります。` : '';
-            updateMicStatus(`マイクの許可が取れました。口元のマイクで入力レベルを確認してください。${resampleNote}`);
+            const presetLabel = preset?.label ? `現在は ${preset.label} モードです。` : '';
+            updateMicStatus(`マイクの許可が取れました。${presetLabel} メーターが動いて、緑の帯が最小線を越えれば入力できています。${resampleNote}`);
         }
         return true;
     } catch (error) {
-        DebugMonitor.log('error', 'prepareAudio failed', error.message);
+        AppDebug.log('error', 'prepareAudio failed', error.message);
         if (options.updateStatus) updateMicStatus(`マイク確認に失敗しました: ${error.message}`);
         alert(`マイクの許可に失敗しました: ${error.message}`);
         return false;
@@ -1440,10 +1609,24 @@ async function joinRoomProcess(roomId, displayName, profileText = '') {
     try {
         const normalizedRoomId = roomId.trim().toUpperCase();
         const userId = ensureLocalUserId();
+        
+        // Save current AI settings
+        localStorage.setItem('ai_provider', state.aiProvider);
+        localStorage.setItem('ai_model', state.aiModel);
+
         const res = await fetch(`/rooms/${normalizedRoomId}/join`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ user_id: userId, display_name: displayName, location_id: 'web-browser', profile_text: profileText })
+            body: JSON.stringify({ 
+                user_id: userId, 
+                display_name: displayName, 
+                location_id: 'web-browser', 
+                profile_text: profileText,
+                ai_config: {
+                    provider: state.aiProvider,
+                    model: state.aiModel
+                }
+            })
         });
         if (!res.ok) throw new Error('Join failed');
         const participant = await readApiResponse(res);
@@ -1521,7 +1704,6 @@ function showSummaryScreen() {
         renderAllLogs();
         window.scrollTo({ top: 0, behavior: 'auto' });
         loadMeetingInsights({ silent: true });
-        loadCustomAiResult();
     });
 }
 
@@ -1534,7 +1716,7 @@ async function loadRoomLogs() {
         state.activityItems = state.activityItems.filter((item) => item.type === 'system');
         logs.forEach((entry) => upsertUtterance(entry));
     } catch (error) {
-        DebugMonitor.log('error', 'Failed to load logs', error.message);
+        AppDebug.log('error', 'Failed to load logs', error.message);
     }
 }
 
@@ -1569,7 +1751,7 @@ function initWebSocket() {
         }
     };
     state.ws.onerror = () => {
-        DebugMonitor.log('error', 'WebSocket Error occurred');
+        AppDebug.log('error', 'WebSocket Error occurred');
     };
 }
 
@@ -1588,7 +1770,7 @@ async function startRecording() {
         if (state.audioContext.state === 'suspended') await state.audioContext.resume();
         ensureAudioNodes();
     } catch (error) {
-        DebugMonitor.log('error', 'startRecording failed', error.message);
+        AppDebug.log('error', 'startRecording failed', error.message);
         addSystemMessage(`マイク接続エラー: ${error.name}`);
         return;
     }
@@ -1635,7 +1817,7 @@ async function startRecording() {
         };
         state.processor = processor;
     } catch (error) {
-        DebugMonitor.log('error', 'audio processor failed', error.message);
+        AppDebug.log('error', 'audio processor failed', error.message);
     }
 }
 
@@ -1697,7 +1879,7 @@ async function checkApiStatus() {
         const res = await fetch('/api/status');
         const status = await readApiResponse(res);
         const sttText = status.speech_to_text ? `OK (${status.stt_provider || 'unknown'})` : '未設定';
-        const aiText = status.gemini_ai ? 'Gemini 2.5 Pro' : '未設定';
+        const aiText = status.gemini_ai ? 'Gemini (自動フォールバックあり)' : '未設定';
         const secureText = isSecureContextForMedia() ? 'OK' : 'HTTPS必須';
         container.innerHTML = `<div class="system-message">音声認識: ${sttText} / AI: ${aiText} / HTTPS: ${secureText}</div>`;
     } catch (error) {
@@ -1710,17 +1892,36 @@ function initializeSetupUi() {
     const savedDisplayName = localStorage.getItem('display_name');
     const savedProfileText = localStorage.getItem('profile_text');
     const savedSensitivity = localStorage.getItem('mic_sensitivity');
+    const savedMicPreset = localStorage.getItem('mic_preset');
+    const savedAiProvider = localStorage.getItem('ai_provider');
+    const savedAiModel = localStorage.getItem('ai_model');
     const savedMinThreshold = Number(localStorage.getItem('mic_threshold_min'));
     const savedMaxThreshold = Number(localStorage.getItem('mic_threshold_max'));
-    const roomIdFromUrl = new URLSearchParams(window.location.search).get('room');
+    
     if (savedDisplayName) document.getElementById('display-name').value = savedDisplayName;
     if (savedProfileText) document.getElementById('profile-text').value = savedProfileText;
+    
+    if (savedAiProvider) {
+        state.aiProvider = savedAiProvider;
+        if (window.AppDom.aiProvider) window.AppDom.aiProvider.value = savedAiProvider;
+    }
+    // Always sync model state with current provider
+    state.aiModel = state.aiProvider === 'groq' ? 'openai/gpt-oss-120b' : 'gemini-2.5-flash';
+
+    const roomIdFromUrl = new URLSearchParams(window.location.search).get('room');
     if (roomIdFromUrl) {
         document.getElementById('room-id').value = roomIdFromUrl.toUpperCase();
         updateMicStatus(`共有URLからルーム ${roomIdFromUrl.toUpperCase()} を読み込みました。表示名を入れれば参加できます。`);
     }
     document.body.classList.add('setup-mode');
     setMicSensitivity(savedSensitivity || 'standard');
+    const defaultPreset = isMobileViewport() ? DEFAULT_MOBILE_PRESET : DEFAULT_DESKTOP_PRESET;
+    state.micPresetKey = savedMicPreset || defaultPreset;
+    const initialPreset = getMicPresetConfig();
+    if (initialPreset) {
+        state.voiceGate.threshold = initialPreset.thresholds.min;
+        state.voiceGate.maxThreshold = initialPreset.thresholds.max;
+    }
     if (!Number.isNaN(savedMinThreshold)) {
         state.voiceGate.threshold = savedMinThreshold;
     }
@@ -1731,6 +1932,7 @@ function initializeSetupUi() {
     state.voiceGate.threshold = normalized.min;
     state.voiceGate.maxThreshold = normalized.max;
     updateMicThresholdControls();
+    renderMicPresetUi();
     updateMuteButton();
     syncFilterControls();
     renderAllLogs();
@@ -1776,16 +1978,20 @@ bindAppEvents({
     closeMemoModal,
     saveMemoFromModal,
     setMicSensitivity,
+    applyMicPreset,
     syncMicThresholdsFromUi,
     runMeetingAnalysis,
     syncFilterControls,
-    renderAllLogs
+    renderAllLogs,
+    addDictionaryTerm,
+    deleteDictionaryTerm
 });
 
 function bootstrap() {
     initializeSetupUi();
     checkApiStatus();
     syncMicrophonePermissionState();
+    loadDictionary();
 }
 
 if (document.readyState === 'loading') {
@@ -1806,7 +2012,7 @@ document.addEventListener('visibilitychange', async () => {
         try {
             await state.audioContext.resume();
         } catch (error) {
-            DebugMonitor.log('warn', 'AudioContext resume failed', error.message);
+            AppDebug.log('warn', 'AudioContext resume failed', error.message);
         }
     }
 });

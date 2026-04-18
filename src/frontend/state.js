@@ -24,6 +24,7 @@ window.AppState = {
             remainingFrames: 0,
             speaking: false
         },
+        micPresetKey: 'pin_mic',
         micSensitivity: 'standard',
         mobileMenuOpen: false,
         mobileMemoryCollapsed: false,
@@ -34,7 +35,7 @@ window.AppState = {
         summaryAiControlsCollapsed: false,
         activityItems: [],
         aiProvider: 'gemini',
-        aiModel: 'gemini-2.5-pro',
+        aiModel: 'gemini-2.5-flash',
         filters: {
             query: '',
             starredOnly: false,
@@ -81,6 +82,7 @@ window.AppState = {
         noteDrafts: {},
         transcriptDrafts: {},
         focusedUtteranceId: null,
-        isWorkingOnLog: false
+        isWorkingOnLog: false,
+        dictionary: []
     }
 };

@@ -14,10 +14,6 @@
     --radius: 18px;
 }
 
-#ai-output-card::before {
-    content: "結果表示";
-}
-
 * {
     box-sizing: border-box;
 }
@@ -1396,6 +1392,18 @@ header {
         flex: 1 1 140px;
     }
 
+    .mic-check-steps,
+    .mic-preset-grid,
+    .meeting-mic-preset-list {
+        grid-template-columns: 1fr;
+        display: grid;
+    }
+
+    .mic-preset-card,
+    .meeting-mic-preset-list .compact {
+        width: 100%;
+    }
+
     .mic-threshold-grid {
         grid-template-columns: 1fr;
     }
@@ -1641,8 +1649,165 @@ body.summary-mode.summary-ai-controls-collapsed #ai-mobile-controls {
         grid-template-columns: 1fr;
     }
 
-    body.summary-mode.summary-sidebar-collapsed .review-main,
+body.summary-mode.summary-sidebar-collapsed .review-main,
     body.summary-mode.summary-ai-controls-collapsed #panel-ai {
+        width: 100%;
+    }
+}
+
+.mic-check-steps {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 12px;
+    margin-bottom: 14px;
+}
+
+.mic-step,
+.mic-preset-summary-card,
+.meeting-mic-preset-panel {
+    border: 1px solid var(--line);
+    border-radius: 16px;
+    background: rgba(246, 248, 251, 0.96);
+    padding: 14px;
+}
+
+.mic-step strong,
+.mic-preset-summary-card strong,
+.meeting-mic-preset-panel strong {
+    display: block;
+    margin-bottom: 6px;
+}
+
+.mic-step span,
+.mic-preset-header span,
+.meeting-mic-preset-panel {
+    color: var(--muted);
+}
+
+.mic-preset-section {
+    display: grid;
+    gap: 14px;
+    margin-bottom: 16px;
+}
+
+.mic-preset-header {
+    display: grid;
+    gap: 4px;
+}
+
+.mic-preset-grid,
+.meeting-mic-preset-list {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px;
+}
+
+.mic-preset-card {
+    display: grid;
+    gap: 4px;
+    min-width: 180px;
+    padding: 14px 16px;
+    border: 1px solid var(--line);
+    border-radius: 18px;
+    background: rgba(255, 255, 255, 0.94);
+    text-align: left;
+}
+
+.mic-preset-card span {
+    color: var(--muted);
+    font-size: 0.9rem;
+}
+
+.mic-preset-card.is-active,
+.meeting-mic-preset-list .compact.is-active {
+    border-color: rgba(20, 99, 255, 0.42);
+    background: var(--accent-soft);
+    color: var(--accent);
+    box-shadow: inset 0 0 0 1px rgba(20, 99, 255, 0.18);
+}
+
+.dictionary-card {
+    margin-bottom: 18px;
+    padding: 16px 18px;
+    border: 1px solid var(--line);
+    border-radius: 20px;
+    background: rgba(255, 255, 255, 0.88);
+}
+
+.dictionary-form {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    margin-bottom: 14px;
+}
+
+.compact-row {
+    grid-template-columns: 1fr 1fr;
+}
+
+.dictionary-list {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    max-height: 200px;
+    overflow-y: auto;
+    padding: 10px;
+    border: 1px solid var(--line);
+    border-radius: 14px;
+    background: var(--surface-soft);
+}
+
+.dict-item {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    background: var(--surface);
+    border: 1px solid var(--line);
+    padding: 4px 10px;
+    border-radius: 999px;
+    font-size: 0.9rem;
+}
+
+.btn-dict-del {
+    background: transparent;
+    border: none;
+    color: var(--danger);
+    cursor: pointer;
+    padding: 0 4px;
+    font-size: 1.1rem;
+    line-height: 1;
+}
+
+.dictionary-actions {
+    display: flex;
+    justify-content: flex-end;
+}
+
+@media (max-width: 1023px) {
+    .compact-row {
+        grid-template-columns: 1fr;
+    }
+}
+
+.mic-tip-list li + li {
+    margin-top: 6px;
+}
+
+.meeting-mic-preset-panel {
+    display: grid;
+    gap: 10px;
+}
+
+@media (max-width: 1023px) {
+    .mic-check-steps,
+    .mic-preset-grid,
+    .meeting-mic-preset-list {
+        display: grid;
+        grid-template-columns: 1fr;
+    }
+
+    .mic-preset-card,
+    .meeting-mic-preset-list .compact {
         width: 100%;
     }
 }

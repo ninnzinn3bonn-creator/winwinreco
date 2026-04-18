@@ -84,6 +84,14 @@ async function initDB(dbPath) {
                     FOREIGN KEY(participant_id) REFERENCES participants(id)
                 )`);
 
+                db.run(`CREATE TABLE IF NOT EXISTS dictionary (
+                    id TEXT PRIMARY KEY,
+                    label TEXT,
+                    term TEXT,
+                    reading TEXT,
+                    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+                )`);
+
                 db.run(`CREATE TABLE IF NOT EXISTS room_analyses (
                     id TEXT PRIMARY KEY,
                     room_id TEXT,
@@ -115,7 +123,9 @@ async function initDB(dbPath) {
                         ensureColumn(db, 'rooms', 'todo_text', 'TEXT DEFAULT \'\''),
                         ensureColumn(db, 'rooms', 'todo_updated_at', 'DATETIME'),
                         ensureColumn(db, 'rooms', 'insights_status', 'TEXT DEFAULT \'idle\''),
-                        ensureColumn(db, 'rooms', 'insights_dirty', 'INTEGER DEFAULT 0')
+                        ensureColumn(db, 'rooms', 'insights_dirty', 'INTEGER DEFAULT 0'),
+                        ensureColumn(db, 'rooms', 'ai_provider', 'TEXT'),
+                        ensureColumn(db, 'rooms', 'ai_model', 'TEXT')
                     ])
                         .then(() => new Promise((resolveActions, rejectActions) => {
                             db.run(`CREATE TABLE IF NOT EXISTS actions (

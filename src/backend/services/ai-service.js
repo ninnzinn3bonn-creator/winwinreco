@@ -1,18 +1,75 @@
 const { GoogleGenerativeAI } = require('@google/generative-ai');
+const Groq = require('groq-sdk');
+
+class GroqProvider {
+    constructor(apiKey, modelName = 'openai/gpt-oss-120b') {
+        if (!apiKey) throw new Error('GROQ_API_KEY is not set.');
+        this.client = new Groq({ apiKey });
+        this.modelName = modelName;
+        this.name = `groq (${modelName})`;
+    }
+
+    async generate(prompt) {
+        const chatCompletion = await this.client.chat.completions.create({
+            messages: [{ role: 'user', content: prompt }],
+            model: this.modelName,
+        });
+        return chatCompletion.choices[0]?.message?.content || "";
+    }
+}
 
 class GeminiProvider {
     constructor(apiKey, modelName) {
         if (!apiKey) throw new Error('GEMINI_API_KEY is not set.');
-        const genAI = new GoogleGenerativeAI(apiKey);
-        const actualModelName = modelName || process.env.GEMINI_MODEL || 'gemini-2.5-pro';
-        this.model = genAI.getGenerativeModel({ model: actualModelName });
-        this.name = `gemini (${actualModelName})`;
+        this.genAI = new GoogleGenerativeAI(apiKey);
+        const envPreferredModel = process.env.GEMINI_MODEL === 'gemini-2.5-pro'
+            ? 'gemini-2.5-flash'
+            : process.env.GEMINI_MODEL;
+        this.preferredModelName = modelName || envPreferredModel || 'gemini-2.5-flash';
+        this.currentModelName = this.preferredModelName;
+        this.fallbackModelNames = [
+            this.preferredModelName,
+            'gemini-2.5-flash',
+            'gemini-2.5-flash-lite',
+            'gemini-2.0-flash'
+        ].filter((name, index, array) => name && array.indexOf(name) === index);
+        this.name = `gemini (${this.currentModelName})`;
+    }
+
+    get model() {
+        return this.genAI.getGenerativeModel({ model: this.currentModelName });
+    }
+
+    isRetryableModelError(error) {
+        const message = String(error?.message || '');
+        return (
+            message.includes('[429') ||
+            message.includes('Too Many Requests') ||
+            message.includes('Quota exceeded') ||
+            message.includes('is not found for API version') ||
+            message.includes('is not supported for generateContent')
+        );
     }
 
     async generate(prompt) {
-        const result = await this.model.generateContent(prompt);
-        const response = await result.response;
-        return response.text();
+        let lastError = null;
+
+        for (const modelName of this.fallbackModelNames) {
+            try {
+                this.currentModelName = modelName;
+                this.name = `gemini (${modelName})`;
+                const result = await this.model.generateContent(prompt);
+                const response = await result.response;
+                return response.text();
+            } catch (error) {
+                lastError = error;
+                if (!this.isRetryableModelError(error)) {
+                    throw error;
+                }
+            }
+        }
+
+        throw lastError;
     }
 }
 
@@ -80,17 +137,40 @@ function jp(text) {
 
 class AIService {
     constructor(config = {}) {
-        const providerType = 'gemini';
+        const groqKey = config.groqApiKey || process.env.GROQ_API_KEY;
+        const geminiKey = config.apiKey || process.env.GEMINI_API_KEY;
+        const requestedProvider = config.provider || process.env.AI_PROVIDER;
 
         try {
-            this.provider = new GeminiProvider(
-                config.apiKey || process.env.GEMINI_API_KEY,
-                config.geminiModel || process.env.GEMINI_MODEL || 'gemini-2.5-pro'
-            );
-            this.enabled = true;
+            if (requestedProvider === 'groq' && groqKey && groqKey !== 'dummy') {
+                this.provider = new GroqProvider(groqKey, config.groqModel || 'openai/gpt-oss-120b');
+                this.enabled = true;
+            } else if ((requestedProvider === 'gemini' || !requestedProvider) && geminiKey && geminiKey !== 'dummy') {
+                const envPreferredModel = process.env.GEMINI_MODEL === 'gemini-2.5-pro'
+                    ? 'gemini-2.5-flash'
+                    : process.env.GEMINI_MODEL;
+                this.provider = new GeminiProvider(
+                    geminiKey,
+                    config.geminiModel || envPreferredModel || 'gemini-2.5-flash'
+                );
+                this.enabled = true;
+            } else if (requestedProvider === 'ollama') {
+                this.provider = new OllamaProvider();
+                this.enabled = true;
+            } else if (groqKey && groqKey !== 'dummy') {
+                // Fallback to what's available
+                this.provider = new GroqProvider(groqKey, config.groqModel || 'openai/gpt-oss-120b');
+                this.enabled = true;
+            } else if (geminiKey && geminiKey !== 'dummy') {
+                this.provider = new GeminiProvider(geminiKey, config.geminiModel || 'gemini-2.5-flash');
+                this.enabled = true;
+            } else {
+                this.provider = new OllamaProvider();
+                this.enabled = true;
+            }
             console.log(`[AIService] Initialized with provider: ${this.provider.name}`);
         } catch (error) {
-            console.warn(`[AIService] Failed to initialize provider "${providerType}":`, error.message);
+            console.warn(`[AIService] Failed to initialize AI provider:`, error.message);
             this.enabled = false;
         }
     }
@@ -350,21 +430,24 @@ class AIService {
         }
 
         const prompt = `${systemPrompt}\n\n${contextBlock}\n${jp('\u0023 \u4f1a\u8b70\u30ed\u30b0')}\n${transcript}`;
-        const resultText = await this.provider.generate(prompt);
+        const result = await provider.generate(prompt);
         return {
-            result: resultText,
-            prompt,
-            provider: this.provider.name
+            result: result.trim(),
+            provider: provider.name
         };
     }
 
-    async generateMinutesFromTranscript(utterances, roomMeta = {}, participants = [], userContexts = []) {
+    async generateMinutesFromTranscript(utterances, roomMeta = {}, participants = [], userContexts = [], aiConfig = {}) {
         if (!this.enabled) {
             throw new Error('AI Service is not configured.');
         }
 
-        const transcript = this.toMessages(utterances)
-            .map((message) => `[${message.timestamp || '-'}] ${message.speaker}: ${message.text}`)
+        const provider = this.getProvider(aiConfig);
+
+        // Layer B: First pass - Reconstruct sentences to solve fragments and pronouns
+        const reconstructed = await this.reconstructSentences(utterances, participants, userContexts, aiConfig);
+        const transcript = reconstructed
+            .map((message) => `${message.speaker}: ${message.text}`)
             .join('\n');
 
         const participantNames = participants.map((participant) => participant.display_name).filter(Boolean).join('、') || '不明';
@@ -410,22 +493,26 @@ class AIService {
             'ノイズを除去し、意味のある発言のみで構成してください。'
         ].join('\n');
 
-        const result = await this.provider.generate(prompt);
+        const result = await provider.generate(prompt);
         return {
             result: String(result || '').trim(),
             prompt,
-            provider: this.provider.name
+            provider: provider.name
         };
     }
 
-    async generateSummaryFromMinutes(minutesText) {
+    async generateSummaryFromMinutes(minutesText, participants = [], userContexts = [], aiConfig = {}) {
         if (!this.enabled) {
             throw new Error('AI Service is not configured.');
         }
 
+        const provider = this.getProvider(aiConfig);
+
         const prompt = [
             '[SYSTEM]',
             'あなたは会議内容を構造的に要約するAIです。',
+            '',
+            this.buildUserContextBlock(participants, userContexts),
             '',
             '[CONTEXT]',
             '以下は整理済み議事録です：',
@@ -460,22 +547,26 @@ class AIService {
             '重要な議論のみ抽出してください。'
         ].join('\n');
 
-        const result = await this.provider.generate(prompt);
+        const result = await provider.generate(prompt);
         return {
             result: String(result || '').trim(),
             prompt,
-            provider: this.provider.name
+            provider: provider.name
         };
     }
 
-    async generateTodoFromMinutes(minutesText) {
+    async generateTodoFromMinutes(minutesText, participants = [], userContexts = [], aiConfig = {}) {
         if (!this.enabled) {
             throw new Error('AI Service is not configured.');
         }
 
+        const provider = this.getProvider(aiConfig);
+
         const prompt = [
             '[SYSTEM]',
             'あなたは会議から行動と次の議題を抽出するAIです。',
+            '',
+            this.buildUserContextBlock(participants, userContexts),
             '',
             '[CONTEXT]',
             '以下は議事録です：',
@@ -518,23 +609,27 @@ class AIService {
             '曖昧なものは含めない。'
         ].join('\n');
 
-        const result = await this.provider.generate(prompt);
+        const result = await provider.generate(prompt);
         return {
             result: String(result || '').trim(),
             prompt,
-            provider: this.provider.name
+            provider: provider.name
         };
     }
 
-    async generateCustomFromMinutes(minutesText, customInstruction) {
+    async generateCustomFromMinutes(minutesText, customInstruction, participants = [], userContexts = [], aiConfig = {}) {
         if (!this.enabled) {
             throw new Error('AI Service is not configured.');
         }
+
+        const provider = this.getProvider(aiConfig);
 
         const prompt = [
             '[SYSTEM]',
             'あなたは会議支援AIです。与えられた議事録だけを根拠に分析してください。',
             '生ログは使わず、議事録の内容だけを参照してください。',
+            '',
+            this.buildUserContextBlock(participants, userContexts),
             '',
             '[CONTEXT]',
             '以下は整理済み議事録です：',
@@ -544,11 +639,11 @@ class AIService {
             customInstruction || '議事録を整理してください。'
         ].join('\n');
 
-        const result = await this.provider.generate(prompt);
+        const result = await provider.generate(prompt);
         return {
             result: String(result || '').trim(),
             prompt,
-            provider: this.provider.name
+            provider: provider.name
         };
     }
 
@@ -662,7 +757,7 @@ class AIService {
         return results;
     }
 
-    async correctTranscript(targetUtterance, contextUtterances = []) {
+    async correctTranscript(targetUtterance, contextUtterances = [], aiConfig = {}) {
         if (!this.enabled) {
             return {
                 corrected: targetUtterance.transcript,
@@ -670,28 +765,79 @@ class AIService {
             };
         }
 
+        const provider = this.getProvider(aiConfig);
         const contextText = contextUtterances
             .map((u) => `${u.display_name}: ${u.transcript}`)
             .join('\n');
 
         const prompt = [
-            jp('\u4f1a\u8b70\u4e2d\u306e\u6587\u5b57\u8d77\u3053\u3057\u3092\u3001\u81ea\u7136\u306a\u65e5\u672c\u8a9e\u306b\u88dc\u6b63\u3057\u3066\u304f\u3060\u3055\u3044\u3002'),
-            jp('\u610f\u5473\u3092\u5909\u3048\u305a\u3001\u524d\u5f8c\u306e\u6587\u8108\u306b\u5408\u3046\u3088\u3046\u306b\u8aa4\u5909\u63db\u3060\u3051\u3092\u76f4\u3057\u3066\u304f\u3060\u3055\u3044\u3002'),
-            jp('\u51fa\u529b\u306f\u88dc\u6b63\u5f8c\u30c6\u30ad\u30b9\u30c8\u306e\u307f\u3067\u3001\u65e5\u672c\u8a9e\u672c\u6587\u3060\u3051\u3092\u8fd4\u3057\u3066\u304f\u3060\u3055\u3044\u3002'),
+            '会議中の文字起こしを、自然な日本語に補正してください。',
+            '意味を変えず、前後の文脈に合うように誤変換だけを直してください。',
+            '出力は補正後テキストのみで、日本語本文だけを返してください。',
             '',
-            jp('\u524d\u5f8c\u306e\u6587\u8108') + ':',
+            '前後の文脈:',
             contextText || '(none)',
             '',
-            jp('\u5bfe\u8c61\u306e\u6587\u5b57\u8d77\u3053\u3057') + ':',
+            '対象の文字起こし:',
             targetUtterance.raw_transcript || targetUtterance.transcript || ''
         ].join('\n');
 
-        const corrected = (await this.provider.generate(prompt)).trim();
+        const corrected = (await provider.generate(prompt)).trim();
         return {
             corrected: corrected || targetUtterance.transcript,
-            provider: this.provider.name,
+            provider: provider.name,
             prompt
         };
+    }
+
+    getProvider(options = {}) {
+        if (options.provider === 'groq') {
+            return new GroqProvider(process.env.GROQ_API_KEY, options.model || 'openai/gpt-oss-120b');
+        }
+        if (options.provider === 'gemini') {
+            return new GeminiProvider(process.env.GEMINI_API_KEY, options.model || 'gemini-2.5-flash');
+        }
+        return this.provider;
+    }
+
+    /**
+     * Layer B: Reconstruct fragmented utterances into coherent sentences.
+     * Handles pronoun resolution and sentence completion.
+     */
+    async reconstructSentences(utterances, participants = [], userContexts = [], aiConfig = {}) {
+        if (!this.enabled) return utterances;
+
+        const provider = this.getProvider(aiConfig);
+        const messages = this.toMinuteMessages(utterances);
+        const prompt = [
+            '[SYSTEM]',
+            'あなたは音声文字起こしログの校正エキスパートです。',
+            '断片的な発話ログを、意味の通じる一連の文章に再構成してください。',
+            '',
+            '[INSTRUCTION]',
+            '1. 指示語（これ、それ、あれ）を文脈から補完・解決する',
+            '2. 語尾の欠落や言い直しを自然な文章に整える',
+            '3. 重複する相槌（はい、ええ）を整理する',
+            '4. 専門用語（生物・昆虫系）の誤変換を文脈から推測して修正する',
+            '5. 話者ごとの個性を残しつつ、読みやすい書き言葉（です・ます、だ・であるは原文に合わせる）に整える',
+            '',
+            '[FORMAT]',
+            'JSON形式で、話者ごとの再構成済みテキストを返してください。',
+            '{ "reconstructed": [ { "speaker": "...", "text": "..." } ] }',
+            '',
+            this.buildUserContextBlock(participants, userContexts),
+            '[LOG]',
+            JSON.stringify({ messages }, null, 2)
+        ].join('\n');
+
+        const raw = await provider.generate(prompt);
+        try {
+            const parsed = safeJsonParse(raw);
+            return parsed.reconstructed || [];
+        } catch (e) {
+            console.warn('[AIService] Failed to parse reconstructed sentences, falling back to merged messages', e);
+            return messages;
+        }
     }
 
     async generateSpeakerActions(utterances, participants = []) {

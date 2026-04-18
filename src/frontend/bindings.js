@@ -2,6 +2,17 @@
     function bindAppEvents(handlers) {
         const { state } = window.AppState;
         const dom = window.AppDom;
+        const bindClick = (id, handler) => {
+            const element = document.getElementById(id);
+            if (element && handler) {
+                element.onclick = handler;
+            }
+        };
+        const bindEvent = (element, eventName, handler) => {
+            if (element && handler) {
+                element.addEventListener(eventName, handler);
+            }
+        };
         const {
             customAiInstruction,
             aiOutputEditor,
@@ -20,116 +31,128 @@
             memoModalOverlay,
             editModalTextarea,
             memoModalTextarea,
-            aiProviderSelect,
-            aiModelInput
+            aiProvider: aiProviderSelect
         } = dom;
 
-        document.getElementById('btn-create').onclick = handlers.createRoom;
-        document.getElementById('btn-join').onclick = handlers.joinRoom;
-        document.getElementById('btn-end').onclick = handlers.endRoom;
-        document.getElementById('btn-toggle-mute').onclick = handlers.toggleMute;
-        document.getElementById('btn-reconnect-mic').onclick = handlers.reconnectMic;
-        document.getElementById('btn-mobile-menu').onclick = handlers.toggleMobileMeetingMenu;
-        document.getElementById('btn-toggle-memory-panel').onclick = handlers.toggleMobileMemoryPanel;
-        document.getElementById('btn-toggle-ai-panel').onclick = handlers.toggleMobileAiPanel;
-        document.getElementById('btn-summary-mobile-menu').onclick = handlers.toggleSummaryMobileMenu;
-        document.getElementById('btn-toggle-summary-stats').onclick = handlers.toggleSummaryStats;
-        document.getElementById('btn-toggle-summary-sidebar').onclick = handlers.toggleSummarySidebar;
-        document.getElementById('btn-toggle-summary-ai-controls').onclick = handlers.toggleSummaryAiControls;
-        document.getElementById('btn-copy-room').onclick = handlers.copyRoomId;
-        document.getElementById('btn-download-final').onclick = handlers.downloadMinutes;
-        document.getElementById('btn-home').onclick = () => location.reload();
-        document.getElementById('btn-memo').onclick = handlers.addMemo;
-        document.getElementById('btn-save').onclick = handlers.downloadMinutes;
-        document.getElementById('btn-jump-latest').onclick = () => handlers.scrollLogToLatest(dom.timeline);
-        document.getElementById('tab-log').onclick = () => handlers.switchTab('log');
-        document.getElementById('tab-ai').onclick = () => handlers.switchTab('ai');
-        document.getElementById('tab-minutes').onclick = () => handlers.switchTab('minutes');
-        document.getElementById('btn-ai-copy').onclick = handlers.copyAiWorkspaceResult;
-        document.getElementById('btn-ai-download').onclick = handlers.downloadAiWorkspaceResult;
-        document.getElementById('btn-run-minutes').onclick = handlers.runMinutesGeneration;
-        document.getElementById('btn-minutes-copy').onclick = handlers.copyMinutesResult;
-        document.getElementById('btn-minutes-download').onclick = handlers.downloadMinutesResult;
-        document.getElementById('btn-run-summary').onclick = handlers.runSummaryInsights;
-        document.getElementById('btn-run-actions').onclick = handlers.runActionInsights;
-        document.getElementById('btn-custom-generate').onclick = handlers.generateCustomAiResult;
-        document.getElementById('btn-mic-check').onclick = handlers.runMicCheck;
-        document.getElementById('btn-scroll-top').onclick = () => handlers.scrollToPageEdge('top');
-        document.getElementById('btn-scroll-bottom').onclick = () => handlers.scrollToPageEdge('bottom');
-        document.getElementById('btn-clear-search').onclick = handlers.clearSearch;
-        document.getElementById('summary-clear-search').onclick = handlers.clearSearch;
-        document.getElementById('btn-close-edit-modal').onclick = () => handlers.closeTranscriptModal();
-        document.getElementById('btn-cancel-edit-modal').onclick = () => handlers.closeTranscriptModal();
-        document.getElementById('btn-save-edit-modal').onclick = handlers.saveTranscriptFromModal;
-        document.getElementById('btn-close-memo-modal').onclick = () => handlers.closeMemoModal();
-        document.getElementById('btn-cancel-memo-modal').onclick = () => handlers.closeMemoModal();
-        document.getElementById('btn-save-memo-modal').onclick = handlers.saveMemoFromModal;
+        bindClick('btn-create', handlers.createRoom);
+        bindClick('btn-join', handlers.joinRoom);
+        bindClick('btn-end', handlers.endRoom);
+        bindClick('btn-toggle-mute', handlers.toggleMute);
+        bindClick('btn-reconnect-mic', handlers.reconnectMic);
+        bindClick('btn-mobile-menu', handlers.toggleMobileMeetingMenu);
+        bindClick('btn-toggle-memory-panel', handlers.toggleMobileMemoryPanel);
+        bindClick('btn-toggle-ai-panel', handlers.toggleMobileAiPanel);
+        bindClick('btn-summary-mobile-menu', handlers.toggleSummaryMobileMenu);
+        bindClick('btn-toggle-summary-stats', handlers.toggleSummaryStats);
+        bindClick('btn-toggle-summary-sidebar', handlers.toggleSummarySidebar);
+        bindClick('btn-toggle-summary-ai-controls', handlers.toggleSummaryAiControls);
+        bindClick('btn-copy-room', handlers.copyRoomId);
+        bindClick('btn-download-final', handlers.downloadMinutes);
+        bindClick('btn-home', () => location.reload());
+        bindClick('btn-memo', handlers.addMemo);
+        bindClick('btn-dict-add', handlers.addDictionaryTerm);
+        bindClick('btn-save', handlers.downloadMinutes);
+        bindClick('btn-jump-latest', () => handlers.scrollLogToLatest(dom.timeline));
+        bindClick('tab-log', () => handlers.switchTab('log'));
+        bindClick('tab-ai', () => handlers.switchTab('ai'));
+        bindClick('tab-minutes', () => handlers.switchTab('minutes'));
+        bindClick('btn-ai-copy', handlers.copyAiWorkspaceResult);
+        bindClick('btn-ai-download', handlers.downloadAiWorkspaceResult);
+        bindClick('btn-run-minutes', handlers.runMinutesGeneration);
+        bindClick('btn-minutes-copy', handlers.copyMinutesResult);
+        bindClick('btn-minutes-download', handlers.downloadMinutesResult);
+        bindClick('btn-run-summary', handlers.runSummaryInsights);
+        bindClick('btn-run-actions', handlers.runActionInsights);
+        bindClick('btn-custom-generate', handlers.generateCustomAiResult);
+        bindClick('btn-mic-check', handlers.runMicCheck);
+        bindClick('btn-scroll-top', () => handlers.scrollToPageEdge('top'));
+        bindClick('btn-scroll-bottom', () => handlers.scrollToPageEdge('bottom'));
+        bindClick('btn-clear-search', handlers.clearSearch);
+        bindClick('summary-clear-search', handlers.clearSearch);
+        bindClick('btn-close-edit-modal', () => handlers.closeTranscriptModal());
+        bindClick('btn-cancel-edit-modal', () => handlers.closeTranscriptModal());
+        bindClick('btn-save-edit-modal', handlers.saveTranscriptFromModal);
+        bindClick('btn-close-memo-modal', () => handlers.closeMemoModal());
+        bindClick('btn-cancel-memo-modal', () => handlers.closeMemoModal());
+        bindClick('btn-save-memo-modal', handlers.saveMemoFromModal);
 
-        setupMicSensitivity.addEventListener('change', (event) => handlers.setMicSensitivity(event.target.value));
-        meetingMicSensitivity.addEventListener('change', (event) => handlers.setMicSensitivity(event.target.value));
-        setupMicMinThreshold?.addEventListener('input', () => handlers.syncMicThresholdsFromUi('setup'));
-        setupMicMaxThreshold?.addEventListener('input', () => handlers.syncMicThresholdsFromUi('setup'));
-        meetingMicMinThreshold?.addEventListener('input', () => handlers.syncMicThresholdsFromUi('meeting'));
-        meetingMicMaxThreshold?.addEventListener('input', () => handlers.syncMicThresholdsFromUi('meeting'));
+        bindEvent(setupMicSensitivity, 'change', (event) => handlers.setMicSensitivity(event.target.value));
+        bindEvent(meetingMicSensitivity, 'change', (event) => handlers.setMicSensitivity(event.target.value));
+        bindEvent(setupMicMinThreshold, 'input', () => handlers.syncMicThresholdsFromUi('setup'));
+        bindEvent(setupMicMaxThreshold, 'input', () => handlers.syncMicThresholdsFromUi('setup'));
+        bindEvent(meetingMicMinThreshold, 'input', () => handlers.syncMicThresholdsFromUi('meeting'));
+        bindEvent(meetingMicMaxThreshold, 'input', () => handlers.syncMicThresholdsFromUi('meeting'));
+        document.querySelectorAll('[data-mic-preset]').forEach((button) => {
+            bindEvent(button, 'click', () => handlers.applyMicPreset(button.dataset.micPreset));
+        });
 
         Object.entries(meetingAiButtons).forEach(([key, button]) => {
-            button.onclick = () => handlers.runMeetingAnalysis(key);
+            if (button) {
+                button.onclick = () => handlers.runMeetingAnalysis(key);
+            }
         });
 
-        editModalOverlay.addEventListener('click', (event) => {
+        bindEvent(editModalOverlay, 'click', (event) => {
             if (event.target === editModalOverlay) handlers.closeTranscriptModal();
         });
-        memoModalOverlay.addEventListener('click', (event) => {
+        bindEvent(memoModalOverlay, 'click', (event) => {
             if (event.target === memoModalOverlay) handlers.closeMemoModal();
         });
-        editModalTextarea.addEventListener('input', (event) => {
+        bindEvent(editModalTextarea, 'input', (event) => {
             if (!state.activeModalUtteranceId) return;
             state.transcriptDrafts[state.activeModalUtteranceId] = event.target.value;
         });
-        memoModalTextarea.addEventListener('input', (event) => {
+        bindEvent(memoModalTextarea, 'input', (event) => {
             if (!state.activeMemoUtteranceId) return;
             state.noteDrafts[state.activeMemoUtteranceId] = event.target.value;
         });
 
-        aiProviderSelect.onchange = (event) => {
-            state.aiProvider = event.target.value;
-            aiModelInput.value = 'gemini-2.5-pro';
-            state.aiModel = aiModelInput.value;
-        };
-        aiModelInput.oninput = (event) => {
-            state.aiModel = event.target.value;
-        };
-        customAiInstruction.addEventListener('input', (event) => {
+        if (aiProviderSelect) {
+            aiProviderSelect.onchange = (event) => {
+                const provider = event.target.value;
+                state.aiProvider = provider;
+                state.aiModel = provider === 'groq' ? 'openai/gpt-oss-120b' : 'gemini-2.5-flash';
+                localStorage.setItem('ai_provider', state.aiProvider);
+                localStorage.setItem('ai_model', state.aiModel);
+            };
+        }
+        bindEvent(customAiInstruction, 'input', (event) => {
             state.aiWorkspace.instruction = event.target.value;
         });
-        aiOutputEditor.addEventListener('input', (event) => {
+        bindEvent(aiOutputEditor, 'input', (event) => {
             state.aiWorkspace.result = event.target.value;
             state.aiWorkspace.savedAt = null;
         });
-        minutesOutputEditor.addEventListener('input', (event) => {
+        bindEvent(minutesOutputEditor, 'input', (event) => {
             state.minutesWorkspace.result = event.target.value;
         });
         Object.entries(meetingAiEditors).forEach(([key, editor]) => {
-            editor.addEventListener('input', (event) => {
+            bindEvent(editor, 'input', (event) => {
                 state.liveMeetingAnalysis.outputs[key] = event.target.value;
             });
         });
 
         filterInputs.forEach((input) => {
-            input.addEventListener('input', () => {
+            bindEvent(input, 'input', () => {
                 state.filters.query = input.value;
                 handlers.syncFilterControls();
                 handlers.renderAllLogs();
             });
         });
         filterButtons.starred.forEach((button) => {
-            button.onclick = () => handlers.toggleFilter('starredOnly');
+            if (button) {
+                button.onclick = () => handlers.toggleFilter('starredOnly');
+            }
         });
         filterButtons.mine.forEach((button) => {
-            button.onclick = () => handlers.toggleFilter('mineOnly');
+            if (button) {
+                button.onclick = () => handlers.toggleFilter('mineOnly');
+            }
         });
         filterButtons.noted.forEach((button) => {
-            button.onclick = () => handlers.toggleFilter('notedOnly');
+            if (button) {
+                button.onclick = () => handlers.toggleFilter('notedOnly');
+            }
         });
     }
 

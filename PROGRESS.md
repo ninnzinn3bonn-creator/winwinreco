@@ -326,3 +326,52 @@
     - `node --check src/frontend/main.js`
     - `node --check src/frontend/utils.js`
     - `npm test -- --runInBand`
+
+## 26. フロント起動不能の修正と束縛の防御強化 (2026-04-16)
+- **起動不能の根本原因を修正**:
+    - `src/frontend/debug.js` の `const DebugMonitor` と、`src/frontend/main.js` で追加した同名 `const DebugMonitor` がブラウザで衝突し、`main.js` 全体が実行されない状態になっていた。
+    - `main.js` 側は `AppDebug` に改名し、`window.DebugMonitor` への委譲に変更した。
+- **イベント束縛を防御的に変更**:
+    - `src/frontend/bindings.js` に `bindClick` / `bindEvent` を追加し、要素が存在しない場合でも束縛全体が止まらないようにした。
+    - ボタン、スライダー、モーダル、フィルタ、AI入力欄の束縛はすべて null-safe にした。
+- **今回の確認**:
+    - `node --check src/frontend/main.js`
+    - `node --check src/frontend/bindings.js`
+    - `npm test -- --runInBand`
+
+## 27. Gemini フォールバックと会議終了後の自動議事録生成修正 (2026-04-16)
+- **Gemini の自動フォールバックを追加**:
+    - `gemini-2.5-pro` が quota / 429 / unsupported で失敗したとき、`gemini-2.5-flash`、`gemini-2.5-flash-lite`、`gemini-2.0-flash` に順次フォールバックするようにした。
+    - フロント既定モデルも `gemini-2.5-flash` に変更した。
+- **会議終了後の自動共有生成を追加**:
+    - 会議終了APIで room を閉じた直後に、バックグラウンドで `議事録 -> 要約 -> TODO` を順に生成するようにした。
+    - 既存の `insights_status` とポーリング表示をそのまま利用して、会議後画面で自動生成結果を拾える構成にした。
+- **共有AIルートを整理**:
+    - `shared-ai` の手動生成経路も内部的に同じ生成関数を使うように統一した。
+    - 途中で壊れていた `custom-ai` / `shared-ai` / `end` ルートの並びを復旧した。
+- **今回の確認**:
+    - `node --check src/backend/app.js`
+    - `node --check src/backend/services/ai-service.js`
+    - `npm test -- --runInBand`
+
+## 28. 会議後AIの自動表示強化とマイクプリセットUI改善 (2026-04-16)
+- **会議後AI結果を見えやすく修正**:
+    - `GET /rooms/:id/insights` で取得した共有 `要約 / TODO / 議事録` を、そのまま会議後ワークスペースへ反映するようにした。
+    - これにより、会議終了後の自動生成結果が「生成はされたがエディタが空に見える」状態を避けやすくした。
+    - 会議後画面を開いたときに、保存済みカスタム結果で共有結果を上書きしないように整理した。
+- **Gemini 既定モデルを Flash 前提へ統一**:
+    - バックエンドの既定モデルを `gemini-2.5-flash` に変更した。
+    - 環境変数で以前の `gemini-2.5-pro` が残っていても、明示指定でない限り `flash` を優先するようにした。
+- **マイク確認UIを利用シーンベースへ改善**:
+    - `src/frontend/mic-presets.js` を追加し、`スマホ本体 / ピンマイク / 反響のある部屋 / 大人数 / 有線ヘッドセット` のプリセットをアセットとして切り出した。
+    - 参加前画面に「利用シーンを選ぶ」「マイクを確認する」「必要なら微調整する」の3ステップを追加した。
+    - 各プリセットごとに、推奨環境、設置のコツ、運用上の注意、想定環境チェックを表示するようにした。
+- **マイク設定をプリセットと連動**:
+    - プリセット選択で `echoCancellation / noiseSuppression / autoGainControl` と `最小 / 最大閾値` をまとめて反映するようにした。
+    - 会議中メニューにも現在のプリセット表示と切り替えボタンを追加した。
+- **今回の確認**:
+    - `node --check src/frontend/main.js`
+    - `node --check src/frontend/utils.js`
+    - `node --check src/backend/app.js`
+    - `node --check src/backend/services/ai-service.js`
+    - `npm test -- --runInBand`

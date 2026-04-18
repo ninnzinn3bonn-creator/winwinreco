@@ -29,7 +29,7 @@ async function enrichParticipantsWithProfiles(participantRepo, userRepo, roomId)
     }));
 }
 
-function collectSpeechHints(participants = []) {
+function collectSpeechHints(participants = [], dictionaryTerms = []) {
     const phrases = new Set();
 
     participants.forEach((participant) => {
@@ -46,7 +46,12 @@ function collectSpeechHints(participants = []) {
             .forEach((token) => phrases.add(token));
     });
 
-    return Array.from(phrases).slice(0, 40);
+    dictionaryTerms.forEach((item) => {
+        if (item.term) phrases.add(item.term.trim());
+        if (item.reading) phrases.add(item.reading.trim());
+    });
+
+    return Array.from(phrases).slice(0, 100);
 }
 
 function generateControlToken() {
@@ -58,7 +63,7 @@ function createApp(repositories = {}) {
     app.use(express.json());
     app.use(express.static('src/frontend'));
 
-    const { roomRepo, participantRepo, utteranceRepo, analysisRepo, actionRepo, userRepo, userContextRepo, aiService } = repositories;
+    const { roomRepo, participantRepo, utteranceRepo, analysisRepo, actionRepo, userRepo, userContextRepo, dictionaryRepo, aiService } = repositories;
 
     async function authorizeParticipant(roomId, participantId, controlToken) {
         if (!participantRepo || !participantId || !controlToken) {
@@ -110,6 +115,110 @@ function createApp(repositories = {}) {
         };
     }
 
+    async function generateSharedAiResult(roomId, type) {
+        const room = await roomRepo.findById(roomId);
+        if (!room) {
+            throw new Error('Room not found');
+        }
+
+        const aiConfig = {
+            provider: room.ai_provider || 'groq',
+            model: room.ai_model || 'openai/gpt-oss-120b'
+        };
+
+        const participants = await enrichParticipantsWithProfiles(participantRepo, userRepo, roomId);
+        const userIds = participants.map((item) => item.user_id).filter(Boolean);
+        const userContexts = userContextRepo ? await userContextRepo.findByUserIds(userIds) : [];
+
+        if (type === 'minutes') {
+            const utterances = await utteranceRepo.findByRoomIdWithParticipants(roomId);
+            const generated = await aiService.generateMinutesFromTranscript(utterances, {
+                roomId,
+                date: new Date().toLocaleString('ja-JP'),
+                title: `ルーム ${roomId}`
+            }, participants, userContexts, aiConfig);
+
+            const updatedRoom = await roomRepo.updateInsights(roomId, {
+                minutes_text: generated.result
+            });
+
+            return {
+                type,
+                result: generated.result,
+                updated_at: updatedRoom?.minutes_updated_at || null
+            };
+        }
+
+        const latestRoom = await roomRepo.findById(roomId);
+        const minutesText = String(latestRoom?.minutes_text || '').trim();
+        if (!minutesText) {
+            throw new Error('Minutes must be generated first');
+        }
+
+        if (type === 'summary') {
+            const generated = await aiService.generateSummaryFromMinutes(minutesText, participants, userContexts, aiConfig);
+            const updatedRoom = await roomRepo.updateInsights(roomId, {
+                summary_text: generated.result,
+                insights_dirty: false
+            });
+            return {
+                type,
+                result: generated.result,
+                updated_at: updatedRoom?.summary_updated_at || null
+            };
+        }
+
+        if (type === 'todo') {
+            const generated = await aiService.generateTodoFromMinutes(minutesText, participants, userContexts, aiConfig);
+            const updatedRoom = await roomRepo.updateInsights(roomId, {
+                todo_text: generated.result
+            });
+            return {
+                type,
+                result: generated.result,
+                updated_at: updatedRoom?.todo_updated_at || null
+            };
+        }
+
+        throw new Error('Unsupported shared AI type');
+    }
+
+    async function triggerAutomaticMeetingOutputs(roomId) {
+        if (!roomRepo || !participantRepo || !utteranceRepo || !aiService || !aiService.enabled) {
+            return;
+        }
+
+        try {
+            await roomRepo.updateInsights(roomId, {
+                insights_status: 'processing'
+            });
+
+            const utterances = await utteranceRepo.findByRoomIdWithParticipants(roomId);
+            if (!utterances.length) {
+                await roomRepo.updateInsights(roomId, {
+                    insights_status: 'ready',
+                    insights_dirty: false
+                });
+                return;
+            }
+
+            await generateSharedAiResult(roomId, 'minutes');
+            await generateSharedAiResult(roomId, 'summary');
+            await generateSharedAiResult(roomId, 'todo');
+
+            await roomRepo.updateInsights(roomId, {
+                insights_status: 'ready',
+                insights_dirty: false
+            });
+        } catch (error) {
+            console.error('[Shared AI] Automatic generation failed', error);
+            await roomRepo.updateInsights(roomId, {
+                insights_status: 'error',
+                insights_dirty: true
+            });
+        }
+    }
+
     async function generateInsightsForRoom(roomId, aiConfig = null) {
         if (!roomRepo || !utteranceRepo || !participantRepo || !actionRepo) {
             throw new Error('Repositories required for insight generation are unavailable');
@@ -121,8 +230,10 @@ function createApp(repositories = {}) {
             activeAiService = new AIServiceClass({
                 provider: aiConfig.provider,
                 geminiModel: aiConfig.provider === 'gemini' ? aiConfig.model : null,
+                groqModel: aiConfig.provider === 'groq' ? aiConfig.model : null,
                 ollamaModel: aiConfig.provider === 'ollama' ? aiConfig.model : null,
-                apiKey: process.env.GEMINI_API_KEY
+                apiKey: process.env.GEMINI_API_KEY,
+                groqApiKey: process.env.GROQ_API_KEY
             });
         }
 
@@ -228,6 +339,123 @@ function createApp(repositories = {}) {
             gemini_ai: !!process.env.GEMINI_API_KEY && process.env.GEMINI_API_KEY !== 'dummy'
         };
         res.status(200).json(status);
+    });
+
+    // Dictionary API
+    app.get('/api/dictionary', async (req, res) => {
+        try {
+            if (!dictionaryRepo) return res.status(503).json({ error: 'Dictionary repo unavailable' });
+            const terms = await dictionaryRepo.findAll();
+            res.status(200).json(terms);
+        } catch (error) {
+            console.error(error);
+            res.status(500).json({ error: 'Failed to fetch dictionary' });
+        }
+    });
+
+    app.post('/api/dictionary', async (req, res) => {
+        try {
+            if (!dictionaryRepo) return res.status(503).json({ error: 'Dictionary repo unavailable' });
+            const { label, term, reading } = req.body;
+            if (!term) return res.status(400).json({ error: 'term is required' });
+            const id = `d-${Date.now()}-${Math.floor(Math.random() * 1000)}`;
+            const added = await dictionaryRepo.add({ id, label: label || '', term, reading: reading || '' });
+            res.status(201).json(added);
+        } catch (error) {
+            console.error(error);
+            res.status(500).json({ error: 'Failed to add term' });
+        }
+    });
+
+    app.delete('/api/dictionary/:id', async (req, res) => {
+        try {
+            if (!dictionaryRepo) return res.status(503).json({ error: 'Dictionary repo unavailable' });
+            await dictionaryRepo.delete(req.params.id);
+            res.status(200).json({ success: true });
+        } catch (error) {
+            console.error(error);
+            res.status(500).json({ error: 'Failed to delete term' });
+        }
+    });
+
+    app.post('/rooms', async (req, res) => {
+        try {
+            const ownerId = String(req.body?.owner_id || '').trim();
+            if (!ownerId) {
+                return res.status(400).json({ error: 'owner_id is required' });
+            }
+
+            let roomId = '';
+            do {
+                roomId = generateShortRoomId();
+            } while (await roomRepo.findById(roomId));
+
+            await roomRepo.create({
+                id: roomId,
+                owner_id: ownerId
+            });
+
+            res.status(201).json({ id: roomId });
+        } catch (error) {
+            console.error(error);
+            res.status(500).json({ error: 'Failed to create room' });
+        }
+    });
+
+    app.post('/rooms/:id/join', async (req, res) => {
+        try {
+            const { id: roomId } = req.params;
+            const { user_id, display_name, location_id = 'web-browser', profile_text = '', ai_config } = req.body || {};
+
+            const room = await roomRepo.findById(roomId);
+            if (!room) {
+                return res.status(404).json({ error: 'Room not found' });
+            }
+
+            const normalizedUserId = String(user_id || '').trim();
+            const normalizedDisplayName = String(display_name || '').trim();
+            if (!normalizedUserId || !normalizedDisplayName) {
+                return res.status(400).json({ error: 'user_id and display_name are required' });
+            }
+
+            if (userRepo) {
+                const existingUser = await userRepo.findById(normalizedUserId);
+                const nextProfileText = String(profile_text || '').trim();
+                await userRepo.upsert({
+                    id: normalizedUserId,
+                    name: normalizedDisplayName,
+                    profile_text: nextProfileText || existingUser?.profile_text || ''
+                });
+            }
+
+            const participantId = `p-${Date.now()}-${Math.floor(Math.random() * 1000)}`;
+            const controlToken = generateControlToken();
+
+            await participantRepo.join({
+                id: participantId,
+                room_id: roomId,
+                user_id: normalizedUserId,
+                display_name: normalizedDisplayName,
+                control_token: controlToken,
+                location_id
+            });
+
+            const joinedParticipant = await participantRepo.findById(participantId);
+            const isHost = normalizedUserId === room.owner_id;
+
+            if (isHost && ai_config) {
+                await roomRepo.updateAiConfig(roomId, ai_config.provider, ai_config.model);
+            }
+
+            res.status(201).json({
+                ...joinedParticipant,
+                control_token: controlToken,
+                is_host: isHost
+            });
+        } catch (error) {
+            console.error(error);
+            res.status(500).json({ error: 'Failed to join room' });
+        }
     });
 
     app.get('/rooms/:id/logs', async (req, res) => {
@@ -447,7 +675,13 @@ function createApp(repositories = {}) {
             const contextLogs = roomLogs.filter((_, index) => Math.abs(index - currentIndex) <= 2);
             const target = roomLogs[currentIndex];
 
-            const correction = await aiService.correctTranscript(target, contextLogs);
+            const room = await roomRepo.findById(roomId);
+            const aiConfig = {
+                provider: room?.ai_provider || 'groq',
+                model: room?.ai_model || 'openai/gpt-oss-120b'
+            };
+
+            const correction = await aiService.correctTranscript(target, contextLogs, aiConfig);
             const updated = await utteranceRepo.updateMemory(utteranceId, {
                 transcript: correction.corrected,
                 transcript_source: 'ai'
@@ -475,8 +709,10 @@ function createApp(repositories = {}) {
                 activeAiService = new AIServiceClass({
                     provider: ai_config.provider,
                     geminiModel: ai_config.provider === 'gemini' ? ai_config.model : null,
+                    groqModel: ai_config.provider === 'groq' ? ai_config.model : null,
                     ollamaModel: ai_config.provider === 'ollama' ? ai_config.model : null,
-                    apiKey: process.env.GEMINI_API_KEY
+                    apiKey: process.env.GEMINI_API_KEY,
+                    groqApiKey: process.env.GROQ_API_KEY
                 });
             }
 
@@ -487,11 +723,17 @@ function createApp(repositories = {}) {
             const targets = roomLogs.filter((log) => log.transcript_source !== 'user');
             const updatedLogs = [];
 
+            const room = await roomRepo.findById(roomId);
+            const aiConfig = {
+                provider: room?.ai_provider || 'groq',
+                model: room?.ai_model || 'openai/gpt-oss-120b'
+            };
+
             for (let index = 0; index < targets.length; index += 1) {
                 const target = targets[index];
                 const currentIndex = roomLogs.findIndex((log) => log.id === target.id);
                 const contextLogs = roomLogs.filter((_, ctxIndex) => Math.abs(ctxIndex - currentIndex) <= 2);
-                const correction = await activeAiService.correctTranscript(target, contextLogs);
+                const correction = await aiService.correctTranscript(target, contextLogs, aiConfig);
                 const updated = await utteranceRepo.updateMemory(target.id, {
                     transcript: correction.corrected,
                     transcript_source: 'ai'
@@ -506,65 +748,7 @@ function createApp(repositories = {}) {
             });
         } catch (error) {
             console.error(error);
-            res.status(500).json({ error: 'Failed to run bulk correction' });
-        }
-    });
-
-    // POST /rooms - Create a new room
-    app.post('/rooms', async (req, res) => {
-        try {
-            const { owner_id } = req.body;
-            let roomId = '';
-            let exists = true;
-            while (exists) {
-                roomId = generateShortRoomId();
-                exists = !!(await roomRepo.findById(roomId));
-            }
-            const room = { id: roomId, owner_id };
-            
-            await roomRepo.create(room);
-            const createdRoom = await roomRepo.findById(roomId);
-            
-            res.status(201).json(createdRoom);
-        } catch (error) {
-            console.error(error);
-            res.status(500).json({ error: 'Failed to create room' });
-        }
-    });
-
-    // POST /rooms/:id/join - Join a room
-    app.post('/rooms/:id/join', async (req, res) => {
-        try {
-            const { id: roomId } = req.params;
-            const { user_id, display_name, location_id, profile_text = '' } = req.body;
-
-            const room = await roomRepo.findById(roomId);
-            if (!room || room.status !== 'active') {
-                return res.status(404).json({ error: 'Room not found or inactive' });
-            }
-
-            let resolvedUserId = user_id || null;
-            if (resolvedUserId && userRepo) {
-                const existingUser = await userRepo.findById(resolvedUserId);
-                const nextProfileText = profile_text.trim() || existingUser?.profile_text || '';
-                await userRepo.upsert({ id: resolvedUserId, name: display_name, profile_text: nextProfileText });
-            }
-
-            const participantId = `p-${Date.now()}-${Math.floor(Math.random() * 1000)}`;
-            const controlToken = generateControlToken();
-            const participant = { id: participantId, room_id: roomId, user_id: resolvedUserId, display_name, control_token: controlToken, location_id };
-            
-            await participantRepo.join(participant);
-            const joinedParticipant = await participantRepo.findById(participantId);
-
-            res.status(201).json({
-                ...joinedParticipant,
-                control_token: controlToken,
-                is_host: !!resolvedUserId && room.owner_id === resolvedUserId
-            });
-        } catch (error) {
-            console.error(error);
-            res.status(500).json({ error: 'Failed to join room' });
+            res.status(500).json({ error: 'Failed to correct transcripts' });
         }
     });
 
@@ -592,7 +776,21 @@ function createApp(repositories = {}) {
                 return res.status(409).json({ error: 'Minutes must be generated first' });
             }
 
-            const generated = await aiService.generateCustomFromMinutes(minutesText, instruction);
+            const aiConfig = {
+                provider: room.ai_provider || 'groq',
+                model: room.ai_model || 'openai/gpt-oss-120b'
+            };
+
+            const [participants, userContexts] = await Promise.all([
+                enrichParticipantsWithProfiles(participantRepo, userRepo, roomId),
+                (async () => {
+                    const roomParticipants = await participantRepo.findByRoomId(roomId);
+                    const userIds = roomParticipants.map((item) => item.user_id).filter(Boolean);
+                    return userContextRepo ? await userContextRepo.findByUserIds(userIds) : [];
+                })()
+            ]);
+
+            const generated = await aiService.generateCustomFromMinutes(minutesText, instruction, participants, userContexts, aiConfig);
             res.status(200).json({
                 result: generated.result,
                 provider: generated.provider
@@ -626,62 +824,15 @@ function createApp(repositories = {}) {
                 return res.status(403).json({ error: 'Only the host can generate shared AI results' });
             }
 
-            const participants = await enrichParticipantsWithProfiles(participantRepo, userRepo, roomId);
-            const userIds = participants.map((item) => item.user_id).filter(Boolean);
-            const userContexts = userContextRepo ? await userContextRepo.findByUserIds(userIds) : [];
-
-            if (type === 'minutes') {
-                const utterances = await utteranceRepo.findByRoomIdWithParticipants(roomId);
-                const generated = await aiService.generateMinutesFromTranscript(utterances, {
-                    roomId,
-                    date: new Date().toLocaleString('ja-JP'),
-                    title: `ルーム ${roomId}`
-                }, participants, userContexts);
-
-                await roomRepo.updateInsights(roomId, {
-                    minutes_text: generated.result
-                });
-
-                return res.status(200).json({
-                    type,
-                    result: generated.result,
-                    updated_at: (await roomRepo.findById(roomId))?.minutes_updated_at || null
-                });
-            }
-
-            const latestRoom = await roomRepo.findById(roomId);
-            const minutesText = String(latestRoom?.minutes_text || '').trim();
-            if (!minutesText) {
-                return res.status(409).json({ error: 'Minutes must be generated first' });
-            }
-
-            if (type === 'summary') {
-                const generated = await aiService.generateSummaryFromMinutes(minutesText);
-                await roomRepo.updateInsights(roomId, {
-                    summary_text: generated.result,
-                    insights_dirty: false
-                });
-                return res.status(200).json({
-                    type,
-                    result: generated.result,
-                    updated_at: (await roomRepo.findById(roomId))?.summary_updated_at || null
-                });
-            }
-
-            if (type === 'todo') {
-                const generated = await aiService.generateTodoFromMinutes(minutesText);
-                await roomRepo.updateInsights(roomId, {
-                    todo_text: generated.result
-                });
-                return res.status(200).json({
-                    type,
-                    result: generated.result,
-                    updated_at: (await roomRepo.findById(roomId))?.todo_updated_at || null
-                });
-            }
-
-            return res.status(400).json({ error: 'Unsupported shared AI type' });
+            const generated = await generateSharedAiResult(roomId, type);
+            return res.status(200).json(generated);
         } catch (error) {
+            if (error.message === 'Minutes must be generated first') {
+                return res.status(409).json({ error: error.message });
+            }
+            if (error.message === 'Unsupported shared AI type') {
+                return res.status(400).json({ error: error.message });
+            }
             console.error(error);
             res.status(500).json({ error: 'Failed to generate shared AI result' });
         }
@@ -710,7 +861,6 @@ function createApp(repositories = {}) {
             await roomRepo.endRoom(roomId);
             const endedRoom = await roomRepo.findById(roomId);
 
-            // Notify all clients in this room via WebSocket
             const wss = repositories.wss;
             let notifiedCount = 0;
             if (wss && wss.rooms && wss.rooms.has(roomId)) {
@@ -724,6 +874,11 @@ function createApp(repositories = {}) {
                 }
             }
             console.log(`[Room End] Room ${roomId} ended. Notified ${notifiedCount} clients.`);
+
+            setTimeout(() => {
+                triggerAutomaticMeetingOutputs(roomId)
+                    .catch((generationError) => console.error('[Shared AI] Auto generation scheduling failed', generationError));
+            }, 0);
 
             res.status(200).json({ ...endedRoom, notified: notifiedCount });
         } catch (error) {
@@ -797,7 +952,15 @@ function createApp(repositories = {}) {
     app.post('/rooms/:id/analyze', async (req, res) => {
         try {
             const { id: roomId } = req.params;
-            const { type, instruction, last_timestamp, current_tree, ai_config } = req.body;
+            const { type, instruction, last_timestamp, current_tree, ai_config: reqAiConfig } = req.body;
+
+            const room = await roomRepo.findById(roomId);
+            if (!room) return res.status(404).json({ error: 'Room not found' });
+
+            const aiConfig = {
+                provider: room.ai_provider || reqAiConfig?.provider || 'groq',
+                model: room.ai_model || reqAiConfig?.model || 'openai/gpt-oss-120b'
+            };
             
             // Fetch utterances for context (all or only new ones)
             let utterances;
@@ -815,14 +978,16 @@ function createApp(repositories = {}) {
 
             // Decide which AI service/config to use
             let activeAiService = aiService;
-            if (ai_config && ai_config.provider) {
+            if (reqAiConfig && reqAiConfig.provider) {
                 const { AIService: AIServiceClass } = require('./services/ai-service');
                 // Create a temporary service instance with the requested config
                 activeAiService = new AIServiceClass({
-                    provider: ai_config.provider,
-                    geminiModel: ai_config.provider === 'gemini' ? ai_config.model : null,
-                    ollamaModel: ai_config.provider === 'ollama' ? ai_config.model : null,
-                    apiKey: process.env.GEMINI_API_KEY
+                    provider: reqAiConfig.provider,
+                    geminiModel: reqAiConfig.provider === 'gemini' ? reqAiConfig.model : null,
+                    groqModel: reqAiConfig.provider === 'groq' ? reqAiConfig.model : null,
+                    ollamaModel: reqAiConfig.provider === 'ollama' ? reqAiConfig.model : null,
+                    apiKey: process.env.GEMINI_API_KEY,
+                    groqApiKey: process.env.GROQ_API_KEY
                 });
             }
 
@@ -864,7 +1029,7 @@ function createApp(repositories = {}) {
 }
 
 function setupWebSocket(server, repositories = {}) {
-    const { participantRepo, utteranceRepo, audioProcessor, sttService, userRepo } = repositories;
+    const { participantRepo, utteranceRepo, audioProcessor, sttService, userRepo, dictionaryRepo } = repositories;
     const wss = new WebSocketServer({ server });
     const mergeWindowMs = 4500;
     
@@ -922,8 +1087,14 @@ function setupWebSocket(server, repositories = {}) {
                 ws.validated = true;
                 ws.validating = false;
 
-                const roomParticipants = await enrichParticipantsWithProfiles(participantRepo, userRepo, ws.roomId);
-                ws.speechHints = collectSpeechHints(roomParticipants);
+                const [roomParticipants, dictionaryTerms] = await Promise.all([
+                    enrichParticipantsWithProfiles(participantRepo, userRepo, ws.roomId),
+                    dictionaryRepo ? dictionaryRepo.findAll() : []
+                ]);
+                ws.speechHints = collectSpeechHints(roomParticipants, dictionaryTerms);
+                if (ws.speechHints.length > 0) {
+                    console.log(`[WS] Collected ${ws.speechHints.length} speech hints for participant ${participantId}: ${ws.speechHints.slice(0, 5).join(', ')}${ws.speechHints.length > 5 ? '...' : ''}`);
+                }
 
                 if (!wss.rooms.has(ws.roomId)) {
                     wss.rooms.set(ws.roomId, new Set());
@@ -1024,7 +1195,7 @@ function setupWebSocket(server, repositories = {}) {
         const startSTTStream = () => {
             if (sttStream || !sttService) return;
             
-            console.log(`[STT] Starting new stream for participant ${participantId}`);
+            console.log(`[STT] Starting new stream for participant ${participantId} with ${ws.speechHints?.length || 0} hints`);
             sttStream = sttService.createStream(
                 async (transcript) => {
                     try {
@@ -1039,6 +1210,16 @@ function setupWebSocket(server, repositories = {}) {
                         ws.send(JSON.stringify({ type: 'error', message: '音声認識ストリームでエラーが発生しました' }));
                     }
                     sttStream = null;
+                },
+                {
+                    config: ws.speechHints && ws.speechHints.length
+                        ? {
+                            speechContexts: [{
+                                phrases: ws.speechHints,
+                                boost: 10
+                            }]
+                        }
+                        : {}
                 }
             );
 

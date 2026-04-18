@@ -39,6 +39,19 @@ class RoomRepository {
         });
     }
 
+    async updateAiConfig(id, provider, model) {
+        return new Promise((resolve, reject) => {
+            this.db.run(
+                'UPDATE rooms SET ai_provider = ?, ai_model = ? WHERE id = ?',
+                [provider, model, id],
+                (err) => {
+                    if (err) return reject(err);
+                    resolve();
+                }
+            );
+        });
+    }
+
     async updateInsights(roomId, updates = {}) {
         return new Promise((resolve, reject) => {
             const fields = [];

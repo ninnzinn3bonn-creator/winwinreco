@@ -48,9 +48,60 @@
             <div class="mic-check-card">
                 <div class="container-label">Mic Check</div>
                 <h3>マイク確認</h3>
-                <p id="mic-check-status" class="mic-check-status">参加前にマイクを確認できます。特にスマホでは先に許可と入力レベルを確認してください。</p>
+                <p id="mic-check-status" class="mic-check-status">最初に利用シーンを選び、次に「マイクを確認」を押してください。緑の帯が動けば入力できています。</p>
+                <div class="mic-check-steps">
+                    <div class="mic-step">
+                        <strong>1. 利用シーンを選ぶ</strong>
+                        <span>スマホ本体、ピンマイク、反響のある部屋、大人数向けから選べます。</span>
+                    </div>
+                    <div class="mic-step">
+                        <strong>2. マイクを確認</strong>
+                        <span>権限を許可し、入力レベルメーターが動くかを見ます。</span>
+                    </div>
+                    <div class="mic-step">
+                        <strong>3. 必要なら微調整</strong>
+                        <span>小さな音を拾う線と、大きすぎる音を抑える線をスライダーで調整できます。</span>
+                    </div>
+                </div>
+                <div class="mic-preset-section">
+                    <div class="mic-preset-header">
+                        <strong>利用シーンに合わせて選ぶ</strong>
+                        <span>ベストプラクティスを元に、推奨の音声設定をまとめています。</span>
+                    </div>
+                    <div class="mic-preset-grid">
+                        <button type="button" class="mic-preset-card" data-mic-preset="smartphone">
+                            <strong>スマホ本体</strong>
+                            <span>iPhone / Android の内蔵マイク</span>
+                        </button>
+                        <button type="button" class="mic-preset-card" data-mic-preset="pin_mic">
+                            <strong>ピンマイク</strong>
+                            <span>口元マイク / ヘッドセット向け</span>
+                        </button>
+                        <button type="button" class="mic-preset-card" data-mic-preset="echo_room">
+                            <strong>反響のある部屋</strong>
+                            <span>会議室や壁の硬い部屋向け</span>
+                        </button>
+                        <button type="button" class="mic-preset-card" data-mic-preset="large_group">
+                            <strong>大人数</strong>
+                            <span>卓上マイクややや遠めの声向け</span>
+                        </button>
+                        <button type="button" class="mic-preset-card" data-mic-preset="wired_headset">
+                            <strong>有線ヘッドセット</strong>
+                            <span>スマホ / PC の有線イヤホンマイク向け</span>
+                        </button>
+                    </div>
+                    <div class="mic-preset-summary-card">
+                        <div class="container-label">Current Mode</div>
+                        <strong id="mic-preset-summary">ピンマイクを推奨設定で使います。</strong>
+                        <ul id="mic-preset-tips" class="mic-tip-list"></ul>
+                    </div>
+                    <div class="mic-preset-summary-card soft">
+                        <div class="container-label">事前チェック</div>
+                        <ul id="mic-requirements" class="mic-tip-list"></ul>
+                    </div>
+                </div>
                 <div class="form-group">
-                    <label for="mic-min-threshold">マイク調整</label>
+                    <label for="mic-min-threshold">細かいマイク調整</label>
                     <select id="mic-sensitivity" class="visually-hidden" aria-hidden="true">
                         <option value="high">高め</option>
                         <option value="standard" selected>標準</option>
@@ -82,10 +133,30 @@
             <div class="ai-config-group">
                 <h3>AI設定</h3>
                 <div class="form-group-row">
-                    <select id="ai-provider" disabled>
-                        <option value="gemini">Gemini 2.5 Pro</option>
+                    <select id="ai-provider">
+                        <option value="gemini">Gemini (高速・標準)</option>
+                        <option value="groq">Groq (超高速・高精度)</option>
                     </select>
-                    <input type="text" id="ai-model" placeholder="モデル名" value="gemini-2.5-pro" disabled>
+                </div>
+                <p class="mic-check-status">事後処理（議事録生成・要約）に使用するAIを選択します。</p>
+            </div>
+
+            <div class="dictionary-card">
+                <div class="container-label">Domain Dictionary</div>
+                <h3>専門用語辞書</h3>
+                <p class="mic-check-status">会議前に専門用語や人名を登録すると、文字起こしの精度が向上します。</p>
+                <div class="dictionary-form">
+                    <div class="form-group-row compact-row">
+                        <input type="text" id="dict-term" placeholder="用語 (例: 相同組換え)">
+                        <input type="text" id="dict-reading" placeholder="読み (例: ソウドウクミカエ)">
+                    </div>
+                    <div class="dictionary-actions">
+                        <button id="btn-dict-add" class="secondary">辞書に追加</button>
+                    </div>
+                </div>
+                <div id="dictionary-list" class="dictionary-list">
+                    <!-- Terms will be rendered here -->
+                    <span class="placeholder-text">登録された用語はありません。</span>
                 </div>
             </div>
 
@@ -113,6 +184,17 @@
             <div id="mobile-meeting-menu" class="mobile-meeting-menu hidden" aria-hidden="true">
                 <div class="container-label">Quick Controls</div>
                 <div class="mobile-menu-grid">
+                    <div class="meeting-mic-preset-panel">
+                        <div class="container-label">Mic Mode</div>
+                        <strong id="meeting-mic-preset-summary">現在のプリセット: -</strong>
+                        <div class="meeting-mic-preset-list">
+                            <button type="button" class="secondary compact" data-mic-preset="smartphone">スマホ</button>
+                            <button type="button" class="secondary compact" data-mic-preset="pin_mic">ピンマイク</button>
+                            <button type="button" class="secondary compact" data-mic-preset="echo_room">反響室</button>
+                            <button type="button" class="secondary compact" data-mic-preset="large_group">大人数</button>
+                            <button type="button" class="secondary compact" data-mic-preset="wired_headset">有線</button>
+                        </div>
+                    </div>
                     <div class="form-group">
                         <label for="meeting-mic-min-threshold">マイク調整</label>
                         <select id="meeting-mic-sensitivity" class="visually-hidden" aria-hidden="true">
@@ -438,6 +520,7 @@
         <button id="btn-scroll-top" class="scroll-fab" title="一番上へ">↑</button>
         <button id="btn-scroll-bottom" class="scroll-fab" title="一番下へ">↓</button>
     </div>
+    <script src="mic-presets.js"></script>
     <script src="state.js"></script>
     <script src="dom.js"></script>
     <script src="bindings.js"></script>

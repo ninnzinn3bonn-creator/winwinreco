@@ -26,14 +26,15 @@
         return { min: safeMin, max: safeMax };
     }
 
-    function getPreferredAudioConstraints() {
+    function getPreferredAudioConstraints(preset = {}) {
+        const constraints = preset.constraints || {};
         return {
             audio: {
-                echoCancellation: false,
-                noiseSuppression: false,
-                autoGainControl: false,
-                channelCount: 1,
-                sampleRate: 16000
+                echoCancellation: constraints.echoCancellation ?? false,
+                noiseSuppression: constraints.noiseSuppression ?? false,
+                autoGainControl: constraints.autoGainControl ?? false,
+                channelCount: constraints.channelCount ?? 1,
+                sampleRate: constraints.sampleRate ?? 16000
             }
         };
     }
@@ -66,7 +67,11 @@
     }
 
     function formatTime(value) {
-        return new Date(value).toLocaleTimeString('ja-JP', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+        return new Date(value).toLocaleTimeString('ja-JP', {
+            hour: '2-digit',
+            minute: '2-digit',
+            second: '2-digit'
+        });
     }
 
     function escapeHtml(value) {
