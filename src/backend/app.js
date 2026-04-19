@@ -121,9 +121,10 @@ function createApp(repositories = {}) {
             throw new Error('Room not found');
         }
 
+        const provider = room.ai_provider || 'gemini';
         const aiConfig = {
-            provider: room.ai_provider || 'groq',
-            model: room.ai_model || 'openai/gpt-oss-120b'
+            provider,
+            model: room.ai_model || (provider === 'groq' ? 'openai/gpt-oss-120b' : 'gemini-2.5-flash')
         };
 
         const participants = await enrichParticipantsWithProfiles(participantRepo, userRepo, roomId);
@@ -224,14 +225,25 @@ function createApp(repositories = {}) {
             throw new Error('Repositories required for insight generation are unavailable');
         }
 
+        const room = await roomRepo.findById(roomId);
+        if (!room) {
+            throw new Error('Room not found');
+        }
+
+        const provider = room.ai_provider || 'gemini';
+        const resolvedAiConfig = aiConfig || {
+            provider,
+            model: room.ai_model || (provider === 'groq' ? 'openai/gpt-oss-120b' : 'gemini-2.5-flash')
+        };
+
         let activeAiService = aiService;
-        if (aiConfig && aiConfig.provider) {
+        if (resolvedAiConfig.provider) {
             const { AIService: AIServiceClass } = require('./services/ai-service');
             activeAiService = new AIServiceClass({
-                provider: aiConfig.provider,
-                geminiModel: aiConfig.provider === 'gemini' ? aiConfig.model : null,
-                groqModel: aiConfig.provider === 'groq' ? aiConfig.model : null,
-                ollamaModel: aiConfig.provider === 'ollama' ? aiConfig.model : null,
+                provider: resolvedAiConfig.provider,
+                geminiModel: resolvedAiConfig.provider === 'gemini' ? resolvedAiConfig.model : null,
+                groqModel: resolvedAiConfig.provider === 'groq' ? resolvedAiConfig.model : null,
+                ollamaModel: resolvedAiConfig.provider === 'ollama' ? resolvedAiConfig.model : null,
                 apiKey: process.env.GEMINI_API_KEY,
                 groqApiKey: process.env.GROQ_API_KEY
             });
@@ -253,7 +265,7 @@ function createApp(repositories = {}) {
             const userIds = participants.map((participant) => participant.user_id).filter(Boolean);
             const userContexts = userContextRepo ? await userContextRepo.findByUserIds(userIds) : [];
 
-            const structured = await activeAiService.generateStructuredInsights(utterances, participants, userContexts);
+            const structured = await activeAiService.generateStructuredInsights(utterances, participants, userContexts, resolvedAiConfig);
             const summaryText = structured.overall_summary;
             const generatedActions = structured.flat_actions;
 
@@ -676,9 +688,10 @@ function createApp(repositories = {}) {
             const target = roomLogs[currentIndex];
 
             const room = await roomRepo.findById(roomId);
+            const provider = room?.ai_provider || 'gemini';
             const aiConfig = {
-                provider: room?.ai_provider || 'groq',
-                model: room?.ai_model || 'openai/gpt-oss-120b'
+                provider,
+                model: room?.ai_model || (provider === 'groq' ? 'openai/gpt-oss-120b' : 'gemini-2.5-flash')
             };
 
             const correction = await aiService.correctTranscript(target, contextLogs, aiConfig);
@@ -724,9 +737,10 @@ function createApp(repositories = {}) {
             const updatedLogs = [];
 
             const room = await roomRepo.findById(roomId);
+            const provider = room?.ai_provider || 'gemini';
             const aiConfig = {
-                provider: room?.ai_provider || 'groq',
-                model: room?.ai_model || 'openai/gpt-oss-120b'
+                provider,
+                model: room?.ai_model || (provider === 'groq' ? 'openai/gpt-oss-120b' : 'gemini-2.5-flash')
             };
 
             for (let index = 0; index < targets.length; index += 1) {
@@ -777,8 +791,8 @@ function createApp(repositories = {}) {
             }
 
             const aiConfig = {
-                provider: room.ai_provider || 'groq',
-                model: room.ai_model || 'openai/gpt-oss-120b'
+                provider: room.ai_provider || 'gemini',
+                model: room.ai_model || 'gemini-2.5-flash'
             };
 
             const [participants, userContexts] = await Promise.all([
@@ -957,9 +971,10 @@ function createApp(repositories = {}) {
             const room = await roomRepo.findById(roomId);
             if (!room) return res.status(404).json({ error: 'Room not found' });
 
+            const provider = room.ai_provider || reqAiConfig?.provider || 'gemini';
             const aiConfig = {
-                provider: room.ai_provider || reqAiConfig?.provider || 'groq',
-                model: room.ai_model || reqAiConfig?.model || 'openai/gpt-oss-120b'
+                provider,
+                model: room.ai_model || reqAiConfig?.model || (provider === 'groq' ? 'openai/gpt-oss-120b' : 'gemini-2.5-flash')
             };
             
             // Fetch utterances for context (all or only new ones)
@@ -1003,7 +1018,7 @@ function createApp(repositories = {}) {
             const participants = await enrichParticipantsWithProfiles(participantRepo, userRepo, roomId);
             const userIds = participants.map((participant) => participant.user_id).filter(Boolean);
             const userContexts = userContextRepo ? await userContextRepo.findByUserIds(userIds) : [];
-            const { result, prompt, provider } = await activeAiService.analyzeMeeting(utterances, type, combinedInstruction, participants, userContexts);
+            const { result, prompt, provider: resultProvider } = await activeAiService.analyzeMeeting(utterances, type, combinedInstruction, participants, userContexts, aiConfig);
             const latestTimestamp = utterances[utterances.length - 1].started_at;
 
             // Save analysis result
@@ -1018,7 +1033,7 @@ function createApp(repositories = {}) {
                 await analysisRepo.add(analysis);
             }
 
-            res.status(200).json({ result, provider, latest_timestamp: latestTimestamp });
+            res.status(200).json({ result, provider: resultProvider, latest_timestamp: latestTimestamp });
         } catch (error) {
             console.error('[API] Analysis error:', error);
             res.status(500).json({ error: error.message || 'Failed to perform AI analysis' });

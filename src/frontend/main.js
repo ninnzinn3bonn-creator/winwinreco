@@ -832,7 +832,7 @@ async function runDirectAnalysis(type, title, instruction = '') {
                 type,
                 instruction,
                 ai_config: {
-                    provider: state.aiProvider || 'groq',
+                    provider: state.aiProvider || 'gemini',
                     model: state.aiModel || (state.aiProvider === 'groq' ? 'openai/gpt-oss-120b' : 'gemini-2.5-flash')
                 }
             })
@@ -925,7 +925,7 @@ async function runMeetingAnalysis(key) {
                 type: config.type,
                 instruction: config.instruction || '',
                 ai_config: {
-                    provider: state.aiProvider || 'groq',
+                    provider: state.aiProvider || 'gemini',
                     model: state.aiModel || (state.aiProvider === 'groq' ? 'openai/gpt-oss-120b' : 'gemini-2.5-flash')
                 }
             })

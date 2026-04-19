@@ -5,10 +5,10 @@ class RoomRepository {
 
     async create(room) {
         return new Promise((resolve, reject) => {
-            const { id, owner_id } = room;
+            const { id, owner_id, material_summary } = room;
             this.db.run(
-                'INSERT INTO rooms (id, owner_id) VALUES (?, ?)',
-                [id, owner_id],
+                'INSERT INTO rooms (id, owner_id, material_summary) VALUES (?, ?, ?)',
+                [id, owner_id, material_summary || ''],
                 (err) => {
                     if (err) return reject(err);
                     resolve();
@@ -76,6 +76,11 @@ class RoomRepository {
                 values.push(updates.todo_text);
                 fields.push('todo_updated_at = ?');
                 values.push(new Date().toISOString());
+            }
+
+            if (typeof updates.material_summary === 'string') {
+                fields.push('material_summary = ?');
+                values.push(updates.material_summary);
             }
 
             if (typeof updates.insights_status === 'string') {

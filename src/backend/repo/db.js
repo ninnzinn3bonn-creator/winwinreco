@@ -124,6 +124,7 @@ async function initDB(dbPath) {
                         ensureColumn(db, 'rooms', 'todo_updated_at', 'DATETIME'),
                         ensureColumn(db, 'rooms', 'insights_status', 'TEXT DEFAULT \'idle\''),
                         ensureColumn(db, 'rooms', 'insights_dirty', 'INTEGER DEFAULT 0'),
+                        ensureColumn(db, 'rooms', 'material_summary', 'TEXT DEFAULT \'\''),
                         ensureColumn(db, 'rooms', 'ai_provider', 'TEXT'),
                         ensureColumn(db, 'rooms', 'ai_model', 'TEXT')
                     ])

@@ -157,12 +157,12 @@ class AIService {
             } else if (requestedProvider === 'ollama') {
                 this.provider = new OllamaProvider();
                 this.enabled = true;
+            } else if (geminiKey && geminiKey !== 'dummy') {
+                this.provider = new GeminiProvider(geminiKey, config.geminiModel || 'gemini-2.5-flash');
+                this.enabled = true;
             } else if (groqKey && groqKey !== 'dummy') {
                 // Fallback to what's available
                 this.provider = new GroqProvider(groqKey, config.groqModel || 'openai/gpt-oss-120b');
-                this.enabled = true;
-            } else if (geminiKey && geminiKey !== 'dummy') {
-                this.provider = new GeminiProvider(geminiKey, config.geminiModel || 'gemini-2.5-flash');
                 this.enabled = true;
             } else {
                 this.provider = new OllamaProvider();
@@ -332,31 +332,34 @@ class AIService {
         };
     }
 
-    async generateStructuredInsights(utterances, participants = [], userContexts = []) {
+    async generateStructuredInsights(utterances, participants = [], userContexts = [], aiConfig = {}) {
         if (!this.enabled) {
             throw new Error('AI Service is not configured.');
         }
 
+        const provider = this.getProvider(aiConfig);
         const messages = this.toMessages(utterances);
         const prompt = this.buildStructuredInsightsPrompt(messages, participants, userContexts);
-        const raw = await this.provider.generate(prompt);
+        const raw = await provider.generate(prompt);
         const parsed = safeJsonParse(raw);
 
         return {
             ...this.normalizeStructuredInsights(parsed, participants),
             prompt,
-            provider: this.provider.name,
+            provider: provider.name,
             raw_result: stripCodeFence(raw)
         };
     }
 
-    async analyzeMeeting(utterances, type = 'summary', customInstruction = '', participants = [], userContexts = []) {
+    async analyzeMeeting(utterances, type = 'summary', customInstruction = '', participants = [], userContexts = [], aiConfig = {}) {
         if (!this.enabled) {
             throw new Error('AI Service is not configured.');
         }
 
+        const provider = this.getProvider(aiConfig);
+
         if (type === 'summary') {
-            const structured = await this.generateStructuredInsights(utterances, participants, userContexts);
+            const structured = await this.generateStructuredInsights(utterances, participants, userContexts, aiConfig);
             return {
                 result: structured.overall_summary,
                 prompt: structured.prompt,
@@ -381,7 +384,7 @@ class AIService {
                 jp('- 各段落は `- 話者名: 内容` の形式で始める'),
                 jp('- 時系列順を守る'),
                 jp('- 会議の議事録として、そのまま軽く手直しすれば使える読みやすさにする'),
-                jp('- 不明瞭な固有名詞は、推測しすぎず自然な範囲で補正する'),
+                jp('- 不明慮な固有名詞は、推測しすぎず自然な範囲で補正する'),
                 jp('- 箇条書きだけを返し、前置きや説明は書かない'),
                 '',
                 this.buildUserContextBlock(participants, userContexts),
@@ -389,11 +392,11 @@ class AIService {
                 JSON.stringify({ messages }, null, 2)
             ].join('\n');
 
-            const resultText = await this.provider.generate(prompt);
+            const resultText = await provider.generate(prompt);
             return {
                 result: resultText.trim(),
                 prompt,
-                provider: this.provider.name
+                provider: provider.name
             };
         }
 
@@ -796,6 +799,9 @@ class AIService {
         }
         if (options.provider === 'gemini') {
             return new GeminiProvider(process.env.GEMINI_API_KEY, options.model || 'gemini-2.5-flash');
+        }
+        if (options.provider === 'ollama') {
+            return new OllamaProvider(undefined, options.model);
         }
         return this.provider;
     }
