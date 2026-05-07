@@ -7,9 +7,10 @@ const { ParticipantRepository } = require('../src/backend/repo/participant-repo'
 describe('ParticipantRepository', () => {
     let db;
     let repo;
-    const dbPath = path.resolve(__dirname, '../db/test_participant.db');
+    const dbPath = path.resolve(__dirname, './tmp/test_participant.db');
 
     beforeAll(async () => {
+        fs.mkdirSync(path.dirname(dbPath), { recursive: true });
         if (fs.existsSync(dbPath)) fs.unlinkSync(dbPath);
         db = await initDB(dbPath);
         const roomRepo = new RoomRepository(db);

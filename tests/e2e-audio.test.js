@@ -12,9 +12,10 @@ const fs = require('fs');
 
 describe('End-to-End Audio Flow', () => {
     let server, port, db;
-    const dbPath = path.resolve(__dirname, '../db/test_e2e.db');
+    const dbPath = path.resolve(__dirname, './tmp/test_e2e.db');
 
     beforeAll(async () => {
+        fs.mkdirSync(path.dirname(dbPath), { recursive: true });
         if (fs.existsSync(dbPath)) fs.unlinkSync(dbPath);
         db = await initDB(dbPath);
         const repos = {
@@ -47,11 +48,12 @@ describe('End-to-End Audio Flow', () => {
 
     test('should receive transcript after sending audio chunks', (done) => {
         const participantId = 'p-1';
+        const controlToken = 'tok-p-1';
         (async () => {
             await new RoomRepository(db).create({ id: 'room-1', owner_id: 'u1' });
-            await new ParticipantRepository(db).join({ id: participantId, room_id: 'room-1', display_name: 'Alice' });
+            await new ParticipantRepository(db).join({ id: participantId, room_id: 'room-1', display_name: 'Alice', control_token: controlToken });
 
-            const ws = new WebSocket(`ws://localhost:${port}?participantId=${participantId}`);
+            const ws = new WebSocket(`ws://localhost:${port}?participantId=${participantId}&controlToken=${controlToken}`);
             
             ws.on('open', () => {
                 console.log('[TEST] WS Open');

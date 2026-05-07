@@ -110,6 +110,24 @@
         URL.revokeObjectURL(url);
     }
 
+    function reqIncludes(object, key) {
+        return Object.prototype.hasOwnProperty.call(object, key);
+    }
+
+    async function readApiResponse(res) {
+        const contentType = res.headers.get('content-type') || '';
+        if (contentType.includes('application/json')) {
+            return res.json();
+        }
+        const text = await res.text();
+        const trimmed = text.trim();
+        const isHtml = trimmed.startsWith('<!DOCTYPE') || trimmed.startsWith('<html');
+        const message = isHtml
+            ? 'サーバーが古い状態の可能性があります。サーバーを再起動してください。'
+            : (text || 'サーバー応答の読み取りに失敗しました。');
+        throw new Error(message);
+    }
+
     window.AppUtils = {
         generateLocalUserId,
         getJoinUrl,
@@ -123,6 +141,8 @@
         escapeRegExp,
         highlightText,
         shortenText,
-        downloadTextFile
+        downloadTextFile,
+        reqIncludes,
+        readApiResponse
     };
 })();

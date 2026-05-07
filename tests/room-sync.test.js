@@ -10,9 +10,10 @@ const fs = require('fs');
 
 describe('Room Termination Sync', () => {
     let server, port, db, repos;
-    const dbPath = path.resolve(__dirname, '../db/test_sync.db');
+    const dbPath = path.resolve(__dirname, './tmp/test_sync.db');
 
     beforeAll(async () => {
+        fs.mkdirSync(path.dirname(dbPath), { recursive: true });
         if (fs.existsSync(dbPath)) fs.unlinkSync(dbPath);
         db = await initDB(dbPath);
         repos = {
@@ -51,7 +52,7 @@ describe('Room Termination Sync', () => {
                 control_token: controlToken
             });
 
-            const ws = new WebSocket(`ws://localhost:${port}?participantId=${participantId}`);
+            const ws = new WebSocket(`ws://localhost:${port}?participantId=${participantId}&controlToken=${controlToken}`);
             
             ws.on('open', () => {
                 ws.send(JSON.stringify({ type: 'hello' }));

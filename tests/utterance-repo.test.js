@@ -8,9 +8,10 @@ const { UtteranceRepository } = require('../src/backend/repo/utterance-repo');
 describe('UtteranceRepository', () => {
     let db;
     let repo;
-    const dbPath = path.resolve(__dirname, '../db/test_utterance.db');
+    const dbPath = path.resolve(__dirname, './tmp/test_utterance.db');
 
     beforeAll(async () => {
+        fs.mkdirSync(path.dirname(dbPath), { recursive: true });
         if (fs.existsSync(dbPath)) fs.unlinkSync(dbPath);
         db = await initDB(dbPath);
         const roomRepo = new RoomRepository(db);

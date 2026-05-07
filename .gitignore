@@ -8,6 +8,10 @@ node_modules/
 db/*.db
 db/*.db-shm
 db/*.db-wal
+tests/tmp/
+
+# Test artifacts
+test-results/
 
 # OS files
 .DS_Store

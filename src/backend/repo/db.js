@@ -41,6 +41,35 @@ async function initDB(dbPath) {
                     ended_at DATETIME
                 )`);
 
+                // Account-based authentication (host login). Participants can
+                // still join anonymously; ownership of a room is tracked by
+                // owner_account_id (added via ensureColumn below) which points
+                // here when the host was logged in at room-creation time.
+                db.run(`CREATE TABLE IF NOT EXISTS user_accounts (
+                    id TEXT PRIMARY KEY,
+                    email TEXT NOT NULL UNIQUE,
+                    password_hash TEXT NOT NULL,
+                    display_name TEXT DEFAULT '',
+                    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+                )`);
+
+                // Sessions hold SHA-256 hashes of opaque 32-byte tokens that
+                // live in an httpOnly cookie. Sliding expiry is maintained by
+                // SessionRepository.touch().
+                db.run(`CREATE TABLE IF NOT EXISTS sessions (
+                    id TEXT PRIMARY KEY,
+                    account_id TEXT NOT NULL,
+                    token_hash TEXT NOT NULL UNIQUE,
+                    expires_at DATETIME NOT NULL,
+                    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                    last_used_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                    FOREIGN KEY(account_id) REFERENCES user_accounts(id)
+                )`);
+
+                db.run('CREATE INDEX IF NOT EXISTS idx_sessions_account ON sessions(account_id)');
+                db.run('CREATE INDEX IF NOT EXISTS idx_sessions_expires ON sessions(expires_at)');
+
                 db.run(`CREATE TABLE IF NOT EXISTS participants (
                     id TEXT PRIMARY KEY,
                     room_id TEXT,
@@ -126,7 +155,22 @@ async function initDB(dbPath) {
                         ensureColumn(db, 'rooms', 'insights_dirty', 'INTEGER DEFAULT 0'),
                         ensureColumn(db, 'rooms', 'material_summary', 'TEXT DEFAULT \'\''),
                         ensureColumn(db, 'rooms', 'ai_provider', 'TEXT'),
-                        ensureColumn(db, 'rooms', 'ai_model', 'TEXT')
+                        ensureColumn(db, 'rooms', 'ai_model', 'TEXT'),
+                        ensureColumn(db, 'rooms', 'use_past_meetings', 'INTEGER DEFAULT 1'),
+                        // Host-login additions. Nullable to preserve backwards
+                        // compatibility with rooms created before auth shipped.
+                        ensureColumn(db, 'rooms', 'owner_account_id', 'TEXT'),
+                        ensureColumn(db, 'participants', 'user_account_id', 'TEXT'),
+                        ensureColumn(db, 'users', 'account_id', 'TEXT'),
+                        // Optional human-friendly room title; defaults to ''
+                        // and is shown in the past-meeting list when present.
+                        ensureColumn(db, 'rooms', 'title', 'TEXT DEFAULT \'\''),
+                        ensureColumn(db, 'rooms', 'title_updated_at', 'DATETIME'),
+                        // JSON blob of arbitrary AI-workspace outputs (custom
+                        // analyses, action extraction etc.) so they survive
+                        // page reload and can be replayed in /me/rooms/:id.
+                        ensureColumn(db, 'rooms', 'ai_workspace_json', 'TEXT DEFAULT \'\''),
+                        ensureColumn(db, 'rooms', 'ai_workspace_updated_at', 'DATETIME')
                     ])
                         .then(() => new Promise((resolveActions, rejectActions) => {
                             db.run(`CREATE TABLE IF NOT EXISTS actions (

@@ -39,9 +39,20 @@ describe('Insights API', () => {
                 return null;
             })
         };
-        const app = createApp({ roomRepo, actionRepo, analysisRepo });
+        const participantRepo = {
+            findByIdAndToken: jest.fn(async () => ({
+                id: 'p-user',
+                room_id: 'room-1',
+                user_id: 'user-1',
+                display_name: 'Alice',
+                control_token: 'user-token'
+            }))
+        };
+        const app = createApp({ roomRepo, actionRepo, analysisRepo, participantRepo });
 
-        const response = await request(app).get('/rooms/room-1/insights');
+        const response = await request(app)
+            .get('/rooms/room-1/insights')
+            .query({ participant_id: 'p-user', control_token: 'user-token' });
 
         expect(response.status).toBe(200);
         expect(response.body.minutes).toBe('整理済み議事録');
@@ -82,7 +93,7 @@ describe('Insights API', () => {
             .send({ participant_id: 'p-guest', control_token: 'guest-token' });
 
         expect(response.status).toBe(403);
-        expect(response.body.error).toMatch(/Only the host/);
+        expect(response.body.error).toMatch(/[Hh]ost/);
     });
 
     test('POST /rooms/:id/shared-ai/summary should require minutes first', async () => {
@@ -184,24 +195,38 @@ describe('Insights API', () => {
                 created_at: '2026-04-08T13:00:00Z'
             };
         });
+        const participantRepo = {
+            findByIdAndToken: jest.fn(async () => ({
+                id: 'p-user',
+                room_id: 'room-1',
+                user_id: 'user-1',
+                display_name: 'Alice',
+                control_token: 'user-token'
+            }))
+        };
         const app = createApp({
             analysisRepo: {
                 add,
                 findLatestByTypes
-            }
+            },
+            participantRepo
         });
 
         const saveResponse = await request(app)
             .post('/rooms/room-1/custom-output')
             .send({
                 instruction: '箇条書きで整理してください',
-                result: '整理結果'
+                result: '整理結果',
+                participant_id: 'p-user',
+                control_token: 'user-token'
             });
 
         expect(saveResponse.status).toBe(200);
         expect(add).toHaveBeenCalled();
 
-        const loadResponse = await request(app).get('/rooms/room-1/custom-output');
+        const loadResponse = await request(app)
+            .get('/rooms/room-1/custom-output')
+            .query({ participant_id: 'p-user', control_token: 'user-token' });
         expect(loadResponse.status).toBe(200);
         expect(loadResponse.body.instruction).toBe('箇条書きで整理してください');
         expect(loadResponse.body.result).toBe('整理結果');

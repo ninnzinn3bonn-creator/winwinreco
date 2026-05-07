@@ -1,4 +1,36 @@
 (function initMicPresetsNamespace() {
+    /*
+     * Each preset bundles three layers of configuration:
+     *
+     *   constraints  — getUserMedia audio constraints (echo cancellation,
+     *                  noise suppression, AGC, sample rate, channel count)
+     *   thresholds   — RMS gate (open above min, clip at max). Values are
+     *                  on a 0..1 scale matching the WebAudio float buffer.
+     *   vad          — front-end voice activity detector behavior:
+     *                    attackFrames     — consecutive speech-like frames
+     *                                       required to open the gate (1
+     *                                       frame ≈ 85 ms at 48 kHz / 4096).
+     *                    minActiveFrames  — minimum sustained active frames
+     *                                       before audio is sent. 1 = no
+     *                                       drop. 3 ≈ 250 ms.
+     *                    crestMin/Max     — peak/RMS ratio bounds for a
+     *                                       speech-like frame. Distant /
+     *                                       reverberant audio has a low
+     *                                       crest, so far-field presets
+     *                                       use loose bounds.
+     *   stt          — Google Cloud Speech-to-Text hints. microphoneDistance
+     *                  ('NEARFIELD' | 'FARFIELD' | 'MIDFIELD') and
+     *                  recordingDeviceType ('SMARTPHONE' | 'PC' | etc) are
+     *                  best-practice metadata that the backend relays to
+     *                  the recognizer.
+     *
+     * Tuning rationale (from Google STT best-practices doc + field testing):
+     *   - Close mics (pin/wired): NEARFIELD, no AGC/NS, tight VAD, useEnhanced.
+     *   - Tabletop / far group:   FARFIELD, AGC+NS on, loose VAD (catch
+     *                             quiet voices), low threshold.
+     *   - Echo room:              FARFIELD, echo cancellation on, medium VAD.
+     *   - Smartphone handheld:    NEARFIELD, default platform processing.
+     */
     const presets = {
         smartphone: {
             key: 'smartphone',
@@ -19,8 +51,18 @@
                 sampleRate: 16000
             },
             thresholds: {
-                min: 0.014,
-                max: 0.82
+                min: 0.012,
+                max: 0.85
+            },
+            vad: {
+                attackFrames: 1,
+                minActiveFrames: 2,
+                crestMin: 1.3,
+                crestMax: 14
+            },
+            stt: {
+                microphoneDistance: 'NEARFIELD',
+                recordingDeviceType: 'SMARTPHONE'
             }
         },
         pin_mic: {
@@ -44,6 +86,16 @@
             thresholds: {
                 min: 0.01,
                 max: 0.9
+            },
+            vad: {
+                attackFrames: 2,
+                minActiveFrames: 2,
+                crestMin: 1.6,
+                crestMax: 14
+            },
+            stt: {
+                microphoneDistance: 'NEARFIELD',
+                recordingDeviceType: 'OTHER_INDOOR_DEVICE'
             }
         },
         echo_room: {
@@ -65,15 +117,25 @@
                 sampleRate: 16000
             },
             thresholds: {
-                min: 0.018,
-                max: 0.72
+                min: 0.014,
+                max: 0.78
+            },
+            vad: {
+                attackFrames: 1,
+                minActiveFrames: 2,
+                crestMin: 1.2,
+                crestMax: 18
+            },
+            stt: {
+                microphoneDistance: 'FARFIELD',
+                recordingDeviceType: 'OTHER_INDOOR_DEVICE'
             }
         },
         large_group: {
             key: 'large_group',
-            label: '大人数',
-            shortLabel: '大人数',
-            description: 'やや離れた声も拾いたいときのモードです。卓上マイクや代表マイク向けです。',
+            label: '大人数 / 卓上',
+            shortLabel: '卓上',
+            description: 'やや離れた声も拾いたい卓上マイク・代表マイク向けです。遠くの声でも拾えるよう VAD を緩めています。',
             recommendedFor: '卓上マイク、複数人が順番に話す場面',
             bestPractices: [
                 '1台で全員を拾うより、できれば代表マイクを中央に置き、順番に話します。',
@@ -87,9 +149,24 @@
                 channelCount: 1,
                 sampleRate: 16000
             },
+            // Lower min threshold so faint distant speech opens the gate;
+            // higher max so we don't clip when someone leans in.
             thresholds: {
-                min: 0.012,
-                max: 0.74
+                min: 0.006,
+                max: 0.88
+            },
+            // Loose VAD: 1 frame attack, no min-active filter, generous
+            // crest range. Distant / reverberant audio has low crest factor
+            // (~1.2) so the previous 1.6 floor was rejecting real speech.
+            vad: {
+                attackFrames: 1,
+                minActiveFrames: 1,
+                crestMin: 1.05,
+                crestMax: 30
+            },
+            stt: {
+                microphoneDistance: 'FARFIELD',
+                recordingDeviceType: 'OTHER_INDOOR_DEVICE'
             }
         },
         wired_headset: {
@@ -113,6 +190,16 @@
             thresholds: {
                 min: 0.011,
                 max: 0.86
+            },
+            vad: {
+                attackFrames: 2,
+                minActiveFrames: 2,
+                crestMin: 1.6,
+                crestMax: 14
+            },
+            stt: {
+                microphoneDistance: 'NEARFIELD',
+                recordingDeviceType: 'OTHER_INDOOR_DEVICE'
             }
         }
     };

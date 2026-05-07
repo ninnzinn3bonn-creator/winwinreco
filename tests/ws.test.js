@@ -11,9 +11,10 @@ describe('WebSocket Room Broadcast', () => {
     let server;
     let port;
     let db;
-    const dbPath = path.resolve(__dirname, '../db/test_ws.db');
+    const dbPath = path.resolve(__dirname, './tmp/test_ws.db');
 
     beforeAll(async () => {
+        fs.mkdirSync(path.dirname(dbPath), { recursive: true });
         if (fs.existsSync(dbPath)) fs.unlinkSync(dbPath);
         db = await initDB(dbPath);
         const roomRepo = new RoomRepository(db);
@@ -36,9 +37,10 @@ describe('WebSocket Room Broadcast', () => {
         await new Promise(resolve => db.close(resolve));
     });
 
-    async function createWS(participantId) {
+    async function createWS(participantId, controlToken) {
         return new Promise((resolve, reject) => {
-            const ws = new WebSocket(`ws://localhost:${port}?participantId=${participantId}`);
+            const params = new URLSearchParams({ participantId, controlToken: controlToken || '' });
+            const ws = new WebSocket(`ws://localhost:${port}?${params.toString()}`);
             ws.on('open', () => resolve(ws));
             ws.on('error', reject);
         });
@@ -50,16 +52,16 @@ describe('WebSocket Room Broadcast', () => {
 
         // Setup Room A
         await roomRepo.create({ id: 'room-A', owner_id: 'user-1' });
-        await participantRepo.join({ id: 'p-A1', room_id: 'room-A', display_name: 'Alice' });
-        await participantRepo.join({ id: 'p-A2', room_id: 'room-A', display_name: 'Bob' });
+        await participantRepo.join({ id: 'p-A1', room_id: 'room-A', display_name: 'Alice', control_token: 'tok-A1' });
+        await participantRepo.join({ id: 'p-A2', room_id: 'room-A', display_name: 'Bob', control_token: 'tok-A2' });
 
         // Setup Room B
         await roomRepo.create({ id: 'room-B', owner_id: 'user-2' });
-        await participantRepo.join({ id: 'p-B1', room_id: 'room-B', display_name: 'Charlie' });
+        await participantRepo.join({ id: 'p-B1', room_id: 'room-B', display_name: 'Charlie', control_token: 'tok-B1' });
 
-        const wsA1 = await createWS('p-A1');
-        const wsA2 = await createWS('p-A2');
-        const wsB1 = await createWS('p-B1');
+        const wsA1 = await createWS('p-A1', 'tok-A1');
+        const wsA2 = await createWS('p-A2', 'tok-A2');
+        const wsB1 = await createWS('p-B1', 'tok-B1');
 
         const receivedMessagesA2 = [];
         wsA2.on('message', (data) => receivedMessagesA2.push(JSON.parse(data)));

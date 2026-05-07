@@ -323,6 +323,35 @@
     - `node --check src/frontend/main.js`
     - `npm test -- --runInBand`
 
+## 26. 終了後エディタの自動上書きバグ — 原因究明と対応計画 (2026-04-30)
+
+### 症状
+会議終了後の **要約 / 議事録 / カスタムプロンプト** の各エディタに手動入力した内容が、約 5 秒経過すると自動で生成直後の値（または空文字）に戻されてしまう。
+
+### 原因（特定済み）
+1. `scheduleInsightsPoll()` が **5 秒ごと** に `loadMeetingInsights({ silent: true })` を発火させる (`src/frontend/main.js:968-975`)。
+2. `loadMeetingInsights` がサーバーから `summary / minutes / todo` を取得し、`state.meetingInsights.*` を上書き。
+3. その直後 `syncSharedResultsIntoEditors()` (`src/frontend/main.js:977-993`) が
+   - `state.minutesWorkspace.result = state.meetingInsights.minutes`
+   - `setAiWorkspace('summary', '要約', state.meetingInsights.summary, '')`
+   を実行し、ユーザーの編集を破棄してサーバー値で上書き。
+4. 第 4 引数 `instruction = ''` のため、`setAiWorkspace` 内 (`main.js:1691-1701`) で `state.aiWorkspace.instruction` も空になる → カスタムプロンプト欄が消える。
+5. `renderAiWorkspace` / `renderMinutesWorkspace` が無条件に `textarea.value = state.*` を実行するため、focus 中・編集中でも上書きが発生。
+
+### 設計上の根本問題
+クライアントの **textarea が単に `state` の鏡** として扱われており、サーバー値との衝突解決ロジックが存在しない。`render` 関数が「ユーザーの編集」と「サーバーからの新値」の優劣を区別せず、後者が常に勝つ構造。
+
+### 対応計画 (タスク #91-#97)
+- **#91 [B1]** dirty タイムスタンプを各エディタに導入し、編集後 N 秒は上書き禁止
+- **#92 [B2]** `document.activeElement === editor` のときは render が DOM を触らない (focus / IME 保護)
+- **#93 [B3]** 同値ガードで `editor.value !== nextValue` のときだけ代入 (selectionRange 維持)
+- **#94 [B4]** `syncSharedResultsIntoEditors` をユーザー編集優先に変更 (dirty なら server 値を取り込まない)
+- **#95 [B5]** `setAiWorkspace` の `instruction` 引数を `undefined` のとき維持する仕様に変更
+- **#96 [B6]** ポーリングは `status === 'processing'` のときだけ継続、`ready/error/idle` で自動停止
+- **#97 [B7]** 議事録・要約・カスタムプロンプトをそれぞれ編集 → 6 秒以上待つ → 内容保持を確認する手動回帰テスト手順を残す
+
+実装順は B1 → B2 → B3 → B5 → B4 → B6 → B7 を想定。B1 が他タスクの前提、B5 は単体で副作用が大きく早期適用が安全。
+
 ## 25. フロントエンドの分割第一段 (2026-04-09)
 - **`main.js` の責務を分離**:
     - `src/frontend/state.js` を追加し、アプリ状態を `window.AppState.state` に集約した。
@@ -385,3 +414,356 @@
     - `node --check src/backend/app.js`
     - `node --check src/backend/services/ai-service.js`
     - `npm test -- --runInBand`
+
+## 29. Groq 標準化と文字化け修正 (2026-04-25)
+- **Groq を既定の AI / STT プロバイダへ変更**:
+    - AI は `GROQ_API_KEY` がある場合に `groq` を既定にし、Gemini は引き続き選択可能な任意プロバイダとして残した。
+    - STT は `GROQ_API_KEY` がある場合に `groq` を既定にし、`whisper-large-v3-turbo` を既定モデルにした。
+    - `/api/status` も `ai_provider` と `stt_provider` を返すように整えて、フロントで現在の既定プロバイダを見やすくした。
+- **Groq 音声文字起こしを追加**:
+    - `src/backend/services/stt-service.js` に Groq OpenAI 互換の音声認識経路を追加した。
+    - PCM16 音声を WAV に包んで `/openai/v1/audio/transcriptions` へ送る実装にした。
+    - Google STT の既存経路はそのまま残し、環境変数で切替できる構成を維持した。
+- **文字化けの大きい塊を修正**:
+    - `README.md` を全面的に書き直し、現状の Groq 既定構成に合わせて環境変数例を整理した。
+    - `package.json` の説明文を正常化した。
+    - `src/frontend/auth.js` を全面的に書き直し、ログイン / 新規登録 / 過去会議モーダルの表示文言を正常化した。
+    - `src/backend/lib/past-context.js` を全面的に整理し、過去会議サマリ注入用のラベルや stopword 群の壊れた文字列を修正した。
+    - `src/backend/server.js` の終了ログに残っていた壊れたメッセージも修正した。
+- **今回の確認**:
+    - `node --check src/backend/services/stt-service.js`
+    - `node --check src/backend/services/ai-service.js`
+    - `node --check src/backend/app.js`
+    - `node --check src/backend/server.js`
+    - `node --check src/frontend/main.js`
+    - `node --check src/frontend/auth.js`
+    - `npm.cmd test -- --runInBand`
+
+## 30. 会議後AIの loading 表示・過去会議利用設定・プロフィール画面追加 (2026-04-25)
+- **会議後AIの進行中表示を改善**:
+    - `AI整理` と `議事録` の各ワークスペースに loading インジケータを追加した。
+    - 会議終了後の自動生成中や、手動生成中にエディタカードへスピナーと進行中ステータスを表示するようにした。
+    - 生成中はエディタ自体も半透明化して、いま処理中であることが視覚的に分かるようにした。
+- **setup 画面に「過去の会議の要約を利用する」設定を追加**:
+    - ホスト向け AI 設定内にチェックボックスを追加した。
+    - 設定は `localStorage` に保持し、ルーム参加時に `ai_config.use_past_meetings` としてバックエンドへ渡すようにした。
+    - backend では `rooms.use_past_meetings` を追加し、過去会議コンテキストの注入を room 単位で制御できるようにした。
+- **プロフィール画面を追加**:
+    - トップバーのアカウント操作に `プロフィール` ボタンを追加し、過去の会議一覧をプロフィール画面側へ移動した。
+    - `GET /me/profile` / `PATCH /me/profile` を追加し、表示名と `profile_text` を手動編集できるようにした。
+    - プロフィール画面で編集した内容は setup 画面へも反映され、今後の要約 / TODO / 議事録生成時の participant context に使われる。
+- **今回の確認**:
+    - `node --check src/frontend/profile.js`
+    - `node --check src/frontend/auth.js`
+    - `node --check src/frontend/main.js`
+    - `node --check src/backend/app.js`
+    - `node --check src/backend/repo/room-repo.js`
+    - `npm.cmd test -- --runInBand`
+
+## 31. エディタ自動上書きバグ修正 B1〜B7 (2026-04-30)
+
+「5 秒ごとのポーリング → `syncSharedResultsIntoEditors` がユーザーの編集を上書き」という問題を根本から修正した。
+
+- **[B1] dirty フラグの導入** (`src/frontend/state.js`, `src/frontend/bindings.js`, `src/frontend/main.js`):
+    - `state.editorDirty = { aiResult: 0, aiInstruction: 0, minutes: 0 }` を追加。
+    - `bindings.js` の `aiOutputEditor` / `customAiInstruction` / `minutesOutputEditor` input ハンドラで `Date.now()` を立てる。
+    - `isEditorDirty(key, withinMs = 30_000)` ヘルパーを `main.js` に追加し、30 秒以内の編集を dirty と判定。
+    - `setAiWorkspace` / `runMinutesGeneration` / shared-ai 生成など、サーバー由来の結果を書き込む箇所で dirty を `0` にリセット。
+
+- **[B2] focus 中は render が DOM を触らない** (`src/frontend/main.js`):
+    - `renderAiWorkspace` の `customAiInstruction.value` / `aiOutputEditor.value` への代入を `document.activeElement !== editor` ガードで包んだ。
+    - `renderMinutesWorkspace` の `minutesOutputEditor.value` も同様にガード。
+    - `bootstrap()` 内で blur 時に `renderAiWorkspace` / `renderMinutesWorkspace` を呼ぶリスナーを登録した。
+
+- **[B3] 同値ガード** (`src/frontend/main.js`):
+    - B2 のガードに `editor.value !== nextValue` の条件を追加し、同値再代入による selectionRange 破壊を防いだ。
+
+- **[B4] `syncSharedResultsIntoEditors` をユーザー編集優先に** (`src/frontend/main.js`):
+    - minutes / aiResult それぞれで `isEditorDirty()` を確認し、dirty なら上書きをスキップ。
+    - 同値チェックも追加し、不要な `setAiWorkspace` 呼び出しを排除。
+    - スキップ時は `AppDebug.log('info', ...)` でデバッグログを残す。
+
+- **[B5] `setAiWorkspace` の instruction 引数を「未指定なら維持」** (`src/frontend/main.js`):
+    - シグネチャを `function setAiWorkspace(mode, title, result, instruction)` に変更 (デフォルト `''` を削除)。
+    - `instruction !== undefined` のときだけ `state.aiWorkspace.instruction` を上書きするよう変更。
+    - サーバー由来で instruction を維持すべき呼び出し元 (非ホスト表示・shared-ai 生成後) の `''` を削除し、`undefined` 扱い (省略) に統一。
+
+- **[B6] insights ポーリングの停止条件** (`src/frontend/main.js`):
+    - `scheduleInsightsPoll` の冒頭に `if (state.meetingInsights.status !== 'processing') return;` を追加。
+    - `ready` / `error` / `idle` になったら自動停止。run* 系で processing に変わると再開される。
+
+- **[B7] 手動回帰テスト手順** (`docs/MANUAL_TESTS.md`, `README.md`):
+    - `docs/MANUAL_TESTS.md` を新規作成し、5 シナリオを文書化した。
+    - `README.md` のセッション開始案内に MANUAL_TESTS.md へのリンクを追記した。
+
+- **再発防止ルール** (`docs/ARCHITECTURE.md` "Editor state ownership" セクションに追記): 後続参照のこと。
+- **今回の確認**:
+    - Read ツール (Windows ネイティブ) で全変更箇所の構文を目視確認。
+    - `node --check` は Linux sandbox の日本語パス truncation 制約で実行不可 (既知の制約)。
+    - `npm.cmd test -- --runInBand` を Windows ネイティブで実行して回帰がないことを確認すること (手動)。
+
+## 32. Phase 5 UX 微調整 P5-1〜P5-7 (2026-04-30)
+
+タップ削減フェーズの残課題を一括対応した。
+
+- **[P5-1] meeting footer の「保存」ボタン廃止** (`src/frontend/index.html`, `src/frontend/bindings.js`):
+    - `btn-save` を meeting footer から削除。`bindings.js` の bindClick も削除。
+    - `btn-memo` のラベルを「全体メモ」→「会議全体のメモを残す」に変更して用途を明確化。
+
+- **[P5-2] 共有 URL 参加者の display_name 自動補完** (`src/frontend/main.js`):
+    - `applyParticipantModeFromUrl` 内で `localStorage['display_name']` → `account.display_name` の優先順で display-name 欄に自動入力。
+
+- **[P5-3] PC でもメモ/AI パネルをデフォルト畳む** (`src/frontend/main.js`):
+    - `showMeetingScreen` で `isMobileViewport()` 分岐を廃止し、PC/モバイル共通で両パネルを初期閉じ状態に統一。視線をログに集中させる運用へ。
+
+- **[P5-4] welcome の「ゲストで使う」を最も目立つ CTA に** (`src/frontend/index.html`):
+    - ボタン順を「ゲスト(primary) → ログイン(secondary) → 新規登録(ghost)」に変更。
+
+- **[P5-5] 「Markdown 保存」を議事録タブ内に移動** (`src/frontend/index.html`):
+    - `btn-download-final` を review-actions から削除し、議事録タブの insight-actions 内 (`btn-minutes-copy` / `btn-minutes-download` の隣) に移動。hero がすっきり。
+
+- **[P5-6] ジャンプパレット長押し時間を 320ms に短縮** (`src/frontend/main.js`):
+    - `JUMP_PALETTE_LONG_PRESS_MS` を 500 → 320 に変更。
+
+- **[P5-7] welcome のメールアドレスを localStorage に保持** (`src/frontend/main.js`):
+    - ログイン/登録成功時に `welcome_last_email` を保存。
+    - `setWelcomeFormVisible(true, ...)` でフォームを開いたとき、email 欄が空なら localStorage から prefill。
+
+- **今回の確認**:
+    - Read ツール (Windows ネイティブ) で全変更箇所を目視確認。
+    - `npm.cmd test -- --runInBand` を Windows ネイティブで実行して回帰がないことを確認すること (手動)。
+
+## 33. ダーク / ライトモード切り替えを有効化 (2026-04-30)
+
+プロフィール画面の「表示テーマ」セレクトが実際に機能するよう CSS を実装した。
+
+- **`src/frontend/style.css`**:
+    - `:root {}` の直後にダークモードトークンブロックを追加。
+    - `@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) }` で OS 設定追従 (system)。
+    - `[data-theme="dark"]` で強制ダーク。
+    - アクセントカラー (#3db8af) はダーク背景でも視認性が高いためそのまま維持。サーフェス・テキスト・ボーダー・セマンティックカラーをダーク用に再設計。
+
+- **`src/frontend/profile.js`** (`applySettings`):
+    - `document.documentElement.style.colorScheme` を theme に合わせて `dark` / `light` / `light dark` に設定。スクロールバー・フォームコントロールなどのネイティブ UI もテーマに追従するようにした。
+
+- **動作フロー**:
+    1. ページ読み込み時に `applySettings(loadSettings())` が呼ばれ、保存済みテーマが即座に反映される。
+    2. プロフィール画面の「表示テーマ」セレクトを変更すると `persist()` → `saveSettings()` → `applySettings()` の順に呼ばれ、localStorage 保存 + `<html data-theme="...">` 更新がリアルタイムで反映される。
+
+## 34. ElevenLabs Realtime STT 対応 (2026-05-01)
+
+`stt-service.js` に `elevenlabs` プロバイダーを追加した。
+
+- **`src/backend/services/stt-service.js`**:
+    - `require('ws')` を追加 (package.json 既存の `ws ^8.19.0` を利用)。
+    - コンストラクタに `elevenLabsApiKey` / `elevenLabsModel` を追加。`STT_PROVIDER` 未指定時の自動選択を `elevenlabs → groq → google` の優先順に変更。
+    - `createElevenLabsStream(onData, onError)`: WebSocket (`wss://api.elevenlabs.io/v1/speech-to-text/realtime`) に接続し、`speech_started` → `input_audio_chunk` → `speech_ended` の順でメッセージを送信。`transcript_event.type === 'final'` の確定テキストのみ `onData` に渡す。PassThrough を返すため既存のパイプライン互換を維持。
+    - `recognizeWithElevenLabs(audioBuffer)`: バッチ REST API (`/v1/speech-to-text`) への fallback 実装。
+    - `createStream` / `recognize` に `provider === 'elevenlabs'` の分岐を追加。Google のストリーミング分岐を条件式で整理。
+
+- **`.env`**:
+    - 既存の不完全な行 (`=sk_...`) を `ELEVENLABS_API_KEY=sk_...` に修正。
+    - `STT_PROVIDER=elevenlabs` と `ELEVENLABS_STT_MODEL=scribe_v2_flash` を追加。
+
+- **モデル**: `scribe_v2_flash` (デフォルト) / `scribe_v2` を `ELEVENLABS_STT_MODEL` で切り替え可能。
+
+## 35. プロフィールから STT プロバイダーを切り替え可能に (2026-05-01)
+
+プロフィール画面の「設定」タブから Google STT と ElevenLabs Scribe を切り替えられるようにした。
+
+- **`src/frontend/profile.js`**:
+    - `SETTINGS_DEFAULTS` に `sttProvider: 'google'` を追加。
+    - `renderSettingsTab()` に「音声認識エンジン」セレクト (`google` / `elevenlabs`) を追加。
+    - `persist()` に `sttProvider` を含め、`applySettings` で `localStorage.setItem('stt_provider', ...)` を書き込み。
+
+- **`src/frontend/main.js`** (`sendMicPresetMetadataToServer`):
+    - `mic_preset` メッセージに `stt_provider: localStorage.getItem('stt_provider') || 'google'` を付与。会議接続時およびマイクプリセット変更時に自動送信される。
+
+- **`src/backend/app.js`**:
+    - ファイル先頭に `const { STTService } = require('./services/stt-service')` を追加。
+    - `mic_preset` ハンドラで `msg.stt_provider` を受け取り、グローバル sttService と異なる場合は `ws.sessionSttService` としてセッション専用 `STTService` を生成。
+    - `startSTTStream` と `recognize` 呼び出しを `ws.sessionSttService || sttService`（`activeSttService`）で統一。
+    - `/api/status` に `stt_available_providers` フィールドを追加（`ELEVENLABS_API_KEY` が設定されている場合に `elevenlabs` を含む）。
+    - `stt_model` / `speech_to_text` フラグの elevenlabs 分岐も追加。
+
+- **`.env`**:
+    - `STT_PROVIDER=google`（デフォルト）に戻した（以前 `elevenlabs` に変更していたのを修正）。
+
+- **動作フロー**:
+    1. プロフィール → 設定 → 「音声認識エンジン」を「ElevenLabs Scribe」に変更 → 自動保存。
+    2. 次の会議接続時、`mic_preset` メッセージに `stt_provider: 'elevenlabs'` が付与される。
+    3. バックエンドがセッション専用の `STTService(provider='elevenlabs')` を生成し、以後の文字起こしに使用。
+    4. 「Google (デフォルト)」に戻せばグローバルの Google STT サービスに切り替わる。
+
+## 37. ElevenLabs STT プロトコル全面修正・議事録プロンプト変更 (2026-05-01)
+
+以下の4つの課題をまとめて修正した。
+
+### ElevenLabs WebSocket プロトコル修正 (`stt-service.js`)
+
+- フィールド名の誤り (`type` → `message_type`、`audio` → `audio_base_64`) を修正。
+- `session_started` を受け取るまで音声チャンクをキューイングするように変更。
+- 明示的 commit (`commit: true`) なしでは `committed_transcript` が返らない仕様に対応:
+  - `audioSentSinceLastCommit` フラグで空 commit を防止。
+  - `passThrough.commit()` メソッドを追加（セッション維持しながらフラッシュ）。
+  - WS が閉じたら `passThrough.destroy()` → `sttStream = null` → 次回音声受信時に再接続。
+
+### 無音タイマーによるコミット制御 (`app.js`)
+
+- ElevenLabs バイナリ受信パスに 4 秒無音タイマーを追加。
+- 無音 4 秒で `sttStream.commit()` を呼び出し、中間コミットを送信。
+- `ws.on('close')` でタイマーをクリア。
+- `mic_preset` ハンドラでプロバイダー切り替え前にタイマーをクリア。
+- WS 切断後 300ms で pre-warm (次の発話を待たずに新接続を開始)。
+
+### 議事録プロンプトの変更 (`ai-service.js` — `generateMinutesFromTranscript`)
+
+- トピック・セクション・見出しによる分類を廃止し、**時系列の忠実な発言録**スタイルに変更。
+- `[SYSTEM]` で「要約ではなく発言録」と明示。
+- `[FORBIDDEN EDITS]` に「トピック・セクション・見出しによる分類」「発言順の並び替え」を追加。
+- `[FORMAT]` を `発言者A: 内容` の1行形式（見出しなし）に変更。
+
+### STT 再接続の改善 (`stt-service.js`)
+
+- ミュート中の空 commit 問題を `audioSentSinceLastCommit` フラグで解決。
+- ミュート解除後に接続が死んでいた問題を `passThrough.destroy() → pre-warm` の連鎖で解決。
+
+---
+
+## 36. ElevenLabs STT バグ修正 (2026-05-01)
+
+文字起こしが動作しなかった原因を3点修正した。
+
+- **言語コード**: `'ja'` (ISO 639-1) → `'jpn'` (ISO 639-3)。ElevenLabs API は3文字コードを要求する。ストリーミング初期化メッセージ・バッチ REST API 両方を修正。
+- **モデル名**: `'scribe_v2_flash'`（存在しない）→ `'scribe_v2'`。`stt-service.js` のデフォルト値と `.env` の `ELEVENLABS_STT_MODEL` を修正。
+- **処理フロー**: `audioProcessor` が常に介在することで ElevenLabs の WebSocket ストリームにデータが届いていなかった。`app.js` のバイナリデータ処理を修正し、`provider === 'elevenlabs'` の場合は `audioProcessor` バッファをスキップして直接 `sttStream.write(data)` に書き込むよう変更。Google/Groq は従来通り `audioProcessor` 経由のバッチ認識を維持。
+
+## 38. 長時間会議対応チャンキング L1〜L4 (2026-05-02)
+
+1時間超の会議で AI 解析がトークン超過・タイムアウトで失敗するケースに対し、Map-Reduce パイプラインを実装した。
+
+### L1 — チャンキング基盤 (`src/backend/services/chunking.js` 新規)
+
+- `chunkUtterances(utterances, opts)`: 時間窓(10分) + トークン予算(6000) + 30秒オーバーラップで utterances を分割。戻り値 `Array<{ index, startTs, endTs, utterances, estimatedTokens, overlapWith }>`。
+- `shouldChunk(utterances, opts)`: 総トークン > 8000 または 総時間 > 25分 で true。
+- `estimateTokens(text)`: 日本語 1文字 ≈ 0.6トークンの粗い推定。
+- `createSemaphore(concurrency)`: pLimit 相当のシンプルな並列度制御。
+- テスト 12件すべて緑。
+
+### L2 — Map 段 (`src/backend/services/ai-service.js`)
+
+- `generateMinutesPerChunk(chunk, totalChunks, roomMeta, participants, userContexts, aiConfig)` を追加。
+- プロンプト先頭に `[CHUNK INFO] N/M (startTs〜endTs)` を付与。
+- プロンプトスタイルは §37 で変更した「忠実な発言録」スタイルに統一（トピック分類なし）。
+
+### L3 — Reduce 段 (`src/backend/services/ai-service.js`)
+
+- `mergeMinutesChunks(chunkResults, roomMeta)` を追加。LLM呼び出しなし。
+- チャンク境界に `--- [チャンク N/M: startTs〜endTs] ---` ヘッダーを挿入して連結。
+- 1チャンクのみの場合はヘッダーなしで結果をそのまま返す。
+
+### L4 — 適応トリガー (`src/backend/app.js`)
+
+- `chunking.js` の3関数をインポート。
+- `generateSharedAiResult(roomId, 'minutes')` 内で `shouldChunk()` を呼び出し:
+  - false → 従来の `generateMinutesFromTranscript` 1パス。
+  - true → `chunkUtterances` で分割 → `createSemaphore(2)` で並列度2の Map → `mergeMinutesChunks` でマージ。
+- ログ: `[SharedAI] minutes: chunking N utterances into M chunks`。
+
+**設計メモ**: L2 のタスク仕様書に `[REPEAT]` セクション追記が書かれていたが、§37 のプロンプト変更後は `[REPEAT]` セクションが存在しないため未実装。新スタイルプロンプトで同等の効果を得ている。
+
+## 39. 長時間会議対応チャンキング L5〜L8 (2026-05-05)
+
+L1〜L4 で議事録 Map-Reduce を実装した続きとして、要約/ToDo/自由解析への適用・進捗 UI・タイムアウトリトライを追加した。
+
+### L5 — 要約 / ToDo / 自由解析にも Map-Reduce を適用
+
+- **`src/backend/services/chunking.js`** に `shouldChunkText(text)` / `chunkText(text)` を追加。
+  - `shouldChunkText`: テキストの推定トークン数 > 8000 で true（議事録テキスト用）。
+  - `chunkText`: 最大 6000 トークン / 10 行オーバーラップで行単位分割。
+- **`src/backend/services/ai-service.js`** に Map-Reduce メソッドを追加。
+  - `generateSummaryPerChunk` / `mergeSummaryChunks` — 部分要約 + LLM 統合マージ。
+  - `generateTodoPerChunk` / `mergeTodoChunks` — 部分 ToDo + LLM 統合マージ。
+  - `generateCustomPerChunk` — カスタム指示をチャンク単位で適用（マージは単純連結）。
+- **`src/backend/app.js`** の `generateSharedAiResult` で `shouldChunkText(minutesText)` を確認し、長い場合は Map-Reduce パスへ。
+- `/rooms/:id/custom-ai` エンドポイントにも同様のチャンキングを適用。
+
+### L6 — 進捗イベントをフロントへ送る
+
+- **`src/backend/app.js`** に `broadcastToRoom(roomId, message)` ヘルパーを追加。
+  `repositories.wss.rooms` 経由でルームの全 WS クライアントへメッセージを送る。
+- 各 Map フェーズ完了ごとに `{ type: 'chunk_progress', analysis_type, completed, total }` をブロードキャスト。
+- `/rooms/:id/end` の `client.close()` を削除し、summary 画面でも WS を維持して進捗を受信可能にした。
+- **`src/frontend/state.js`** の `minutesWorkspace` / `aiWorkspace` に `progress: null` フィールドを追加。
+
+### L7 — フロント側の進捗 UI
+
+- **`src/frontend/index.html`**: `#ai-output-loading` / `#minutes-output-loading` の両ローディング div 内に進捗バー HTML (`#ai-progress-wrap`, `#ai-progress-bar`, `#minutes-progress-wrap`, `#minutes-progress-bar`) を追加。
+- **`src/frontend/style.css`**: `.progress-bar-wrap` (薄いアクセントカラー背景) / `.progress-bar-fill` (transition 付きアクセントカラー) を追加。
+- **`src/frontend/main.js`**:
+  - WS `onmessage` ハンドラに `chunk_progress` ケースを追加。`analysis_type` に応じて `state.minutesWorkspace.progress` または `state.aiWorkspace.progress` を更新。
+  - `renderMinutesWorkspace` / `renderAiWorkspace` に進捗バー更新ロジックを追加。`total > 1` のときのみ進捗バーを表示し、生成完了時は自動リセット。
+
+### L8 — チャンク単位のタイムアウト・リトライ
+
+- **`src/backend/services/ai-service.js`** に `withTimeoutAndRetry(fn, { timeoutMs, retries, placeholder })` を module-level 関数として追加し、`AIService` とともにエクスポート。
+  - 60 秒タイムアウト + 指数バックオフ (1s / 2s / 4s) で最大 3 回リトライ。
+  - 全失敗時は `placeholder` を返す（null の場合はエラー再スロー）。
+- **`src/backend/app.js`** の全チャンクマップ処理 (minutes / summary / todo / custom) を `withTimeoutAndRetry` でラップ。失敗したチャンクは `[このチャンクの解析に失敗しました: 範囲 hh:mm〜hh:mm]` プレースホルダーで埋めて Reduce に渡し、全体として完走させる。
+
+### 今回の確認
+
+- `node --check` で全変更ファイルの構文確認。
+- `npm.cmd test -- tests/api-rooms.test.js tests/api-insights.test.js tests/ws.test.js tests/ai-service.test.js --runInBand` — 44 tests 全通過。
+
+## 40. 表示名・アカウント名の分離と同期バグ修正 (2026-05-06)
+
+### 背景
+
+以下の 3 つの「名前」が混在しており、変更が互いに干渉・欠落する問題があった。
+
+| 名前 | 保存先 | 役割 |
+|---|---|---|
+| アカウント名 | `accounts.display_name` | 本名推奨、プロフィール管理用 |
+| 会議用表示名 | localStorage `display_name` | 会議中に参加者リストへ表示 |
+| 自己紹介文 | `accounts.profile_text` + localStorage | AI プロンプト補強用 |
+
+### 修正した同期バグ (調査フェーズ)
+
+1. `app:profile-updated` カスタムイベントが `main.js` で受信されているが、`profile.js persist()` から一切 dispatch されていなかった（デッドコードパス）。
+2. `showSetupScreenActive()` がセットアップ画面を再表示する際、`hydrateSetupProfile()` を呼ばなかったため、会議終了後に戻ってもアカウント情報が反映されなかった。
+3. `applyParticipantModeFromUrl()` が `storedName || accountName` の順で補完していた（localStorage 優先）。
+
+### アカウント名 / 表示名の分離 (今回の主変更)
+
+**`src/frontend/profile.js`**
+
+- プロフィール画面の入力ラベル・プレースホルダーを `"表示名"` → `"アカウント名 (本名推奨)"` に変更。
+- 説明文を「アカウント名と表示名は別管理」の旨に更新。
+- `hydrateSetupProfile()` からアカウント名 (`display_name`) のセットアップ画面への書き込みブロックを削除し、`profile_text` のみを同期するよう変更。
+- `persist()` 成功後に `app:profile-updated` を dispatch するよう追加（`profile_text` 同期パスの完成）。
+
+**`src/frontend/main.js`**
+
+- `app:profile-updated` ハンドラから `#display-name` への書き込みを削除。`profile_text` のみ処理。
+- `applyParticipantModeFromUrl()` のフォールバックからアカウント名を除去。localStorage のみ参照。
+- 関連コメントを実態に合わせて更新。
+- `showSetupScreenActive()` に `hydrateSetupProfile()` の呼び出しを追加（会議終了後の戻りで `profile_text` が反映されるようになった）。
+
+### 分離後の動作
+
+- **アカウント名**: プロフィール画面からのみ変更可能。会議中の表示名には影響しない。
+- **表示名**: セットアップ画面の `#display-name` で自由に変更。ログイン・ログアウト・プロフィール変更があっても上書きされない。
+- **`profile_text`**: ログイン時・プロフィール保存時・セットアップ画面表示時に自動同期。
+
+### 確認
+
+- `node --check` で `profile.js` / `main.js` の構文確認。
+
+---
+
+## 31. 振り返りを開発ルールとスキルへ反映 (2026-05-05)
+- `README.md` を UTF-8 で書き直し、読む順番・既定設定・開発ルールの入口を整理した。
+- `docs/ARCHITECTURE.md` の文字化けしていた重要ルールを修正し、現在の past meeting toggle の位置と closeout ルールを追記した。
+- `docs/DEVELOPMENT_RULES.md` を追加し、`Closeout Pass` / `UI Regression Pass` / `Doc Sync Pass` をプロジェクトの共通ルールとして明文化した。
+- `docs/skills/closeout-pass/SKILL.md`, `docs/skills/ui-regression-pass/SKILL.md`, `docs/skills/doc-sync-pass/SKILL.md` を追加し、次回以降エージェントにそのまま渡せる形にした。

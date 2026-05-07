@@ -6,9 +6,10 @@ const { RoomRepository } = require('../src/backend/repo/room-repo');
 describe('RoomRepository', () => {
     let db;
     let repo;
-    const dbPath = path.resolve(__dirname, '../db/test_repo.db');
+    const dbPath = path.resolve(__dirname, './tmp/test_repo.db');
 
     beforeAll(async () => {
+        fs.mkdirSync(path.dirname(dbPath), { recursive: true });
         if (fs.existsSync(dbPath)) fs.unlinkSync(dbPath);
         db = await initDB(dbPath);
         repo = new RoomRepository(db);

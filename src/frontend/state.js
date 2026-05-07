@@ -34,8 +34,9 @@ window.AppState = {
         summarySidebarCollapsed: false,
         summaryAiControlsCollapsed: false,
         activityItems: [],
-        aiProvider: 'gemini',
-        aiModel: 'gemini-2.5-flash',
+        aiProvider: 'groq',
+        aiModel: 'openai/gpt-oss-120b',
+        usePastMeetings: true,
         filters: {
             query: '',
             starredOnly: false,
@@ -60,12 +61,14 @@ window.AppState = {
             instruction: '',
             result: '',
             savedAt: null,
-            loading: false
+            loading: false,
+            progress: null  // { completed: number, total: number } | null
         },
         minutesWorkspace: {
             result: '',
             loading: false,
-            updatedAt: null
+            updatedAt: null,
+            progress: null  // { completed: number, total: number } | null
         },
         liveMeetingAnalysis: {
             loadingKey: '',
@@ -77,12 +80,14 @@ window.AppState = {
                 topics: ''
             }
         },
+        editorDirty: { aiResult: 0, aiInstruction: 0, minutes: 0 },
         activeModalUtteranceId: null,
         activeMemoUtteranceId: null,
         noteDrafts: {},
         transcriptDrafts: {},
         focusedUtteranceId: null,
         isWorkingOnLog: false,
-        dictionary: []
+        dictionary: [],
+        extractedTerms: []
     }
 };

@@ -1,43 +1,93 @@
-# Meeting Minutes App (MVP)
+# GIJIRO
 
-対面会議において「誰が・いつ・何を話したか」を自動でログ化する、シンプルかつ強力な議事録作成支援アプリです。
+GIJIRO is a web app for real-time meeting transcription, post-meeting review,
+minutes generation, summaries, and action items.
 
-## 主な機能
-- **リアルタイム文字起こし**: Google Cloud Speech-to-Text API を活用した高精度な認識。
-- **マルチデバイス対応**: 最大5名まで、各参加者のブラウザから音声を送信可能。
-- **過去ログ同期**: 途中参加者も過去の発言を即座に確認できます。
-- **議事録ダウンロード**: 会議終了後、Markdown形式で全発言ログを保存可能。
-- **話者色分け**: 参加者ごとに視覚的にわかりやすくタイムラインを表示。
+Hosts and participants join the same room from their browsers and accumulate
+meeting logs in real time.
 
-## 技術スタック
-- **Backend**: Node.js + Express
-- **Frontend**: Vanilla JavaScript + CSS (Vanilla)
-- **Database**: SQLite3
-- **Communication**: WebSocket (ws)
-- **External API**: Google Cloud Speech-to-Text API
+## Read These First
 
-## 実行方法
+If you are new to this project, read these files in this order:
 
-### 1. 環境構築
+1. [docs/TASKS.md](docs/TASKS.md)
+   - open work, backlog items, and priorities
+2. [PROGRESS.md](PROGRESS.md)
+   - chronological implementation log and verification notes
+3. [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)
+   - current design rules, responsibility boundaries, and technical debt
+4. [docs/DEVELOPMENT_RULES.md](docs/DEVELOPMENT_RULES.md)
+   - closeout, regression, and documentation sync rules
+
+When UI, scroll behavior, or mobile layouts change, also review
+[docs/MANUAL_TESTS.md](docs/MANUAL_TESTS.md).
+
+## Main Features
+
+- real-time transcription
+- post-meeting log review
+- auto-generated minutes
+- summaries and todo generation
+- shared room URLs
+- microphone checks and sensitivity tuning
+- profile context for better AI output
+
+## Stack
+
+- Backend: Node.js + Express
+- Frontend: Vanilla JavaScript + CSS
+- Database: SQLite3
+- Communication: WebSocket
+- STT: Groq Whisper or Google Speech-to-Text
+- AI: Groq or Gemini
+
+## Setup
+
+### 1. Install
+
 ```bash
 npm install
 ```
 
-### 2. 環境変数の設定
-`.env` ファイルを作成し、Google Cloud APIキー等の必要な情報を設定してください。
+### 2. Environment Variables
+
+Create `.env`:
+
 ```env
 PORT=3000
 DB_PATH=./db/meeting.db
-GOOGLE_API_KEY=your_google_speech_api_key_here
+
+# AI
+AI_PROVIDER=groq
+GROQ_API_KEY=your_groq_api_key_here
+
+# STT
+STT_PROVIDER=groq
+GROQ_STT_MODEL=whisper-large-v3-turbo
+
+# Optional
 GEMINI_API_KEY=your_gemini_api_key_here
+GOOGLE_API_KEY=your_google_speech_api_key_here
 ```
 
-### 3. サーバー起動
+### 3. Start
+
 ```bash
 npm start
 ```
-ブラウザで `http://localhost:3000` にアクセスしてください。
 
-## 開発状況
-MVPフェーズが完了し、AIサポート機能（要約・アジェンダ生成）の実装も完了しました。
-現在、さらなるUIの改善と多言語対応を検討中です。
+Then open [http://localhost:3000](http://localhost:3000).
+
+## Default Providers
+
+- default AI provider: Groq
+- default STT provider: Groq Whisper
+- Gemini and Google Speech-to-Text remain selectable when needed
+
+## Development Rules
+
+- run `Closeout Pass` after feature work or bugfixes
+- run `UI Regression Pass` after UI, mobile, scroll, or layout changes
+- run `Doc Sync Pass` after behavior, setup, defaults, or architecture changes
+
+See [docs/DEVELOPMENT_RULES.md](docs/DEVELOPMENT_RULES.md) for details.

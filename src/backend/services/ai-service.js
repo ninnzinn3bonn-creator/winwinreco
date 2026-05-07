@@ -1,6 +1,104 @@
 const { GoogleGenerativeAI } = require('@google/generative-ai');
 const Groq = require('groq-sdk');
 
+/**
+ * Japanese text wrapper for character encoding consistency
+ */
+function jp(text) {
+    return text;
+}
+
+/**
+ * Helper to strip Markdown code fences and surrounding text
+ */
+function stripCodeFence(text) {
+    if (!text) return '';
+    const str = String(text).trim();
+    // Try to extract content between triple backticks
+    const match = str.match(/```(?:json)?\s*([\s\S]*?)\s*```/i);
+    if (match) {
+        return match[1].trim();
+    }
+    // Fallback: just strip markers if they are at start/end
+    return str
+        .replace(/^```[a-z]*\s*/i, '')
+        .replace(/\s*```$/, '')
+        .trim();
+}
+
+/**
+ * Helper to safely parse JSON from AI response
+ */
+function safeJsonParse(text) {
+    const stripped = stripCodeFence(text);
+    try {
+        return JSON.parse(stripped);
+    } catch (e) {
+        // Try to find the first '{' and last '}' to extract a JSON object manually
+        const firstBrace = stripped.indexOf('{');
+        const lastBrace = stripped.lastIndexOf('}');
+        if (firstBrace !== -1 && lastBrace !== -1 && lastBrace > firstBrace) {
+            const candidate = stripped.slice(firstBrace, lastBrace + 1);
+            try {
+                return JSON.parse(candidate);
+            } catch (e2) {
+                console.error('[AIService] Failed to parse JSON even after brace extraction', e2.message);
+            }
+        }
+        console.error('[AIService] JSON parse error:', e.message, 'Input snippet:', stripped.slice(0, 100));
+        throw e; // Rethrow to be caught by the caller with context
+    }
+}
+
+function truncate(text, max) {
+    const value = String(text || '').trim();
+    return value.length > max ? value.slice(0, max) : value;
+}
+
+function cleanTask(task) {
+    return String(task || '').trim();
+}
+
+function formatMinuteTimestamp(start, end) {
+    const startValue = String(start || '').trim();
+    const endValue = String(end || '').trim();
+    if (!startValue && !endValue) return '';
+    if (!endValue || startValue === endValue) return startValue;
+    return `${startValue} - ${endValue}`;
+}
+
+/**
+ * [L8] タイムアウト + 指数バックオフリトライ。
+ *
+ * @param {() => Promise<any>} fn          実行する非同期関数
+ * @param {object} [opts]
+ * @param {number} [opts.timeoutMs=60000]  1 回あたりのタイムアウト (ms)
+ * @param {number} [opts.retries=3]        最大リトライ回数
+ * @param {any}    [opts.placeholder=null] 全失敗時に返す値 (null の場合はエラー再スロー)
+ * @returns {Promise<any>}
+ */
+async function withTimeoutAndRetry(fn, { timeoutMs = 60000, retries = 3, placeholder = null } = {}) {
+    let lastError;
+    for (let attempt = 0; attempt <= retries; attempt++) {
+        try {
+            return await Promise.race([
+                fn(),
+                new Promise((_, reject) =>
+                    setTimeout(() => reject(new Error(`Chunk timeout after ${timeoutMs}ms`)), timeoutMs)
+                ),
+            ]);
+        } catch (err) {
+            lastError = err;
+            if (attempt < retries) {
+                // 指数バックオフ: 1s, 2s, 4s
+                await new Promise(resolve => setTimeout(resolve, Math.pow(2, attempt) * 1000));
+            }
+        }
+    }
+    if (placeholder !== null) return placeholder;
+    throw lastError;
+}
+
 class GroqProvider {
     constructor(apiKey, modelName = 'openai/gpt-oss-120b') {
         if (!apiKey) throw new Error('GROQ_API_KEY is not set.');
@@ -9,10 +107,11 @@ class GroqProvider {
         this.name = `groq (${modelName})`;
     }
 
-    async generate(prompt) {
+    async generate(prompt, options = {}) {
         const chatCompletion = await this.client.chat.completions.create({
             messages: [{ role: 'user', content: prompt }],
             model: this.modelName,
+            response_format: options.json ? { type: 'json_object' } : undefined
         });
         return chatCompletion.choices[0]?.message?.content || "";
     }
@@ -51,14 +150,28 @@ class GeminiProvider {
         );
     }
 
-    async generate(prompt) {
+    async generate(prompt, options = {}) {
         let lastError = null;
 
         for (const modelName of this.fallbackModelNames) {
             try {
                 this.currentModelName = modelName;
                 this.name = `gemini (${modelName})`;
-                const result = await this.model.generateContent(prompt);
+                
+                const generationConfig = {
+                    maxOutputTokens: options.maxOutputTokens || 4096,
+                };
+                
+                if (options.json) {
+                    generationConfig.responseMimeType = "application/json";
+                }
+
+                const model = this.genAI.getGenerativeModel({ 
+                    model: this.currentModelName,
+                    generationConfig
+                });
+                
+                const result = await model.generateContent(prompt);
                 const response = await result.response;
                 return response.text();
             } catch (error) {
@@ -80,15 +193,20 @@ class OllamaProvider {
         this.name = `Local LLM (Ollama: ${modelName})`;
     }
 
-    async generate(prompt) {
+    async generate(prompt, options = {}) {
+        const body = {
+            model: this.modelName,
+            prompt,
+            stream: false
+        };
+        if (options.json) {
+            body.format = 'json';
+        }
+
         const response = await fetch(`${this.baseUrl}/api/generate`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-                model: this.modelName,
-                prompt,
-                stream: false
-            })
+            body: JSON.stringify(body)
         });
 
         if (!response.ok) {
@@ -101,45 +219,11 @@ class OllamaProvider {
     }
 }
 
-function stripCodeFence(text) {
-    return String(text || '')
-        .trim()
-        .replace(/^```json\s*/i, '')
-        .replace(/^```\s*/i, '')
-        .replace(/\s*```$/, '')
-        .trim();
-}
-
-function safeJsonParse(text) {
-    return JSON.parse(stripCodeFence(text));
-}
-
-function truncate(text, max) {
-    const value = String(text || '').trim();
-    return value.length > max ? value.slice(0, max) : value;
-}
-
-function cleanTask(task) {
-    return String(task || '').trim();
-}
-
-function formatMinuteTimestamp(start, end) {
-    const startValue = String(start || '').trim();
-    const endValue = String(end || '').trim();
-    if (!startValue && !endValue) return '';
-    if (!endValue || startValue === endValue) return startValue;
-    return `${startValue} - ${endValue}`;
-}
-
-function jp(text) {
-    return text;
-}
-
 class AIService {
     constructor(config = {}) {
         const groqKey = config.groqApiKey || process.env.GROQ_API_KEY;
         const geminiKey = config.apiKey || process.env.GEMINI_API_KEY;
-        const requestedProvider = config.provider || process.env.AI_PROVIDER;
+        const requestedProvider = config.provider || process.env.AI_PROVIDER || (groqKey ? 'groq' : 'gemini');
 
         try {
             if (requestedProvider === 'groq' && groqKey && groqKey !== 'dummy') {
@@ -157,12 +241,11 @@ class AIService {
             } else if (requestedProvider === 'ollama') {
                 this.provider = new OllamaProvider();
                 this.enabled = true;
+            } else if (groqKey && groqKey !== 'dummy') {
+                this.provider = new GroqProvider(groqKey, config.groqModel || 'openai/gpt-oss-120b');
+                this.enabled = true;
             } else if (geminiKey && geminiKey !== 'dummy') {
                 this.provider = new GeminiProvider(geminiKey, config.geminiModel || 'gemini-2.5-flash');
-                this.enabled = true;
-            } else if (groqKey && groqKey !== 'dummy') {
-                // Fallback to what's available
-                this.provider = new GroqProvider(groqKey, config.groqModel || 'openai/gpt-oss-120b');
                 this.enabled = true;
             } else {
                 this.provider = new OllamaProvider();
@@ -340,7 +423,7 @@ class AIService {
         const provider = this.getProvider(aiConfig);
         const messages = this.toMessages(utterances);
         const prompt = this.buildStructuredInsightsPrompt(messages, participants, userContexts);
-        const raw = await provider.generate(prompt);
+        const raw = await provider.generate(prompt, { json: true });
         const parsed = safeJsonParse(raw);
 
         return {
@@ -454,46 +537,47 @@ class AIService {
             .join('\n');
 
         const participantNames = participants.map((participant) => participant.display_name).filter(Boolean).join('、') || '不明';
+
+        // Minutes are intentionally generated from THIS meeting only — past
+        // meeting context is dropped so the output never leaks/imports
+        // language or topics from prior sessions. (Summary/ToDo still get
+        // the past block so trends across meetings are visible there.)
         const prompt = [
             '[SYSTEM]',
-            'あなたは高精度な議事録作成AIです。',
-            '音声文字起こしには誤認識・ノイズ・クロストークが含まれます。',
-            '文脈を理解し、正しい議事録に再構成してください。',
+            'あなたは「忠実な発言録作成」を担当するAIです。',
+            'これは要約ではありません。会話の流れを時系列のまま、話し手の口調・語彙・言い回しをできる限り残してください。',
+            'トピックやセクションで分類・整理せず、発言順に並べた「発言録」を出力してください。',
             '',
             '[CONTEXT]',
-            '以下は会議の文字起こしログです：',
+            '以下はこの会議の文字起こしログです。',
             transcript || '(ログなし)',
             '',
             this.buildUserContextBlock(participants, userContexts),
-            '[INSTRUCTION]',
-            '以下を実行してください：',
-            '1. ノイズ・誤変換・無意味な発言を削除',
-            '2. クロストークを文脈から整理',
-            '3. 発言者ごとに整理',
-            '4. 自然な日本語に修正',
-            '5. 意味単位で統合',
-            '6. 時系列を維持',
+            '[ALLOWED EDITS]',
+            '- 明らかな誤認識（音声→文字の取り違え）の修正',
+            '- 「えー」「あー」「えっと」など意味のないフィラーの削除',
+            '- 重複した相槌・無関係な雑音の削除',
+            '- 同一話者の連続発話を1段落にまとめる（語順・語尾は保つ）',
+            '- 句読点と改行の補正',
+            '',
+            '[FORBIDDEN EDITS]',
+            '- 内容の要約・抽象化・パラフレーズ・箇条書き化',
+            '- トピック・セクション・見出しによる分類',
+            '- 話していない結論や行動項目の補足',
+            '- 発言順の並び替え',
+            '- 敬語/口調の変更',
             '',
             '[FORMAT]',
-            '## 会議情報',
+            `日時: ${roomMeta.date || '不明'}`,
+            `参加者: ${participantNames}`,
             '',
-            `* 日時: ${roomMeta.date || '不明'}`,
-            `* 会議名: ${roomMeta.title || roomMeta.roomId || '会議'}`,
-            `* 参加者: ${participantNames}`,
+            '---',
             '',
-            '## 議事録',
+            '発言者A: 実際に話した内容をそのまま',
+            '発言者B: 同上',
+            '発言者A: 続きの発言',
             '',
-            '### セクション1: トピック名',
-            '',
-            '* 発言者A: 内容',
-            '* 発言者B: 内容',
-            '',
-            '### セクション2',
-            '',
-            '...',
-            '',
-            '[REPEAT]',
-            'ノイズを除去し、意味のある発言のみで構成してください。'
+            '〔セクション見出し・箇条書き・トピックまとめは出力しない。会話を上から順に並べるだけ〕',
         ].join('\n');
 
         const result = await provider.generate(prompt);
@@ -511,12 +595,13 @@ class AIService {
 
         const provider = this.getProvider(aiConfig);
 
+        const pastBlock = (aiConfig && aiConfig.pastContextBlock) ? `${aiConfig.pastContextBlock}\n\n` : '';
         const prompt = [
             '[SYSTEM]',
             'あなたは会議内容を構造的に要約するAIです。',
             '',
             this.buildUserContextBlock(participants, userContexts),
-            '',
+            pastBlock,
             '[CONTEXT]',
             '以下は整理済み議事録です：',
             minutesText || '(議事録なし)',
@@ -565,12 +650,13 @@ class AIService {
 
         const provider = this.getProvider(aiConfig);
 
+        const pastBlock = (aiConfig && aiConfig.pastContextBlock) ? `${aiConfig.pastContextBlock}\n\n` : '';
         const prompt = [
             '[SYSTEM]',
             'あなたは会議から行動と次の議題を抽出するAIです。',
             '',
             this.buildUserContextBlock(participants, userContexts),
-            '',
+            pastBlock,
             '[CONTEXT]',
             '以下は議事録です：',
             minutesText || '(議事録なし)',
@@ -627,13 +713,14 @@ class AIService {
 
         const provider = this.getProvider(aiConfig);
 
+        const pastBlock = (aiConfig && aiConfig.pastContextBlock) ? `${aiConfig.pastContextBlock}\n\n` : '';
         const prompt = [
             '[SYSTEM]',
             'あなたは会議支援AIです。与えられた議事録だけを根拠に分析してください。',
             '生ログは使わず、議事録の内容だけを参照してください。',
             '',
             this.buildUserContextBlock(participants, userContexts),
-            '',
+            pastBlock,
             '[CONTEXT]',
             '以下は整理済み議事録です：',
             minutesText || '(議事録なし)',
@@ -744,7 +831,7 @@ class AIService {
             }
 
             const prompt = this.buildUserContextUpdatePrompt(currentContext, messages, participant.display_name || participant.user_id);
-            const raw = await this.provider.generate(prompt);
+            const raw = await this.provider.generate(prompt, { json: true });
             const parsed = safeJsonParse(raw);
 
             results.push({
@@ -793,6 +880,63 @@ class AIService {
         };
     }
 
+    async extractDictionaryTerms(text, aiConfig = {}) {
+        if (!this.enabled) {
+            throw new Error(jp('AIサービスが設定されていません。環境変数（GEMINI_API_KEYなど）を確認してください。'));
+        }
+
+        let provider;
+        try {
+            // Try requested provider, then default, then whatever is enabled
+            if (aiConfig.provider) {
+                provider = this.getProvider(aiConfig);
+            } else {
+                provider = this.provider;
+            }
+        } catch (e) {
+            console.warn(`[AIService] Provider selection failed, using default: ${e.message}`);
+            provider = this.provider;
+        }
+
+        if (!provider) {
+            throw new Error(jp('利用可能なAIプロバイダーが見つかりません。'));
+        }
+
+        const prompt = [
+            '# ROLE',
+            'Expert Meeting Assistant',
+            '',
+            '# TASK',
+            'Extract specialized terms and proper nouns from the text for speech recognition dictionary.',
+            '',
+            '# RULES',
+            '1. Extract ONLY specialized terms, project names, technical words, or person names.',
+            '2. Exclude common daily words.',
+            '3. Provide Japanese reading in KATAKANA for each term.',
+            '4. Output MUST be valid JSON format only.',
+            '',
+            '# FORMAT',
+            '{ "terms": [ { "term": "word", "reading": "ヨミカタ" } ] }',
+            '',
+            '# INPUT TEXT',
+            text
+        ].join('\n');
+
+        try {
+            const raw = await provider.generate(prompt, { json: true });
+            const parsed = safeJsonParse(raw);
+            const terms = (parsed.terms || []).filter(t => t.term && t.reading);
+            if (terms.length === 0) {
+                // If it returned something but not in format, try to extract manually or just fail gracefully
+                console.warn('[AIService] No terms found in AI response:', raw);
+            }
+            return terms;
+        } catch (error) {
+            console.error('[AIService] AI Generation or Parsing failed:', error);
+            throw new Error(jp('AIの応答取得に失敗しました: ') + error.message);
+        }
+    }
+
     getProvider(options = {}) {
         if (options.provider === 'groq') {
             return new GroqProvider(process.env.GROQ_API_KEY, options.model || 'openai/gpt-oss-120b');
@@ -836,7 +980,7 @@ class AIService {
             JSON.stringify({ messages }, null, 2)
         ].join('\n');
 
-        const raw = await provider.generate(prompt);
+        const raw = await provider.generate(prompt, { json: true });
         try {
             const parsed = safeJsonParse(raw);
             return parsed.reconstructed || [];
@@ -846,10 +990,362 @@ class AIService {
         }
     }
 
+    /**
+     * [L2] チャンク単体の議事録を生成する。
+     *
+     * @param {{ index:number, startTs:string, endTs:string, utterances:Array, overlapWith:string[] }} chunk
+     * @param {number} totalChunks
+     * @param {object} roomMeta
+     * @param {Array}  participants
+     * @param {Array}  userContexts
+     * @param {object} aiConfig
+     * @returns {Promise<{ chunkIndex:number, startTs:string, endTs:string, overlapWith:string[], result:string, provider:string }>}
+     */
+    async generateMinutesPerChunk(chunk, totalChunks, roomMeta = {}, participants = [], userContexts = [], aiConfig = {}) {
+        if (!this.enabled) {
+            throw new Error('AI Service is not configured.');
+        }
+
+        const provider = this.getProvider(aiConfig);
+
+        // overlapWith に含まれる ID は前チャンクの末尾と重複する発言。
+        // 文脈として渡すが出力対象からは外す。重複防止のため。
+        const overlapIdSet = new Set(chunk.overlapWith || []);
+        const contextUtts = chunk.utterances.filter(u => overlapIdSet.has(u.id));
+        const targetUtts  = chunk.utterances.filter(u => !overlapIdSet.has(u.id));
+        // 万が一 targetUtts が空（全件がオーバーラップ）なら全件を対象にする
+        const outputUtts  = targetUtts.length > 0 ? targetUtts : chunk.utterances;
+
+        const contextMessages = this.toMinuteMessages(contextUtts);
+        const targetMessages  = this.toMinuteMessages(outputUtts);
+
+        const contextTranscript = contextMessages.map(m => `${m.speaker}: ${m.text}`).join('\n');
+        const targetTranscript  = targetMessages.map(m => `${m.speaker}: ${m.text}`).join('\n');
+
+        const participantNames = participants.map((p) => p.display_name).filter(Boolean).join('、') || '不明';
+        const chunkLabel = `${chunk.index + 1}/${totalChunks} (${chunk.startTs}〜${chunk.endTs})`;
+
+        const promptLines = [
+            `[CHUNK INFO] ${chunkLabel}`,
+            '',
+            '[SYSTEM]',
+            'あなたは「忠実な発言録作成」を担当するAIです。',
+            'これは要約ではありません。会話の流れを時系列のまま、話し手の口調・語彙・言い回しをできる限り残してください。',
+            'トピックやセクションで分類・整理せず、発言順に並べた「発言録」を出力してください。',
+            '',
+        ];
+
+        // 前チャンクとの重複部分は文脈として渡す（出力しない）
+        if (contextTranscript) {
+            promptLines.push(
+                '[CONTEXT - 前チャンクの末尾。文脈参照のみ、出力には含めないこと]',
+                contextTranscript,
+                '',
+            );
+        }
+
+        promptLines.push(
+            '[OUTPUT TARGET - ここから先のみを発言録として出力してください]',
+            targetTranscript || '(ログなし)',
+            '',
+            '[ALLOWED EDITS]',
+            '- 明らかな誤認識（音声→文字の取り違え）の修正',
+            '- 「えー」「あー」「えっと」など意味のないフィラーの削除',
+            '- 重複した相槌・無関係な雑音の削除',
+            '- 同一話者の連続発話を1段落にまとめる（語順・語尾は保つ）',
+            '- 句読点と改行の補正',
+            '',
+            '[FORBIDDEN EDITS]',
+            '- 内容の要約・抽象化・パラフレーズ・箇条書き化',
+            '- トピック・セクション・見出しによる分類',
+            '- 話していない結論や行動項目の補足',
+            '- 発言順の並び替え',
+            '- 敬語/口調の変更',
+            '',
+            '[FORMAT]',
+            `参加者: ${participantNames}`,
+            '',
+            '発言者A: 実際に話した内容をそのまま',
+            '発言者B: 同上',
+            '発言者A: 続きの発言',
+            '',
+            '〔セクション見出し・箇条書き・トピックまとめは出力しない。会話を上から順に並べるだけ〕',
+        );
+
+        const prompt = promptLines.join('\n');
+
+        const result = await provider.generate(prompt);
+        return {
+            chunkIndex: chunk.index,
+            startTs: chunk.startTs,
+            endTs: chunk.endTs,
+            overlapWith: chunk.overlapWith,
+            result: String(result || '').trim(),
+            provider: provider.name,
+        };
+    }
+
+    /**
+     * [L3] チャンク結果を結合して最終議事録テキストを生成する（LLM呼び出しなし）。
+     *
+     * overlapWith に含まれる utterance ID はチャンク境界の重複だが、
+     * LLM 出力はテキストのため ID ベースの行単位除去は行わず、
+     * 空行2つで自然につなぐ。
+     *
+     * @param {Array<{ chunkIndex:number, startTs:string, endTs:string, result:string }>} chunkResults
+     * @param {object} roomMeta
+     * @returns {string}
+     */
+    mergeMinutesChunks(chunkResults, roomMeta = {}) {
+        if (!chunkResults || chunkResults.length === 0) return '';
+        if (chunkResults.length === 1) return chunkResults[0].result || '';
+
+        const sorted = [...chunkResults].sort((a, b) => a.chunkIndex - b.chunkIndex);
+
+        // チャンクヘッダーは挿入しない（議事録の読みやすさ優先）。
+        // 空行2つで自然につなぐ。LLM が各チャンクの先頭・末尾を
+        // 自然な段落で終えてくれるため、これで十分につながる。
+        return sorted
+            .map(c => (c.result || '').trim())
+            .filter(Boolean)
+            .join('\n\n');
+    }
+
+    // ──────────────────────────────────────────────────────────────────
+    // [L5] summary / todo / custom の Map-Reduce メソッド群
+    // ──────────────────────────────────────────────────────────────────
+
+    /**
+     * 議事録テキストの 1 チャンク分の要約を生成する（Map 段）。
+     */
+    async generateSummaryPerChunk(chunkText, chunkIdx, totalChunks, participants = [], userContexts = [], aiConfig = {}) {
+        if (!this.enabled) throw new Error('AI Service is not configured.');
+        const provider = this.getProvider(aiConfig);
+        const chunkLabel = `${chunkIdx + 1}/${totalChunks}`;
+        const pastBlock = (aiConfig && aiConfig.pastContextBlock) ? `${aiConfig.pastContextBlock}\n\n` : '';
+
+        const prompt = [
+            `[CHUNK INFO] 議事録チャンク ${chunkLabel}`,
+            '',
+            '[SYSTEM]',
+            'あなたは会議内容を構造的に要約するAIです。',
+            '以下は長い議事録の一部です。この部分だけを対象に部分要約を生成してください。',
+            '',
+            this.buildUserContextBlock(participants, userContexts),
+            pastBlock,
+            '[CONTEXT]',
+            `以下は議事録チャンク ${chunkLabel} です：`,
+            chunkText || '(議事録なし)',
+            '',
+            '[INSTRUCTION]',
+            '1. このチャンクのトピックを整理',
+            '2. 要点を抽出',
+            '3. 重要な議論と結論を記録',
+            '',
+            '[FORMAT]',
+            `## チャンク ${chunkLabel} の要約`,
+            '',
+            '### トピック名',
+            '* 概要:',
+            '* 主な意見:',
+            '* 結論または継続事項:',
+        ].join('\n');
+
+        const result = await provider.generate(prompt);
+        return {
+            chunkIndex: chunkIdx,
+            result: String(result || '').trim(),
+            provider: provider.name,
+        };
+    }
+
+    /**
+     * 複数チャンクの部分要約を LLM で統合する（Reduce 段）。
+     */
+    async mergeSummaryChunks(partialSummaries = [], participants = [], userContexts = [], aiConfig = {}) {
+        if (!this.enabled) throw new Error('AI Service is not configured.');
+        if (partialSummaries.length === 0) return { result: '', provider: 'none' };
+        if (partialSummaries.length === 1) return { result: partialSummaries[0], provider: 'none' };
+
+        const provider = this.getProvider(aiConfig);
+        const pastBlock = (aiConfig && aiConfig.pastContextBlock) ? `${aiConfig.pastContextBlock}\n\n` : '';
+        const combined = partialSummaries
+            .map((s, i) => `--- チャンク ${i + 1}/${partialSummaries.length} ---\n${s}`)
+            .join('\n\n');
+
+        const prompt = [
+            '[SYSTEM]',
+            'あなたは会議内容を構造的に要約するAIです。',
+            '以下は長い議事録を複数チャンクに分割して要約したものです。',
+            'これらを統合して、一つの一貫した要約を作成してください。',
+            '',
+            this.buildUserContextBlock(participants, userContexts),
+            pastBlock,
+            '[PARTIAL SUMMARIES]',
+            combined,
+            '',
+            '[INSTRUCTION]',
+            '全チャンクの要約を統合して：',
+            '1. トピックごとに整理（重複排除）',
+            '2. 会議全体の流れが分かる一貫した要約に',
+            '3. 次回の重要論点も整理',
+            '',
+            '[FORMAT]',
+            '## 要約',
+            '',
+            '### 1. トピック名',
+            '',
+            '* 概要:',
+            '* 主な意見:',
+            '* 結論:',
+            '',
+            '## 次回の重要論点',
+            '',
+            '* ○○の検討',
+            '',
+            '[REPEAT]',
+            '重要な議論のみ抽出してください。',
+        ].join('\n');
+
+        const result = await provider.generate(prompt);
+        return { result: String(result || '').trim(), provider: provider.name };
+    }
+
+    /**
+     * 議事録テキストの 1 チャンク分の ToDo を生成する（Map 段）。
+     */
+    async generateTodoPerChunk(chunkText, chunkIdx, totalChunks, participants = [], userContexts = [], aiConfig = {}) {
+        if (!this.enabled) throw new Error('AI Service is not configured.');
+        const provider = this.getProvider(aiConfig);
+        const chunkLabel = `${chunkIdx + 1}/${totalChunks}`;
+        const pastBlock = (aiConfig && aiConfig.pastContextBlock) ? `${aiConfig.pastContextBlock}\n\n` : '';
+
+        const prompt = [
+            `[CHUNK INFO] 議事録チャンク ${chunkLabel}`,
+            '',
+            '[SYSTEM]',
+            'あなたは会議から行動と次の議題を抽出するAIです。',
+            '',
+            this.buildUserContextBlock(participants, userContexts),
+            pastBlock,
+            '[CONTEXT]',
+            `以下は議事録チャンク ${chunkLabel} です：`,
+            chunkText || '(議事録なし)',
+            '',
+            '[INSTRUCTION]',
+            '以下を抽出してください：',
+            '',
+            '【TODO条件】',
+            '* 明確な行動',
+            '* 担当者が特定可能',
+            '* 実行意思がある',
+            '',
+            '【除外】',
+            '* 仮案',
+            '* 雑談',
+            '* 未確定事項',
+            '',
+            '[FORMAT]',
+            `## チャンク ${chunkLabel} のTODO`,
+            '',
+            '* 担当者:',
+            '  内容:',
+            '  期限:',
+        ].join('\n');
+
+        const result = await provider.generate(prompt);
+        return {
+            chunkIndex: chunkIdx,
+            result: String(result || '').trim(),
+            provider: provider.name,
+        };
+    }
+
+    /**
+     * 複数チャンクの部分 ToDo を LLM で統合・重複排除する（Reduce 段）。
+     */
+    async mergeTodoChunks(partialTodos = [], participants = [], userContexts = [], aiConfig = {}) {
+        if (!this.enabled) throw new Error('AI Service is not configured.');
+        if (partialTodos.length === 0) return { result: '', provider: 'none' };
+        if (partialTodos.length === 1) return { result: partialTodos[0], provider: 'none' };
+
+        const provider = this.getProvider(aiConfig);
+        const pastBlock = (aiConfig && aiConfig.pastContextBlock) ? `${aiConfig.pastContextBlock}\n\n` : '';
+        const combined = partialTodos
+            .map((s, i) => `--- チャンク ${i + 1}/${partialTodos.length} ---\n${s}`)
+            .join('\n\n');
+
+        const prompt = [
+            '[SYSTEM]',
+            'あなたは会議から行動と次の議題を抽出するAIです。',
+            '以下は長い議事録を複数チャンクから抽出したTODOリストです。',
+            'これらを統合・重複排除して、一つのTODOリストを作成してください。',
+            '',
+            this.buildUserContextBlock(participants, userContexts),
+            pastBlock,
+            '[PARTIAL TODO LISTS]',
+            combined,
+            '',
+            '[INSTRUCTION]',
+            '全チャンクのTODOを統合して：',
+            '1. 重複するTODOを排除',
+            '2. 担当者・期限・内容を整理',
+            '3. 次回会議の確認事項も整理',
+            '',
+            '[FORMAT]',
+            '## TODO一覧',
+            '',
+            '* 担当者:',
+            '  内容:',
+            '  期限:',
+            '',
+            '## 次回会議の確認事項',
+            '',
+            '* ○○の進捗確認',
+            '',
+            '[REPEAT]',
+            '曖昧なものは含めない。',
+        ].join('\n');
+
+        const result = await provider.generate(prompt);
+        return { result: String(result || '').trim(), provider: provider.name };
+    }
+
+    /**
+     * 議事録テキストの 1 チャンク分をカスタム指示で解析する（Map 段）。
+     */
+    async generateCustomPerChunk(chunkText, chunkIdx, totalChunks, customInstruction, aiConfig = {}) {
+        if (!this.enabled) throw new Error('AI Service is not configured.');
+        const provider = this.getProvider(aiConfig);
+        const chunkLabel = `${chunkIdx + 1}/${totalChunks}`;
+
+        const prompt = [
+            `[CHUNK INFO] 議事録チャンク ${chunkLabel}`,
+            '',
+            '[SYSTEM]',
+            'あなたは会議支援AIです。与えられた議事録だけを根拠に分析してください。',
+            `以下は長い議事録の一部（チャンク ${chunkLabel}）です。`,
+            '',
+            '[CONTEXT]',
+            `以下は議事録チャンク ${chunkLabel} です：`,
+            chunkText || '(議事録なし)',
+            '',
+            '[INSTRUCTION]',
+            customInstruction || '議事録を整理してください。',
+        ].join('\n');
+
+        const result = await provider.generate(prompt);
+        return {
+            chunkIndex: chunkIdx,
+            result: String(result || '').trim(),
+            provider: provider.name,
+        };
+    }
+
     async generateSpeakerActions(utterances, participants = []) {
         const structured = await this.generateStructuredInsights(utterances, participants);
         return structured.flat_actions;
     }
 }
 
-module.exports = { AIService };
+module.exports = { AIService, withTimeoutAndRetry };

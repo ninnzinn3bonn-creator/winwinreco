@@ -28,14 +28,21 @@ describe('Server Basic Setup', () => {
         expect(response.status).toBe(200);
     });
 
-    test('WebSocket server should accept connections', (done) => {
+    test('WebSocket server should reject upgrades missing credentials', (done) => {
+        let finished = false;
+        const finish = (err) => {
+            if (finished) return;
+            finished = true;
+            done(err);
+        };
         const ws = new WebSocket(`ws://localhost:${port}`);
         ws.on('open', () => {
             ws.close();
-            done();
+            finish(new Error('connection should have been rejected'));
         });
-        ws.on('error', (err) => {
-            done(err);
-        });
+        // Either an error or an immediate close constitutes rejection.
+        ws.on('unexpected-response', () => finish());
+        ws.on('error', () => finish());
+        ws.on('close', () => finish());
     });
 });

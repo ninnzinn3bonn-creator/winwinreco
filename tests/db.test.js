@@ -3,9 +3,10 @@ const path = require('path');
 const { initDB } = require('../src/backend/repo/db');
 
 describe('Database Setup', () => {
-    const dbPath = path.resolve(__dirname, '../db/test_meeting.db');
+    const dbPath = path.resolve(__dirname, './tmp/test_meeting.db');
 
     beforeAll(async () => {
+        fs.mkdirSync(path.dirname(dbPath), { recursive: true });
         if (fs.existsSync(dbPath)) {
             fs.unlinkSync(dbPath);
         }

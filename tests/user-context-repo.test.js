@@ -8,9 +8,10 @@ describe('UserContextRepository', () => {
     let db;
     let userRepo;
     let contextRepo;
-    const dbPath = path.resolve(__dirname, '../db/test_user_context.db');
+    const dbPath = path.resolve(__dirname, './tmp/test_user_context.db');
 
     beforeAll(async () => {
+        fs.mkdirSync(path.dirname(dbPath), { recursive: true });
         if (fs.existsSync(dbPath)) fs.unlinkSync(dbPath);
         db = await initDB(dbPath);
         userRepo = new UserRepository(db);

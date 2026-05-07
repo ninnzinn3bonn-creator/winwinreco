@@ -1,12 +1,54 @@
 const express = require('express');
 const { WebSocketServer, WebSocket } = require('ws');
 const crypto = require('crypto');
+const { STTService } = require('./services/stt-service');
+const { newId, newToken } = require('./lib/ids');
+const { createAuth } = require('./lib/auth');
+const { securityHeaders, createRateLimiter, isAllowedOrigin } = require('./lib/security');
+const { hashPassword, verifyPassword } = require('./lib/passwords');
+const { buildSessionCookie, buildClearCookie } = require('./lib/cookies');
+const { buildPastMeetingContext } = require('./lib/past-context');
+const { shouldChunk, chunkUtterances, createSemaphore, shouldChunkText, chunkText } = require('./services/chunking');
+const { withTimeoutAndRetry } = require('./services/ai-service');
+const {
+    sanitizeDisplayName,
+    sanitizeProfileText,
+    sanitizeMemoText,
+    sanitizeTranscript,
+    sanitizeInstruction
+} = require('./lib/ai-sanitize');
+
+// RFC-5322-lite email shape check. Server-side defense; final authority is the
+// DB UNIQUE constraint + login flow.
+const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+const MIN_PASSWORD_LEN = 8;
+const MAX_PASSWORD_LEN = 128;
+
+function validateSignupInput(body) {
+    const email = String(body?.email || '').trim().toLowerCase();
+    const password = String(body?.password || '');
+    const displayName = sanitizeDisplayName(body?.display_name || email.split('@')[0] || '');
+    if (!EMAIL_RE.test(email)) return { error: 'Invalid email address' };
+    if (email.length > 254) return { error: 'Invalid email address' };
+    if (password.length < MIN_PASSWORD_LEN) return { error: `Password must be at least ${MIN_PASSWORD_LEN} characters` };
+    if (password.length > MAX_PASSWORD_LEN) return { error: 'Password too long' };
+    return { email, password, displayName };
+}
+
+// Cookie `Secure` flag is only meaningful over HTTPS; disable in dev so cookies
+// actually reach the browser when we're on localhost. Production should set
+// COOKIE_SECURE=true (server.js env).
+const COOKIE_SECURE = process.env.COOKIE_SECURE === 'true';
+const SESSION_TTL_DAYS = 30;
+const SESSION_TTL_SECONDS = SESSION_TTL_DAYS * 24 * 60 * 60;
 
 function generateShortRoomId() {
     const alphabet = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+    // Use crypto.randomInt for a cryptographically sound, non-biased pick so the
+    // 6-char room id cannot be inferred from wall-clock timing.
     let id = '';
     for (let i = 0; i < 6; i += 1) {
-        id += alphabet[Math.floor(Math.random() * alphabet.length)];
+        id += alphabet[crypto.randomInt(0, alphabet.length)];
     }
     return id;
 }
@@ -54,35 +96,58 @@ function collectSpeechHints(participants = [], dictionaryTerms = []) {
     return Array.from(phrases).slice(0, 100);
 }
 
-function generateControlToken() {
-    return crypto.randomBytes(24).toString('hex');
-}
-
 function createApp(repositories = {}) {
     const app = express();
-    app.use(express.json());
+
+    // Size limit prevents trivial memory abuse. 1MB is already far larger than
+    // any expected JSON payload (transcripts go via WebSocket binary).
+    app.use(express.json({ limit: '1mb' }));
+    app.use(securityHeaders());
     app.use(express.static('src/frontend'));
 
-    const { roomRepo, participantRepo, utteranceRepo, analysisRepo, actionRepo, userRepo, userContextRepo, dictionaryRepo, aiService } = repositories;
+    const {
+        roomRepo, participantRepo, utteranceRepo, analysisRepo, actionRepo,
+        userRepo, userContextRepo, dictionaryRepo, aiService,
+        accountRepo, sessionRepo
+    } = repositories;
 
-    async function authorizeParticipant(roomId, participantId, controlToken) {
-        if (!participantRepo || !participantId || !controlToken) {
-            return null;
+    const auth = createAuth({ participantRepo, roomRepo, accountRepo, sessionRepo });
+    const { requireParticipant, requireHost, requireSession, attachSessionIfPresent } = auth;
+
+    // Rate limiters — tune per concern:
+    //   general:  covers all /rooms/* + /api/*
+    //   ai:       tighter cap for the expensive AI generation routes
+    //   auth:     tight cap on signup/login to slow credential stuffing
+    const generalLimiter = createRateLimiter({ windowMs: 60_000, max: 120, key: 'general' });
+    const aiLimiter = createRateLimiter({ windowMs: 60_000, max: 20, key: 'ai' });
+    const authLimiter = createRateLimiter({ windowMs: 60_000, max: 8, key: 'auth' });
+    app.use('/rooms', generalLimiter);
+    app.use('/api', generalLimiter);
+    app.use('/auth', generalLimiter);
+    app.use('/me', generalLimiter);
+
+    function serializeAccount(account) {
+        if (!account) return null;
+        return {
+            id: account.id,
+            email: account.email,
+            display_name: account.display_name || ''
+        };
+    }
+
+    /**
+     * [L6] 指定ルームの全 WebSocket クライアントにメッセージをブロードキャストする。
+     * 会議終了後も WS が開いていれば summary 画面に進捗を届けられる。
+     */
+    function broadcastToRoom(roomId, message) {
+        const wss = repositories.wss;
+        if (!wss || !wss.rooms || !wss.rooms.has(roomId)) return;
+        const msgStr = JSON.stringify(message);
+        for (const client of wss.rooms.get(roomId)) {
+            if (client.readyState === WebSocket.OPEN) {
+                try { client.send(msgStr); } catch (_) { /* ignore */ }
+            }
         }
-
-        const participant = typeof participantRepo.findByIdAndToken === 'function'
-            ? await participantRepo.findByIdAndToken(participantId, controlToken)
-            : await participantRepo.findById(participantId);
-
-        if (!participant || participant.room_id !== roomId) {
-            return null;
-        }
-
-        if (participant.control_token && participant.control_token !== controlToken) {
-            return null;
-        }
-
-        return participant;
     }
 
     async function buildInsightsResponse(roomId) {
@@ -115,7 +180,7 @@ function createApp(repositories = {}) {
         };
     }
 
-    async function generateSharedAiResult(roomId, type) {
+    async function generateSharedAiResult(roomId, type, options = {}) {
         const room = await roomRepo.findById(roomId);
         if (!room) {
             throw new Error('Room not found');
@@ -127,25 +192,98 @@ function createApp(repositories = {}) {
             model: room.ai_model || (provider === 'groq' ? 'openai/gpt-oss-120b' : 'gemini-2.5-flash')
         };
 
+        // Past-meeting context is gated by:
+        //   1) the host being logged in (owner_account_id present)
+        //   2) the room-level toggle (room.use_past_meetings)
+        //   3) the per-call override (options.usePastContext === false)
+        // The override lets the AI 解析 panel toggle past context per click
+        // without mutating the room setting. Minutes always passes false.
+        const overrideOff = options.usePastContext === false;
+        if (!overrideOff && room.owner_account_id && room.use_past_meetings !== 0) {
+            try {
+                const { block } = await buildPastMeetingContext(roomRepo, room.owner_account_id, {
+                    excludeRoomId: roomId
+                });
+                if (block) aiConfig.pastContextBlock = block;
+            } catch (err) {
+                console.warn('[pastContext] build failed; continuing without it:', err.message);
+            }
+        }
+
         const participants = await enrichParticipantsWithProfiles(participantRepo, userRepo, roomId);
         const userIds = participants.map((item) => item.user_id).filter(Boolean);
         const userContexts = userContextRepo ? await userContextRepo.findByUserIds(userIds) : [];
 
         if (type === 'minutes') {
             const utterances = await utteranceRepo.findByRoomIdWithParticipants(roomId);
-            const generated = await aiService.generateMinutesFromTranscript(utterances, {
+            // Minutes are intentionally generated from this meeting only —
+            // we strip pastContextBlock so the verbatim minutes never inherit
+            // language or topics from prior sessions.
+            const minutesAiConfig = { ...aiConfig };
+            delete minutesAiConfig.pastContextBlock;
+
+            const roomMeta = {
                 roomId,
                 date: new Date().toLocaleString('ja-JP'),
                 title: `ルーム ${roomId}`
-            }, participants, userContexts, aiConfig);
+            };
+
+            let minutesText;
+
+            if (shouldChunk(utterances)) {
+                // ── Map-Reduce パス (長時間会議) ──────────────────────────
+                const chunks = chunkUtterances(utterances);
+                console.log(`[SharedAI] minutes: chunking ${utterances.length} utterances into ${chunks.length} chunks`);
+                broadcastToRoom(roomId, { type: 'chunk_progress', analysis_type: 'minutes', completed: 0, total: chunks.length });
+
+                let completedMinutes = 0;
+                const limit = createSemaphore(2);
+                const chunkResults = await Promise.all(
+                    chunks.map((chunk) =>
+                        limit(() =>
+                            // [L8] タイムアウト 60 秒 + 最大 3 回リトライ
+                            withTimeoutAndRetry(
+                                () => aiService.generateMinutesPerChunk(
+                                    chunk, chunks.length, roomMeta,
+                                    participants, userContexts, minutesAiConfig
+                                ),
+                                {
+                                    timeoutMs: 60000,
+                                    retries: 3,
+                                    placeholder: {
+                                        chunkIndex: chunk.index,
+                                        startTs: chunk.startTs,
+                                        endTs: chunk.endTs,
+                                        overlapWith: chunk.overlapWith,
+                                        result: `[このチャンクの解析に失敗しました: 範囲 ${chunk.startTs}〜${chunk.endTs}]`,
+                                        provider: 'error',
+                                    }
+                                }
+                            ).then(result => {
+                                completedMinutes++;
+                                broadcastToRoom(roomId, { type: 'chunk_progress', analysis_type: 'minutes', completed: completedMinutes, total: chunks.length });
+                                return result;
+                            })
+                        )
+                    )
+                );
+
+                minutesText = aiService.mergeMinutesChunks(chunkResults, roomMeta);
+            } else {
+                // ── 通常パス (短い会議) ───────────────────────────────────
+                const generated = await aiService.generateMinutesFromTranscript(
+                    utterances, roomMeta, participants, userContexts, minutesAiConfig
+                );
+                minutesText = generated.result;
+            }
 
             const updatedRoom = await roomRepo.updateInsights(roomId, {
-                minutes_text: generated.result
+                minutes_text: minutesText
             });
 
             return {
                 type,
-                result: generated.result,
+                result: minutesText,
                 updated_at: updatedRoom?.minutes_updated_at || null
             };
         }
@@ -157,26 +295,106 @@ function createApp(repositories = {}) {
         }
 
         if (type === 'summary') {
-            const generated = await aiService.generateSummaryFromMinutes(minutesText, participants, userContexts, aiConfig);
+            let summaryResult;
+            if (shouldChunkText(minutesText)) {
+                // ── [L5] Map-Reduce パス (議事録が長い場合) ──────────────
+                const textChunks = chunkText(minutesText);
+                console.log(`[SharedAI] summary: chunking minutes into ${textChunks.length} text chunks`);
+                broadcastToRoom(roomId, { type: 'chunk_progress', analysis_type: 'summary', completed: 0, total: textChunks.length });
+
+                let completedSummary = 0;
+                const limit = createSemaphore(2);
+                const partialSummaries = await Promise.all(
+                    textChunks.map(chunk =>
+                        limit(() =>
+                            withTimeoutAndRetry(
+                                () => aiService.generateSummaryPerChunk(
+                                    chunk.text, chunk.index, textChunks.length,
+                                    participants, userContexts, aiConfig
+                                ),
+                                {
+                                    timeoutMs: 60000,
+                                    retries: 3,
+                                    placeholder: {
+                                        chunkIndex: chunk.index,
+                                        result: `[チャンク ${chunk.index + 1}/${textChunks.length} の要約生成に失敗しました]`,
+                                        provider: 'error',
+                                    }
+                                }
+                            ).then(r => {
+                                completedSummary++;
+                                broadcastToRoom(roomId, { type: 'chunk_progress', analysis_type: 'summary', completed: completedSummary, total: textChunks.length });
+                                return r;
+                            })
+                        )
+                    )
+                );
+                summaryResult = await aiService.mergeSummaryChunks(
+                    partialSummaries.map(r => r.result),
+                    participants, userContexts, aiConfig
+                );
+            } else {
+                summaryResult = await aiService.generateSummaryFromMinutes(minutesText, participants, userContexts, aiConfig);
+            }
             const updatedRoom = await roomRepo.updateInsights(roomId, {
-                summary_text: generated.result,
+                summary_text: summaryResult.result,
                 insights_dirty: false
             });
             return {
                 type,
-                result: generated.result,
+                result: summaryResult.result,
                 updated_at: updatedRoom?.summary_updated_at || null
             };
         }
 
         if (type === 'todo') {
-            const generated = await aiService.generateTodoFromMinutes(minutesText, participants, userContexts, aiConfig);
+            let todoResult;
+            if (shouldChunkText(minutesText)) {
+                // ── [L5] Map-Reduce パス ──────────────────────────────────
+                const textChunks = chunkText(minutesText);
+                console.log(`[SharedAI] todo: chunking minutes into ${textChunks.length} text chunks`);
+                broadcastToRoom(roomId, { type: 'chunk_progress', analysis_type: 'todo', completed: 0, total: textChunks.length });
+
+                let completedTodo = 0;
+                const limit = createSemaphore(2);
+                const partialTodos = await Promise.all(
+                    textChunks.map(chunk =>
+                        limit(() =>
+                            withTimeoutAndRetry(
+                                () => aiService.generateTodoPerChunk(
+                                    chunk.text, chunk.index, textChunks.length,
+                                    participants, userContexts, aiConfig
+                                ),
+                                {
+                                    timeoutMs: 60000,
+                                    retries: 3,
+                                    placeholder: {
+                                        chunkIndex: chunk.index,
+                                        result: `[チャンク ${chunk.index + 1}/${textChunks.length} のTODO生成に失敗しました]`,
+                                        provider: 'error',
+                                    }
+                                }
+                            ).then(r => {
+                                completedTodo++;
+                                broadcastToRoom(roomId, { type: 'chunk_progress', analysis_type: 'todo', completed: completedTodo, total: textChunks.length });
+                                return r;
+                            })
+                        )
+                    )
+                );
+                todoResult = await aiService.mergeTodoChunks(
+                    partialTodos.map(r => r.result),
+                    participants, userContexts, aiConfig
+                );
+            } else {
+                todoResult = await aiService.generateTodoFromMinutes(minutesText, participants, userContexts, aiConfig);
+            }
             const updatedRoom = await roomRepo.updateInsights(roomId, {
-                todo_text: generated.result
+                todo_text: todoResult.result
             });
             return {
                 type,
-                result: generated.result,
+                result: todoResult.result,
                 updated_at: updatedRoom?.todo_updated_at || null
             };
         }
@@ -275,8 +493,8 @@ function createApp(repositories = {}) {
                 insights_dirty: false
             });
 
-            await actionRepo.replaceForRoom(roomId, generatedActions.map((action, index) => ({
-                id: `act-${Date.now()}-${index}`,
+            await actionRepo.replaceForRoom(roomId, generatedActions.map((action) => ({
+                id: newId('act'),
                 speaker_id: action.speaker_id || null,
                 speaker_name: action.speaker_name || '',
                 action_text: action.action_text || ''
@@ -298,21 +516,21 @@ function createApp(repositories = {}) {
 
             if (analysisRepo) {
                 await analysisRepo.add({
-                    id: `a-${Date.now()}-${Math.floor(Math.random() * 1000)}-summary`,
+                    id: newId('a-summary'),
                     room_id: roomId,
                     type: 'summary',
                     input_prompt: structured.prompt,
                     result_text: summaryText
                 });
                 await analysisRepo.add({
-                    id: `a-${Date.now()}-${Math.floor(Math.random() * 1000)}-speaker-summaries`,
+                    id: newId('a-speaker-summaries'),
                     room_id: roomId,
                     type: 'speaker_summaries',
                     input_prompt: structured.prompt,
                     result_text: JSON.stringify(structured.speaker_summaries)
                 });
                 await analysisRepo.add({
-                    id: `a-${Date.now()}-${Math.floor(Math.random() * 1000)}-speaker-actions`,
+                    id: newId('a-speaker-actions'),
                     room_id: roomId,
                     type: 'speaker_actions',
                     input_prompt: structured.prompt,
@@ -321,7 +539,7 @@ function createApp(repositories = {}) {
                 if (userContextRepo) {
                     const latestContexts = await userContextRepo.findByUserIds(userIds);
                     await analysisRepo.add({
-                        id: `a-${Date.now()}-${Math.floor(Math.random() * 1000)}-user-contexts`,
+                        id: newId('a-user-contexts'),
                         room_id: roomId,
                         type: 'user_contexts',
                         input_prompt: 'context update',
@@ -341,13 +559,62 @@ function createApp(repositories = {}) {
     }
 
     app.get('/', (req, res) => {
-        res.status(200).send('Meeting Minutes API');
+        res.status(200).send('GIJIRO API');
     });
 
-    // GET /api/status - Check if API keys are configured properly
-    app.get('/api/status', (req, res) => {
+    // GET /api/status - Check if API keys are configured properly. Now also
+    // surfaces the active STT language, model, and dictionary boost-word
+    // count so the setup screen can confirm "GROQ / Japanese / N boost words"
+    // at a glance instead of guessing from server logs.
+    app.get('/api/status', async (req, res) => {
+        // STT defaults to Google (matches server.js bootstrap). AI defaults
+        // to Groq when its API key is present, otherwise Gemini.
+        const sttProvider = process.env.STT_PROVIDER || 'google';
+        const aiProvider = process.env.AI_PROVIDER || (process.env.GROQ_API_KEY ? 'groq' : 'gemini');
+        const sttLanguage = process.env.STT_LANGUAGE || 'ja';
+        const sttModel = sttProvider === 'groq'
+            ? (process.env.GROQ_STT_MODEL || 'whisper-large-v3-turbo')
+            : sttProvider === 'elevenlabs'
+                ? (process.env.ELEVENLABS_STT_MODEL || 'scribe_v2_flash')
+                : 'latest_long';
+        let dictionaryCount = 0;
+        try {
+            if (dictionaryRepo && typeof dictionaryRepo.findAll === 'function') {
+                const terms = await dictionaryRepo.findAll();
+                dictionaryCount = Array.isArray(terms) ? terms.length : 0;
+            }
+        } catch (_err) {
+            dictionaryCount = 0;
+        }
+        // The "boost words" count is the dictionary table size — those terms
+        // get folded into Groq's prompt / Google's speechContexts at room
+        // start. Whisper accepts roughly 224 prompt tokens, and we cap the
+        // SpeechContext phrases at 100 in collectSpeechHints(); we surface
+        // both so the UI can show "N 語登録 / 最大 100 語送信" honestly.
+        const STT_BOOST_CAP = 100;
         const status = {
-            google_stt: !!process.env.GOOGLE_API_KEY && process.env.GOOGLE_API_KEY !== 'dummy',
+            speech_to_text: sttProvider === 'groq'
+                ? !!process.env.GROQ_API_KEY && process.env.GROQ_API_KEY !== 'dummy'
+                : sttProvider === 'elevenlabs'
+                    ? !!process.env.ELEVENLABS_API_KEY && process.env.ELEVENLABS_API_KEY !== 'dummy'
+                    : !!process.env.GOOGLE_API_KEY && process.env.GOOGLE_API_KEY !== 'dummy',
+            stt_provider: sttProvider,
+            stt_language: sttLanguage,
+            stt_model: sttModel,
+            // フロントエンドが切り替え可能なプロバイダー一覧
+            stt_available_providers: [
+                'google',
+                ...(process.env.ELEVENLABS_API_KEY && process.env.ELEVENLABS_API_KEY !== 'dummy' ? ['elevenlabs'] : [])
+            ],
+            stt_dictionary_words: dictionaryCount,
+            stt_boost_cap: STT_BOOST_CAP,
+            // Effective per-meeting boost = min(dictionary + participants, cap).
+            // We don't know participants count here, so report the dictionary
+            // figure as the lower bound. The active-meeting view can show the
+            // exact number once a room is connected.
+            stt_boost_words: Math.min(dictionaryCount, STT_BOOST_CAP),
+            ai_provider: aiProvider,
+            groq_ai: !!process.env.GROQ_API_KEY && process.env.GROQ_API_KEY !== 'dummy',
             gemini_ai: !!process.env.GEMINI_API_KEY && process.env.GEMINI_API_KEY !== 'dummy'
         };
         res.status(200).json(status);
@@ -365,13 +632,28 @@ function createApp(repositories = {}) {
         }
     });
 
+    app.post('/api/dictionary/extract', async (req, res) => {
+        try {
+            const { text, ai_config } = req.body;
+            if (!text) return res.status(400).json({ error: 'Text is required' });
+            if (!aiService || !aiService.enabled) return res.status(503).json({ error: 'AI service unavailable' });
+
+            // Use Groq if available or requested, otherwise fallback
+            const config = ai_config || { provider: 'groq', model: 'openai/gpt-oss-120b' };
+            const terms = await aiService.extractDictionaryTerms(text, config);
+            res.status(200).json({ terms });
+        } catch (error) {
+            console.error('[API] Dictionary extraction error:', error);
+            res.status(500).json({ error: error.message || 'Failed to extract terms' });
+        }
+    });
+
     app.post('/api/dictionary', async (req, res) => {
         try {
             if (!dictionaryRepo) return res.status(503).json({ error: 'Dictionary repo unavailable' });
             const { label, term, reading } = req.body;
             if (!term) return res.status(400).json({ error: 'term is required' });
-            const id = `d-${Date.now()}-${Math.floor(Math.random() * 1000)}`;
-            const added = await dictionaryRepo.add({ id, label: label || '', term, reading: reading || '' });
+            const added = await dictionaryRepo.add({ id: newId('d'), label: label || '', term, reading: reading || '' });
             res.status(201).json(added);
         } catch (error) {
             console.error(error);
@@ -390,12 +672,346 @@ function createApp(repositories = {}) {
         }
     });
 
-    app.post('/rooms', async (req, res) => {
+    // --- Account / session endpoints -------------------------------------
+    // Design notes:
+    //  - Signup / login share a single error shape ("Invalid email or password")
+    //    on failure so they don't leak whether an email exists.
+    //  - On success the session_token cookie is set HttpOnly + SameSite=Lax;
+    //    the body intentionally omits the raw token so it can't be scraped
+    //    from a non-cookie-aware client.
+    //  - Logout destroys the current session row (not all of the account's
+    //    sessions) so other devices stay logged in.
+    app.post('/auth/signup', authLimiter, async (req, res) => {
         try {
-            const ownerId = String(req.body?.owner_id || '').trim();
-            if (!ownerId) {
-                return res.status(400).json({ error: 'owner_id is required' });
+            if (!accountRepo || !sessionRepo) {
+                return res.status(503).json({ error: 'Accounts unavailable' });
             }
+            const parsed = validateSignupInput(req.body || {});
+            if (parsed.error) return res.status(400).json({ error: parsed.error });
+
+            const existing = await accountRepo.findByEmail(parsed.email);
+            if (existing) {
+                // Same generic shape as a signup with a bad password so
+                // enumeration of existing accounts is harder.
+                return res.status(409).json({ error: 'Email already registered' });
+            }
+
+            const passwordHash = await hashPassword(parsed.password);
+            const account = await accountRepo.create({
+                email: parsed.email,
+                passwordHash,
+                displayName: parsed.displayName
+            });
+
+            // Mirror the account into the legacy `users` table so the existing
+            // participant/user_id plumbing keeps working for logged-in hosts.
+            if (userRepo) {
+                await userRepo.upsert({ id: account.id, name: parsed.displayName, profile_text: '' });
+            }
+
+            const { token } = await sessionRepo.create(account.id);
+            res.setHeader('Set-Cookie', buildSessionCookie(token, {
+                maxAgeSeconds: SESSION_TTL_SECONDS,
+                secure: COOKIE_SECURE
+            }));
+            res.status(201).json({ account: serializeAccount(account) });
+        } catch (error) {
+            console.error('[auth/signup]', error);
+            res.status(500).json({ error: 'Failed to sign up' });
+        }
+    });
+
+    app.post('/auth/login', authLimiter, async (req, res) => {
+        try {
+            if (!accountRepo || !sessionRepo) {
+                return res.status(503).json({ error: 'Accounts unavailable' });
+            }
+            const email = String(req.body?.email || '').trim().toLowerCase();
+            const password = String(req.body?.password || '');
+            if (!email || !password) {
+                return res.status(400).json({ error: 'Email and password are required' });
+            }
+
+            const account = await accountRepo.findByEmail(email);
+            // Verify even when the account is missing so timing is ~constant.
+            const dummy = 'scrypt$16384$8$1$00$00';
+            const ok = await verifyPassword(password, account?.password_hash || dummy);
+            if (!account || !ok) {
+                return res.status(401).json({ error: 'Invalid email or password' });
+            }
+
+            const { token } = await sessionRepo.create(account.id);
+            res.setHeader('Set-Cookie', buildSessionCookie(token, {
+                maxAgeSeconds: SESSION_TTL_SECONDS,
+                secure: COOKIE_SECURE
+            }));
+            res.status(200).json({ account: serializeAccount(account) });
+        } catch (error) {
+            console.error('[auth/login]', error);
+            res.status(500).json({ error: 'Failed to log in' });
+        }
+    });
+
+    app.post('/auth/logout', async (req, res) => {
+        try {
+            if (sessionRepo && req.headers && req.headers.cookie) {
+                // Use the raw cookie extraction logic from the auth module so
+                // destroyByToken matches what requireSession saw.
+                const { extractSessionToken } = require('./lib/auth');
+                const token = extractSessionToken(req);
+                if (token) await sessionRepo.destroyByToken(token);
+            }
+            res.setHeader('Set-Cookie', buildClearCookie({ secure: COOKIE_SECURE }));
+            res.status(200).json({ ok: true });
+        } catch (error) {
+            console.error('[auth/logout]', error);
+            res.status(500).json({ error: 'Failed to log out' });
+        }
+    });
+
+    app.get('/auth/me', async (req, res) => {
+        try {
+            await new Promise((resolve) => attachSessionIfPresent(req, res, resolve));
+            if (!req.account) return res.status(401).json({ error: 'Not authenticated' });
+            res.status(200).json({ account: serializeAccount(req.account) });
+        } catch (error) {
+            console.error('[auth/me]', error);
+            res.status(500).json({ error: 'Failed to load session' });
+        }
+    });
+
+    app.get('/me/profile', requireSession, async (req, res) => {
+        try {
+            const user = userRepo ? await userRepo.findById(req.account.id) : null;
+            res.status(200).json({
+                account: serializeAccount(req.account),
+                profile_text: user?.profile_text || ''
+            });
+        } catch (error) {
+            console.error('[me/profile:get]', error);
+            res.status(500).json({ error: 'Failed to load profile' });
+        }
+    });
+
+    app.patch('/me/profile', requireSession, async (req, res) => {
+        try {
+            const displayName = sanitizeDisplayName(req.body?.display_name || req.account.display_name || '');
+            const profileText = sanitizeProfileText(req.body?.profile_text || '');
+
+            if (accountRepo) {
+                await accountRepo.updateDisplayName(req.account.id, displayName);
+            }
+            if (userRepo) {
+                await userRepo.upsert({
+                    id: req.account.id,
+                    name: displayName || req.account.email.split('@')[0] || 'User',
+                    profile_text: profileText
+                });
+            }
+
+            const updatedAccount = accountRepo ? await accountRepo.findById(req.account.id) : req.account;
+            res.status(200).json({
+                account: serializeAccount(updatedAccount),
+                profile_text: profileText
+            });
+        } catch (error) {
+            console.error('[me/profile:patch]', error);
+            res.status(500).json({ error: 'Failed to update profile' });
+        }
+    });
+
+    // --- Account history endpoints ---------------------------------------
+    /**
+     * Backfill: when a user signs up or logs in for the first time on a
+     * device, any rooms they previously joined anonymously have a
+     * participants.user_account_id of NULL. We use the stable
+     * browser-side local_user_id (localStorage) as the bridge: any
+     * participant rows whose user_id matches get linked to the new account.
+     *
+     * Called automatically by the frontend right after login/signup.
+     */
+    app.post('/me/backfill', requireSession, async (req, res) => {
+        try {
+            if (!participantRepo || typeof participantRepo.backfillAccountByUserId !== 'function') {
+                return res.status(503).json({ error: 'Backfill unavailable' });
+            }
+            const localUserId = String((req.body && req.body.user_id) || '').trim();
+            if (!localUserId) {
+                return res.status(400).json({ error: 'user_id required' });
+            }
+            const linked = await participantRepo.backfillAccountByUserId(localUserId, req.account.id);
+            res.status(200).json({ linked });
+        } catch (error) {
+            console.error('[me/backfill]', error);
+            res.status(500).json({ error: 'Backfill failed' });
+        }
+    });
+
+    app.get('/me/rooms', requireSession, async (req, res) => {
+        try {
+            if (!roomRepo || typeof roomRepo.findRoomsForAccount !== 'function') {
+                return res.status(503).json({ error: 'Room history unavailable' });
+            }
+            const rows = await roomRepo.findRoomsForAccount(req.account.id, { limit: 50 });
+            const history = rows.map((room) => ({
+                id: room.id,
+                title: room.title || '',
+                status: room.status,
+                created_at: room.created_at,
+                ended_at: room.ended_at,
+                is_owner: room.owner_account_id === req.account.id,
+                summary_excerpt: (room.summary_text || '').slice(0, 280),
+                has_minutes: !!(room.minutes_text && room.minutes_text.length),
+                has_todo: !!(room.todo_text && room.todo_text.length),
+                has_ai_workspace: !!(room.ai_workspace_json && room.ai_workspace_json.length)
+            }));
+            res.status(200).json({ rooms: history });
+        } catch (error) {
+            console.error('[me/rooms]', error);
+            res.status(500).json({ error: 'Failed to load room history' });
+        }
+    });
+
+    /**
+     * Authorize the request account against a room and tell the caller whether
+     * it's the host. Returns { room, isOwner } on success or { status, error }
+     * on failure so endpoints can branch uniformly.
+     */
+    async function authorizeRoomForAccount(roomId, accountId) {
+        const room = await roomRepo.findById(roomId);
+        if (!room) return { status: 404, error: 'Room not found' };
+        const isOwner = !!(room.owner_account_id && room.owner_account_id === accountId);
+        let authorized = isOwner;
+        if (!authorized && participantRepo) {
+            const parts = await participantRepo.findByRoomId(room.id);
+            authorized = parts.some((p) => p.user_account_id === accountId);
+        }
+        if (!authorized) return { status: 403, error: 'Not authorized for this room' };
+        return { room, isOwner };
+    }
+
+    app.get('/me/rooms/:id', requireSession, async (req, res) => {
+        try {
+            const room = await roomRepo.findById(req.params.id);
+            if (!room) return res.status(404).json({ error: 'Room not found' });
+            // Authorize: owner or participant.
+            let authorized = room.owner_account_id && room.owner_account_id === req.account.id;
+            if (!authorized && participantRepo) {
+                const parts = await participantRepo.findByRoomId(room.id);
+                authorized = parts.some((p) => p.user_account_id === req.account.id);
+            }
+            if (!authorized) return res.status(403).json({ error: 'Not authorized for this room' });
+
+            // ai_workspace_json is stored as a JSON string. Try to parse so
+            // the client gets structured data; fall back to the raw string
+            // if it's malformed (shouldn't happen but harmless).
+            let aiWorkspace = null;
+            if (room.ai_workspace_json) {
+                try {
+                    aiWorkspace = JSON.parse(room.ai_workspace_json);
+                } catch (_) {
+                    aiWorkspace = { raw: room.ai_workspace_json };
+                }
+            }
+
+            res.status(200).json({
+                id: room.id,
+                title: room.title || '',
+                title_updated_at: room.title_updated_at,
+                status: room.status,
+                created_at: room.created_at,
+                ended_at: room.ended_at,
+                is_owner: room.owner_account_id === req.account.id,
+                summary: room.summary_text || '',
+                summary_updated_at: room.summary_updated_at,
+                minutes: room.minutes_text || '',
+                minutes_updated_at: room.minutes_updated_at,
+                todo: room.todo_text || '',
+                todo_updated_at: room.todo_updated_at,
+                ai_workspace: aiWorkspace,
+                ai_workspace_updated_at: room.ai_workspace_updated_at
+            });
+        } catch (error) {
+            console.error('[me/rooms/:id]', error);
+            res.status(500).json({ error: 'Failed to load room' });
+        }
+    });
+
+    /**
+     * Remove a room from the user's profile history.
+     *  - Host: deletes the room and every dependent record (utterances,
+     *    participants, analyses, actions). The room is gone for everyone.
+     *  - Non-host participant: only their participant link is detached, so
+     *    the meeting stays intact for the host & other guests but disappears
+     *    from this user's /me/rooms list.
+     */
+    app.delete('/me/rooms/:id', requireSession, async (req, res) => {
+        try {
+            const auth = await authorizeRoomForAccount(req.params.id, req.account.id);
+            if (auth.error) return res.status(auth.status).json({ error: auth.error });
+            if (auth.isOwner) {
+                await roomRepo.deleteCascade(auth.room.id);
+                return res.status(200).json({ deleted: true, scope: 'room' });
+            }
+            if (!participantRepo || typeof participantRepo.unlinkAccountFromRoom !== 'function') {
+                return res.status(503).json({ error: 'Unlink unavailable' });
+            }
+            const unlinked = await participantRepo.unlinkAccountFromRoom(auth.room.id, req.account.id);
+            res.status(200).json({ deleted: true, scope: 'participant', unlinked });
+        } catch (error) {
+            console.error('[me/rooms/:id:delete]', error);
+            res.status(500).json({ error: 'Failed to delete room' });
+        }
+    });
+
+    /**
+     * Edit metadata of a room from the profile screen. Host-only since these
+     * are shared fields. Currently supports title, summary, minutes, todo —
+     * mirrors the fields exposed by GET /me/rooms/:id.
+     */
+    app.patch('/me/rooms/:id', requireSession, async (req, res) => {
+        try {
+            const auth = await authorizeRoomForAccount(req.params.id, req.account.id);
+            if (auth.error) return res.status(auth.status).json({ error: auth.error });
+            if (!auth.isOwner) return res.status(403).json({ error: 'Only the host can edit this room' });
+
+            const updates = {};
+            const body = req.body || {};
+            if (typeof body.title === 'string') {
+                updates.title = body.title.trim().slice(0, 200);
+            }
+            if (typeof body.summary === 'string') {
+                updates.summary_text = body.summary.slice(0, 64 * 1024);
+            }
+            if (typeof body.minutes === 'string') {
+                updates.minutes_text = body.minutes.slice(0, 64 * 1024);
+            }
+            if (typeof body.todo === 'string') {
+                updates.todo_text = body.todo.slice(0, 64 * 1024);
+            }
+            if (!Object.keys(updates).length) {
+                return res.status(400).json({ error: 'No editable fields supplied' });
+            }
+            const updated = await roomRepo.updateInsights(auth.room.id, updates);
+            res.status(200).json({
+                id: updated.id,
+                title: updated.title || '',
+                summary: updated.summary_text || '',
+                minutes: updated.minutes_text || '',
+                todo: updated.todo_text || ''
+            });
+        } catch (error) {
+            console.error('[me/rooms/:id:patch]', error);
+            res.status(500).json({ error: 'Failed to update room' });
+        }
+    });
+
+    // Room creation is host-only and requires a logged-in account. owner_id is
+    // derived from req.account.id (ignoring any body field) so a host can't
+    // impersonate another user's identity at room-creation time.
+    app.post('/rooms', requireSession, async (req, res) => {
+        try {
+            const ownerId = req.account.id;
 
             let roomId = '';
             do {
@@ -404,8 +1020,17 @@ function createApp(repositories = {}) {
 
             await roomRepo.create({
                 id: roomId,
-                owner_id: ownerId
+                owner_id: ownerId,
+                owner_account_id: req.account.id,
+                use_past_meetings: true
             });
+
+            // Keep the legacy `users` row in sync so existing enrichment code
+            // (user_contexts, profile_text) resolves the host cleanly.
+            if (userRepo) {
+                const displayName = req.account.display_name || req.account.email.split('@')[0] || 'Host';
+                await userRepo.upsert({ id: ownerId, name: displayName, profile_text: '' });
+            }
 
             res.status(201).json({ id: roomId });
         } catch (error) {
@@ -414,7 +1039,11 @@ function createApp(repositories = {}) {
         }
     });
 
-    app.post('/rooms/:id/join', async (req, res) => {
+    // Participants can join anonymously OR while logged in. If logged in we
+    // attach user_account_id so the meeting lands in their history, but we
+    // still accept a guest display_name — logging in is *optional* for
+    // participants and never required to join a shared room.
+    app.post('/rooms/:id/join', attachSessionIfPresent, async (req, res) => {
         try {
             const { id: roomId } = req.params;
             const { user_id, display_name, location_id = 'web-browser', profile_text = '', ai_config } = req.body || {};
@@ -424,24 +1053,29 @@ function createApp(repositories = {}) {
                 return res.status(404).json({ error: 'Room not found' });
             }
 
-            const normalizedUserId = String(user_id || '').trim();
-            const normalizedDisplayName = String(display_name || '').trim();
+            // Logged-in participants: their account.id is authoritative.
+            // Anonymous participants: user_id comes from the body (client-
+            // generated local id) and display_name is required.
+            const accountId = req.account ? req.account.id : null;
+            const normalizedUserId = accountId || String(user_id || '').trim().slice(0, 128);
+            const rawDisplayName = display_name || (req.account?.display_name) || '';
+            const normalizedDisplayName = sanitizeDisplayName(rawDisplayName);
+            const normalizedProfileText = sanitizeProfileText(profile_text);
             if (!normalizedUserId || !normalizedDisplayName) {
-                return res.status(400).json({ error: 'user_id and display_name are required' });
+                return res.status(400).json({ error: 'display_name is required' });
             }
 
             if (userRepo) {
                 const existingUser = await userRepo.findById(normalizedUserId);
-                const nextProfileText = String(profile_text || '').trim();
                 await userRepo.upsert({
                     id: normalizedUserId,
                     name: normalizedDisplayName,
-                    profile_text: nextProfileText || existingUser?.profile_text || ''
+                    profile_text: normalizedProfileText || existingUser?.profile_text || ''
                 });
             }
 
-            const participantId = `p-${Date.now()}-${Math.floor(Math.random() * 1000)}`;
-            const controlToken = generateControlToken();
+            const participantId = newId('p');
+            const controlToken = newToken();
 
             await participantRepo.join({
                 id: participantId,
@@ -449,14 +1083,23 @@ function createApp(repositories = {}) {
                 user_id: normalizedUserId,
                 display_name: normalizedDisplayName,
                 control_token: controlToken,
-                location_id
+                location_id,
+                user_account_id: accountId
             });
 
             const joinedParticipant = await participantRepo.findById(participantId);
-            const isHost = normalizedUserId === room.owner_id;
+            // is_host: trust the account link when present (strongest signal),
+            // fall back to the legacy owner_id match for anonymous hosts.
+            const isHost = (!!accountId && room.owner_account_id === accountId)
+                || normalizedUserId === room.owner_id;
 
             if (isHost && ai_config) {
-                await roomRepo.updateAiConfig(roomId, ai_config.provider, ai_config.model);
+                await roomRepo.updateAiConfig(
+                    roomId,
+                    ai_config.provider,
+                    ai_config.model,
+                    typeof ai_config.use_past_meetings === 'boolean' ? ai_config.use_past_meetings : null
+                );
             }
 
             res.status(201).json({
@@ -470,9 +1113,9 @@ function createApp(repositories = {}) {
         }
     });
 
-    app.get('/rooms/:id/logs', async (req, res) => {
+    app.get('/rooms/:id/logs', requireParticipant, async (req, res) => {
         try {
-            const { id: roomId } = req.params;
+            const roomId = req.roomId;
             const logs = await utteranceRepo.findByRoomIdWithParticipants(roomId);
             res.status(200).json(logs);
         } catch (error) {
@@ -481,9 +1124,9 @@ function createApp(repositories = {}) {
         }
     });
 
-    app.get('/rooms/:id/memory', async (req, res) => {
+    app.get('/rooms/:id/memory', requireParticipant, async (req, res) => {
         try {
-            const { id: roomId } = req.params;
+            const roomId = req.roomId;
             const logs = await utteranceRepo.findStarredByRoomId(roomId);
             res.status(200).json(logs);
         } catch (error) {
@@ -492,9 +1135,9 @@ function createApp(repositories = {}) {
         }
     });
 
-    app.get('/rooms/:id/insights', async (req, res) => {
+    app.get('/rooms/:id/insights', requireParticipant, async (req, res) => {
         try {
-            const { id: roomId } = req.params;
+            const roomId = req.roomId;
             res.status(200).json(await buildInsightsResponse(roomId));
         } catch (error) {
             console.error(error);
@@ -502,9 +1145,9 @@ function createApp(repositories = {}) {
         }
     });
 
-    app.get('/rooms/:id/user-contexts', async (req, res) => {
+    app.get('/rooms/:id/user-contexts', requireParticipant, async (req, res) => {
         try {
-            const { id: roomId } = req.params;
+            const roomId = req.roomId;
             const participants = await enrichParticipantsWithProfiles(participantRepo, userRepo, roomId);
             const userIds = participants.map((participant) => participant.user_id).filter(Boolean);
             const contexts = userContextRepo ? await userContextRepo.findByUserIds(userIds) : [];
@@ -544,9 +1187,9 @@ function createApp(repositories = {}) {
         }
     });
 
-    app.get('/rooms/:id/custom-output', async (req, res) => {
+    app.get('/rooms/:id/custom-output', requireParticipant, async (req, res) => {
         try {
-            const { id: roomId } = req.params;
+            const roomId = req.roomId;
             const latest = analysisRepo
                 ? await analysisRepo.findLatestByTypes(roomId, ['custom_saved'])
                 : null;
@@ -579,9 +1222,9 @@ function createApp(repositories = {}) {
         }
     });
 
-    app.post('/rooms/:id/custom-output', async (req, res) => {
+    app.post('/rooms/:id/custom-output', requireParticipant, async (req, res) => {
         try {
-            const { id: roomId } = req.params;
+            const roomId = req.roomId;
             const { mode = '', title = '', instruction = '', result = '' } = req.body || {};
 
             if (!analysisRepo) {
@@ -589,10 +1232,10 @@ function createApp(repositories = {}) {
             }
 
             await analysisRepo.add({
-                id: `a-${Date.now()}-${Math.floor(Math.random() * 1000)}-custom-saved`,
+                id: newId('a-custom-saved'),
                 room_id: roomId,
                 type: 'custom_saved',
-                input_prompt: instruction,
+                input_prompt: sanitizeInstruction(instruction),
                 result_text: JSON.stringify({
                     mode,
                     title,
@@ -614,13 +1257,9 @@ function createApp(repositories = {}) {
         }
     });
 
-    app.post('/rooms/:id/insights/regenerate', async (req, res) => {
+    app.post('/rooms/:id/insights/regenerate', aiLimiter, requireHost, async (req, res) => {
         try {
-            const { id: roomId } = req.params;
-            const room = await roomRepo.findById(roomId);
-            if (!room) {
-                return res.status(404).json({ error: 'Room not found' });
-            }
+            const roomId = req.roomId;
 
             await roomRepo.updateInsights(roomId, {
                 insights_status: 'processing'
@@ -638,7 +1277,7 @@ function createApp(repositories = {}) {
         }
     });
 
-    app.patch('/rooms/:roomId/logs/:utteranceId', async (req, res) => {
+    app.patch('/rooms/:roomId/logs/:utteranceId', requireParticipant, async (req, res) => {
         try {
             const { roomId, utteranceId } = req.params;
             const existing = await utteranceRepo.findById(utteranceId);
@@ -647,11 +1286,21 @@ function createApp(repositories = {}) {
                 return res.status(404).json({ error: 'Log not found' });
             }
 
+            const sanitizedTranscript = typeof req.body.transcript === 'string'
+                ? sanitizeTranscript(req.body.transcript)
+                : undefined;
+            const sanitizedMemo = typeof req.body.memo_text === 'string'
+                ? sanitizeMemoText(req.body.memo_text)
+                : undefined;
+            const sanitizedNote = typeof req.body.memory_note === 'string'
+                ? sanitizeMemoText(req.body.memory_note)
+                : undefined;
+
             const updated = await utteranceRepo.updateMemory(utteranceId, {
                 is_starred: req.body.is_starred,
-                memory_note: req.body.memory_note,
-                memo_text: req.body.memo_text,
-                transcript: req.body.transcript,
+                memory_note: sanitizedNote,
+                memo_text: sanitizedMemo,
+                transcript: sanitizedTranscript,
                 transcript_source: req.body.transcript_source
             });
 
@@ -669,7 +1318,7 @@ function createApp(repositories = {}) {
         }
     });
 
-    app.post('/rooms/:roomId/logs/:utteranceId/correct', async (req, res) => {
+    app.post('/rooms/:roomId/logs/:utteranceId/correct', aiLimiter, requireParticipant, async (req, res) => {
         try {
             const { roomId, utteranceId } = req.params;
             const existing = await utteranceRepo.findById(utteranceId);
@@ -710,7 +1359,7 @@ function createApp(repositories = {}) {
         }
     });
 
-    app.post('/rooms/:roomId/correct', async (req, res) => {
+    app.post('/rooms/:roomId/correct', aiLimiter, requireHost, async (req, res) => {
         try {
             const { roomId } = req.params;
             const roomLogs = await utteranceRepo.findByRoomIdWithParticipants(roomId);
@@ -766,10 +1415,10 @@ function createApp(repositories = {}) {
         }
     });
 
-    app.post('/rooms/:id/custom-ai', async (req, res) => {
+    app.post('/rooms/:id/custom-ai', aiLimiter, requireParticipant, async (req, res) => {
         try {
-            const { id: roomId } = req.params;
-            const { instruction = '', participant_id, control_token } = req.body || {};
+            const roomId = req.roomId;
+            const { instruction = '', use_past_context: usePastContext } = req.body || {};
 
             if (!roomRepo || !aiService || !aiService.enabled) {
                 return res.status(503).json({ error: 'AI generation is unavailable' });
@@ -778,11 +1427,6 @@ function createApp(repositories = {}) {
             const room = await roomRepo.findById(roomId);
             if (!room) {
                 return res.status(404).json({ error: 'Room not found' });
-            }
-
-            const participant = await authorizeParticipant(roomId, participant_id, control_token);
-            if (!participant) {
-                return res.status(403).json({ error: 'Participant validation failed' });
             }
 
             const minutesText = String(room.minutes_text || '').trim();
@@ -795,6 +1439,21 @@ function createApp(repositories = {}) {
                 model: room.ai_model || 'gemini-2.5-flash'
             };
 
+            // Per-call override: if use_past_context === false, skip the
+            // past block for this analysis only (room-level setting unchanged).
+            const overrideOff = usePastContext === false;
+            // Host-linked past-meeting context (no-op for anonymous rooms).
+            if (!overrideOff && room.owner_account_id && room.use_past_meetings !== 0) {
+                try {
+                    const { block } = await buildPastMeetingContext(roomRepo, room.owner_account_id, {
+                        excludeRoomId: roomId
+                    });
+                    if (block) aiConfig.pastContextBlock = block;
+                } catch (err) {
+                    console.warn('[pastContext] build failed; continuing without it:', err.message);
+                }
+            }
+
             const [participants, userContexts] = await Promise.all([
                 enrichParticipantsWithProfiles(participantRepo, userRepo, roomId),
                 (async () => {
@@ -804,10 +1463,54 @@ function createApp(repositories = {}) {
                 })()
             ]);
 
-            const generated = await aiService.generateCustomFromMinutes(minutesText, instruction, participants, userContexts, aiConfig);
+            const safeInstruction = sanitizeInstruction(instruction);
+            let customResult;
+            if (shouldChunkText(minutesText)) {
+                // [L5] 議事録が長い場合は Map-Reduce で各チャンクに適用
+                const textChunks = chunkText(minutesText);
+                console.log(`[CustomAI] chunking minutes into ${textChunks.length} text chunks`);
+                broadcastToRoom(roomId, { type: 'chunk_progress', analysis_type: 'custom', completed: 0, total: textChunks.length });
+
+                let completedCustom = 0;
+                const customLimit = createSemaphore(2);
+                const partialCustom = await Promise.all(
+                    textChunks.map(chunk =>
+                        customLimit(() =>
+                            withTimeoutAndRetry(
+                                () => aiService.generateCustomPerChunk(
+                                    chunk.text, chunk.index, textChunks.length,
+                                    safeInstruction, aiConfig
+                                ),
+                                {
+                                    timeoutMs: 60000,
+                                    retries: 3,
+                                    placeholder: {
+                                        chunkIndex: chunk.index,
+                                        result: `[チャンク ${chunk.index + 1}/${textChunks.length} の解析に失敗しました]`,
+                                        provider: 'error',
+                                    }
+                                }
+                            ).then(r => {
+                                completedCustom++;
+                                broadcastToRoom(roomId, { type: 'chunk_progress', analysis_type: 'custom', completed: completedCustom, total: textChunks.length });
+                                return r;
+                            })
+                        )
+                    )
+                );
+                // カスタム結果はチャンク境界を区切って連結する（フォーマットが任意のため LLM マージ不可）
+                const mergedText = partialCustom
+                    .sort((a, b) => a.chunkIndex - b.chunkIndex)
+                    .map(r => r.result)
+                    .filter(Boolean)
+                    .join('\n\n---\n\n');
+                customResult = { result: mergedText, provider: partialCustom[0]?.provider || 'unknown' };
+            } else {
+                customResult = await aiService.generateCustomFromMinutes(minutesText, safeInstruction, participants, userContexts, aiConfig);
+            }
             res.status(200).json({
-                result: generated.result,
-                provider: generated.provider
+                result: customResult.result,
+                provider: customResult.provider
             });
         } catch (error) {
             console.error(error);
@@ -815,30 +1518,22 @@ function createApp(repositories = {}) {
         }
     });
 
-    app.post('/rooms/:id/shared-ai/:type', async (req, res) => {
+    app.post('/rooms/:id/shared-ai/:type', aiLimiter, requireHost, async (req, res) => {
         try {
-            const { id: roomId, type } = req.params;
-            const { participant_id, control_token } = req.body || {};
+            const roomId = req.roomId;
+            const { type } = req.params;
 
             if (!roomRepo || !participantRepo || !utteranceRepo || !aiService) {
                 return res.status(503).json({ error: 'AI generation is unavailable' });
             }
 
-            const room = await roomRepo.findById(roomId);
-            if (!room) {
-                return res.status(404).json({ error: 'Room not found' });
-            }
-
-            const participant = await authorizeParticipant(roomId, participant_id, control_token);
-            if (!participant) {
-                return res.status(403).json({ error: 'Participant validation failed' });
-            }
-
-            if (!participant.user_id || participant.user_id !== room.owner_id) {
-                return res.status(403).json({ error: 'Only the host can generate shared AI results' });
-            }
-
-            const generated = await generateSharedAiResult(roomId, type);
+            // Per-call override: when the AI 解析 toggle is OFF, force-skip
+            // past-meeting context for this analysis only. (true/undefined →
+            // honor the room-level setting.)
+            const usePastContext = req.body && typeof req.body.use_past_context === 'boolean'
+                ? req.body.use_past_context
+                : undefined;
+            const generated = await generateSharedAiResult(roomId, type, { usePastContext });
             return res.status(200).json(generated);
         } catch (error) {
             if (error.message === 'Minutes must be generated first') {
@@ -852,25 +1547,54 @@ function createApp(repositories = {}) {
         }
     });
 
-    // POST /rooms/:id/end - End a room
-    app.post('/rooms/:id/end', async (req, res) => {
+    // POST /rooms/:id/ai-workspace — any participant can persist their
+    // last AI workspace output (custom analysis, action extraction,
+    // free-form result) so it survives reload and shows up in
+    // /me/rooms/:id history. Stored as a JSON string in rooms.ai_workspace_json.
+    app.post('/rooms/:id/ai-workspace', requireParticipant, async (req, res) => {
         try {
-            const { id: roomId } = req.params;
-            const { participant_id, control_token } = req.body || {};
-
-            const room = await roomRepo.findById(roomId);
-            if (!room) {
-                return res.status(404).json({ error: 'Room not found' });
+            const payload = (req.body && typeof req.body.payload === 'object' && req.body.payload) || null;
+            if (!payload) return res.status(400).json({ error: 'payload required' });
+            // Length cap: ~64 KB serialized so a runaway client can't bloat DB
+            let serialized;
+            try {
+                serialized = JSON.stringify(payload);
+            } catch (e) {
+                return res.status(400).json({ error: 'payload not serializable' });
             }
-
-            const participant = await authorizeParticipant(roomId, participant_id, control_token);
-            if (!participant) {
-                return res.status(403).json({ error: 'Participant validation failed' });
+            if (serialized.length > 65536) {
+                return res.status(413).json({ error: 'payload too large' });
             }
+            const updated = await roomRepo.updateInsights(req.roomId, { ai_workspace_json: serialized });
+            res.status(200).json({
+                id: updated.id,
+                ai_workspace_updated_at: updated.ai_workspace_updated_at
+            });
+        } catch (error) {
+            console.error('[rooms/:id/ai-workspace]', error);
+            res.status(500).json({ error: 'Failed to save AI workspace' });
+        }
+    });
 
-            if (!participant.user_id || participant.user_id !== room.owner_id) {
-                return res.status(403).json({ error: 'Only the host can end the room' });
-            }
+    // PATCH /rooms/:id/title — host updates the meeting title.
+    // Title is optional (empty string clears it). Trimmed and length-capped
+    // server-side so a misbehaving client can't bloat the DB.
+    app.patch('/rooms/:id/title', requireHost, async (req, res) => {
+        try {
+            const raw = (req.body && typeof req.body.title === 'string') ? req.body.title : '';
+            const title = raw.trim().slice(0, 200);
+            const updated = await roomRepo.updateInsights(req.roomId, { title });
+            res.status(200).json({ id: updated.id, title: updated.title || '', title_updated_at: updated.title_updated_at });
+        } catch (error) {
+            console.error('[rooms/:id/title]', error);
+            res.status(500).json({ error: 'Failed to update title' });
+        }
+    });
+
+    // POST /rooms/:id/end - End a room
+    app.post('/rooms/:id/end', requireHost, async (req, res) => {
+        try {
+            const roomId = req.roomId;
 
             await roomRepo.endRoom(roomId);
             const endedRoom = await roomRepo.findById(roomId);
@@ -882,7 +1606,8 @@ function createApp(repositories = {}) {
                 for (const client of roomClients) {
                     if (client.readyState === WebSocket.OPEN) {
                         client.send(JSON.stringify({ type: 'terminated' }));
-                        client.close();
+                        // WS は意図的に閉じない。summary 画面が chunk_progress を受信できるよう
+                        // 接続を維持し、クライアント側でページ離脱時に自然にクローズさせる。
                         notifiedCount++;
                     }
                 }
@@ -902,9 +1627,9 @@ function createApp(repositories = {}) {
     });
 
     // GET /rooms/:id/download - Download meeting minutes
-    app.get('/rooms/:id/download', async (req, res) => {
+    app.get('/rooms/:id/download', requireParticipant, async (req, res) => {
         try {
-            const { id: roomId } = req.params;
+            const roomId = req.roomId;
             const [utterances, room, participants] = await Promise.all([
                 utteranceRepo.findByRoomIdWithParticipants(roomId),
                 roomRepo.findById(roomId),
@@ -963,9 +1688,9 @@ function createApp(repositories = {}) {
     });
 
     // POST /rooms/:id/analyze - AI Analysis (Summary, Agenda, TODO, etc.)
-    app.post('/rooms/:id/analyze', async (req, res) => {
+    app.post('/rooms/:id/analyze', aiLimiter, requireParticipant, async (req, res) => {
         try {
-            const { id: roomId } = req.params;
+            const roomId = req.roomId;
             const { type, instruction, last_timestamp, current_tree, ai_config: reqAiConfig } = req.body;
 
             const room = await roomRepo.findById(roomId);
@@ -1023,7 +1748,7 @@ function createApp(repositories = {}) {
 
             // Save analysis result
             const analysis = {
-                id: `a-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
+                id: newId('a'),
                 room_id: roomId,
                 type: type,
                 input_prompt: prompt,
@@ -1043,12 +1768,68 @@ function createApp(repositories = {}) {
     return app;
 }
 
-function setupWebSocket(server, repositories = {}) {
+function setupWebSocket(server, repositories = {}, options = {}) {
     const { participantRepo, utteranceRepo, audioProcessor, sttService, userRepo, dictionaryRepo } = repositories;
-    const wss = new WebSocketServer({ server });
+    const { allowedOrigins = [], expectedHost = '' } = options;
+    // Use noServer so we can run credential + Origin checks before the HTTP
+    // upgrade hands off to the protocol. A rejected socket never enters
+    // wss.clients and cannot leak audio / transcripts.
+    const wss = new WebSocketServer({ noServer: true });
     const mergeWindowMs = 4500;
-    
+
     wss.rooms = new Map();
+
+    const parseUpgradeUrl = (req) => {
+        try {
+            return new URL(req.url, `http://${req.headers.host || 'localhost'}`);
+        } catch (_err) {
+            return null;
+        }
+    };
+
+    const rejectUpgrade = (socket, code = 401, reason = 'Unauthorized') => {
+        try {
+            socket.write(`HTTP/1.1 ${code} ${reason}\r\nConnection: close\r\n\r\n`);
+        } catch (_err) { /* socket may already be dead */ }
+        try { socket.destroy(); } catch (_err) { /* noop */ }
+    };
+
+    server.on('upgrade', async (req, socket, head) => {
+        const origin = req.headers.origin;
+        const host = req.headers.host;
+        if (!isAllowedOrigin(origin, { allowlist: allowedOrigins, host: expectedHost || host })) {
+            return rejectUpgrade(socket, 403, 'Forbidden');
+        }
+
+        const url = parseUpgradeUrl(req);
+        if (!url) return rejectUpgrade(socket, 400, 'Bad Request');
+
+        const participantId = url.searchParams.get('participantId');
+        const controlToken = url.searchParams.get('controlToken') || url.searchParams.get('control_token');
+        if (!participantId || !controlToken) {
+            return rejectUpgrade(socket, 401, 'Unauthorized');
+        }
+
+        let participant = null;
+        try {
+            participant = typeof participantRepo?.findByIdAndToken === 'function'
+                ? await participantRepo.findByIdAndToken(participantId, controlToken)
+                : await participantRepo?.findById(participantId);
+        } catch (_err) {
+            return rejectUpgrade(socket, 500, 'Internal Server Error');
+        }
+
+        if (!participant) return rejectUpgrade(socket, 403, 'Forbidden');
+        if (participant.control_token && participant.control_token !== controlToken) {
+            return rejectUpgrade(socket, 403, 'Forbidden');
+        }
+
+        wss.handleUpgrade(req, socket, head, (ws) => {
+            ws._preVerifiedParticipant = participant;
+            ws._preVerifiedParticipantId = participantId;
+            wss.emit('connection', ws, req);
+        });
+    });
 
     // Heartbeat to prevent timeouts
     const interval = setInterval(() => {
@@ -1071,13 +1852,14 @@ function setupWebSocket(server, repositories = {}) {
     wss.on('connection', (ws, req) => {
         ws.isAlive = true;
         ws.on('pong', () => { ws.isAlive = true; });
-        
-        const url = new URL(req.url, `http://${req.headers.host}`);
-        const participantId = url.searchParams.get('participantId');
+
+        const participantId = ws._preVerifiedParticipantId;
         ws.participantId = participantId;
         let sttStream = null;
 
-        if (!participantId) {
+        if (!participantId || !ws._preVerifiedParticipant) {
+            // Should never happen — upgrade handler above guarantees this — but
+            // be defensive so we never accept an un-authed connection.
             ws.terminate();
             return;
         }
@@ -1091,11 +1873,8 @@ function setupWebSocket(server, repositories = {}) {
 
             ws.validationPromise = (async () => {
                 ws.validating = true;
-                const participant = await participantRepo.findById(participantId);
-                if (!participant) {
-                    ws.terminate();
-                    return;
-                }
+                // Credentials were already verified in the upgrade handler.
+                const participant = ws._preVerifiedParticipant;
 
                 ws.participant = participant;
                 ws.roomId = participant.room_id;
@@ -1155,7 +1934,7 @@ function setupWebSocket(server, repositories = {}) {
         const persistAndBroadcastTranscript = async (transcript) => {
             const nowIso = new Date().toISOString();
             let utterance = {
-                id: `u-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
+                id: newId('u'),
                 room_id: ws.roomId,
                 participant_id: participantId,
                 started_at: nowIso,
@@ -1208,10 +1987,12 @@ function setupWebSocket(server, repositories = {}) {
         };
 
         const startSTTStream = () => {
-            if (sttStream || !sttService) return;
-            
-            console.log(`[STT] Starting new stream for participant ${participantId} with ${ws.speechHints?.length || 0} hints`);
-            sttStream = sttService.createStream(
+            // セッション専用インスタンスがあればそちらを優先する
+            const activeSttService = ws.sessionSttService || sttService;
+            if (sttStream || !activeSttService) return;
+
+            console.log(`[STT] Starting new stream for participant ${participantId} (provider=${activeSttService.provider}) with ${ws.speechHints?.length || 0} hints`);
+            sttStream = activeSttService.createStream(
                 async (transcript) => {
                     try {
                         await persistAndBroadcastTranscript(transcript);
@@ -1227,14 +2008,18 @@ function setupWebSocket(server, repositories = {}) {
                     sttStream = null;
                 },
                 {
-                    config: ws.speechHints && ws.speechHints.length
-                        ? {
-                            speechContexts: [{
-                                phrases: ws.speechHints,
-                                boost: 10
-                            }]
+                    config: (() => {
+                        const cfg = {};
+                        if (ws.speechHints && ws.speechHints.length) {
+                            cfg.speechContexts = [{ phrases: ws.speechHints, boost: 10 }];
                         }
-                        : {}
+                        if (ws.sttMeta && (ws.sttMeta.microphoneDistance || ws.sttMeta.recordingDeviceType)) {
+                            cfg.metadata = {};
+                            if (ws.sttMeta.microphoneDistance) cfg.metadata.microphoneDistance = ws.sttMeta.microphoneDistance;
+                            if (ws.sttMeta.recordingDeviceType) cfg.metadata.recordingDeviceType = ws.sttMeta.recordingDeviceType;
+                        }
+                        return cfg;
+                    })()
                 }
             );
 
@@ -1245,6 +2030,17 @@ function setupWebSocket(server, repositories = {}) {
             });
             sttStream.on('close', () => {
                 sttStream = null;
+                // ElevenLabs: WS が閉じたら即プリウォーム。次の発言開始時に
+                // 接続確立の待ち時間がなくなる（session_started を先に取得しておく）。
+                const activeSvc = ws.sessionSttService || sttService;
+                if (activeSvc?.provider === 'elevenlabs' && ws.validated && ws.readyState === WebSocket.OPEN) {
+                    setTimeout(() => {
+                        if (!sttStream && ws.readyState === WebSocket.OPEN) {
+                            console.log(`[ElevenLabs STT] Pre-warming next connection for participant ${participantId}`);
+                            startSTTStream();
+                        }
+                    }, 300);
+                }
             });
         };
 
@@ -1254,26 +2050,64 @@ function setupWebSocket(server, repositories = {}) {
 
         ws.on('message', async (data, isBinary) => {
             try {
-                if (!ws.validated) {
-                    await ensureValidated();
-                }
-
-                // Wait for validation to complete before processing any data
+                // Ensure validation and hint collection is complete before processing any data
+                await ensureValidated();
                 if (!ws.validated) return;
 
                 if (isBinary) {
-                    if (audioProcessor && sttService && typeof sttService.recognize === 'function') {
+                    // Start or restart stream if needed
+                    if (!sttStream || !sttStream.writable) {
+                        startSTTStream();
+                    }
+                    
+                    const activeSttService = ws.sessionSttService || sttService;
+
+                    // ElevenLabs はリアルタイム WebSocket ストリームを使う。
+                    // audioProcessor のバッファを経由せず、直接 sttStream に書き込む。
+                    // 無音 1.5 秒で自動コミット（Google STT の utterance 区切りに相当）。
+                    if (activeSttService?.provider === 'elevenlabs') {
+                        if (sttStream && sttStream.writable) {
+                            try {
+                                sttStream.write(data);
+                            } catch (e) {
+                                console.error('[ElevenLabs STT Write Error]', e.message);
+                                sttStream = null;
+                            }
+                        }
+
+                        // 無音タイマーをリセット。4 秒間音声が来なければ commit を送る。
+                        // ElevenLabs は commit 後に WS を閉じるため、タイマーを長めに取って
+                        // 再接続頻度を抑える（思考ポーズ程度では切れないようにする）。
+                        if (ws.elevenLabsSilenceTimer) {
+                            clearTimeout(ws.elevenLabsSilenceTimer);
+                        }
+                        ws.elevenLabsSilenceTimer = setTimeout(() => {
+                            ws.elevenLabsSilenceTimer = null;
+                            if (sttStream && typeof sttStream.commit === 'function') {
+                                sttStream.commit();
+                            }
+                        }, 4000);
+
+                        return;
+                    }
+
+                    // Google / Groq: audioProcessor でバッファしてバッチ認識
+                    if (audioProcessor && activeSttService && typeof activeSttService.recognize === 'function') {
                         const bufferedAudio = audioProcessor.addChunk(participantId, Buffer.from(data));
                         if (bufferedAudio) {
-                            const transcript = await sttService.recognize(bufferedAudio, {
-                                config: ws.speechHints && ws.speechHints.length
-                                    ? {
-                                        speechContexts: [{
-                                            phrases: ws.speechHints,
-                                            boost: 10
-                                        }]
+                            const transcript = await activeSttService.recognize(bufferedAudio, {
+                                config: (() => {
+                                    const cfg = {};
+                                    if (ws.speechHints && ws.speechHints.length) {
+                                        cfg.speechContexts = [{ phrases: ws.speechHints, boost: 10 }];
                                     }
-                                    : {}
+                                    if (ws.sttMeta && (ws.sttMeta.microphoneDistance || ws.sttMeta.recordingDeviceType)) {
+                                        cfg.metadata = {};
+                                        if (ws.sttMeta.microphoneDistance) cfg.metadata.microphoneDistance = ws.sttMeta.microphoneDistance;
+                                        if (ws.sttMeta.recordingDeviceType) cfg.metadata.recordingDeviceType = ws.sttMeta.recordingDeviceType;
+                                    }
+                                    return cfg;
+                                })()
                             });
                             if (transcript) {
                                 await persistAndBroadcastTranscript(transcript);
@@ -1282,17 +2116,12 @@ function setupWebSocket(server, repositories = {}) {
                         return;
                     }
 
-                    // Start or restart stream if needed
-                    if (!sttStream || !sttStream.writable) {
-                        startSTTStream();
-                    }
-                    
                     if (sttStream && sttStream.writable) {
                         try {
                             sttStream.write(data);
                         } catch (e) {
                             console.error('[STT Write Error]', e.message);
-                            sttStream = null; // Force restart on next chunk
+                            sttStream = null;
                         }
                     }
                 } else {
@@ -1300,10 +2129,57 @@ function setupWebSocket(server, repositories = {}) {
                     try {
                         const msgStr = data.toString();
                         const msg = JSON.parse(msgStr);
-                        
+
                         // Ignore 'hello' if it was already used for validation
                         if (msg.type === 'hello') {
                             await sendReady();
+                            return;
+                        }
+
+                        // Mic preset metadata. The client sends this once on
+                        // connection and again whenever the user picks a new
+                        // preset. Stored on ws so the next STT stream/recognize
+                        // call can build the correct Google config (microphone
+                        // distance, recording device type, audio topic).
+                        if (msg.type === 'mic_preset') {
+                            const meta = (msg.mic && typeof msg.mic === 'object') ? msg.mic : {};
+                            ws.sttMeta = {
+                                microphoneDistance: ['NEARFIELD', 'MIDFIELD', 'FARFIELD']
+                                    .includes(meta.microphoneDistance) ? meta.microphoneDistance : undefined,
+                                recordingDeviceType: typeof meta.recordingDeviceType === 'string'
+                                    ? meta.recordingDeviceType.slice(0, 64) : undefined
+                            };
+
+                            // Session-level STT provider switch.
+                            // When the frontend sends stt_provider, create a
+                            // session-specific instance if it differs from global.
+                            const requestedProvider = typeof msg.stt_provider === 'string'
+                                ? msg.stt_provider.toLowerCase() : null;
+                            const allowedProviders = ['google', 'elevenlabs', 'groq'];
+                            if (requestedProvider && allowedProviders.includes(requestedProvider)) {
+                                const currentProvider = (ws.sessionSttService || sttService)?.provider;
+                                if (requestedProvider !== currentProvider) {
+                                    ws.sessionSttService = new STTService({
+                                        provider: requestedProvider,
+                                        googleApiKey: process.env.GOOGLE_API_KEY,
+                                        groqApiKey: process.env.GROQ_API_KEY,
+                                        groqModel: process.env.GROQ_STT_MODEL || 'whisper-large-v3-turbo',
+                                        elevenLabsApiKey: process.env.ELEVENLABS_API_KEY,
+                                        elevenLabsModel: process.env.ELEVENLABS_STT_MODEL || 'scribe_v2_flash',
+                                        language: process.env.STT_LANGUAGE || 'ja'
+                                    });
+                                    console.log(`[STT] Session provider switched to "${requestedProvider}" for participant ${participantId}`);
+                                }
+                            }
+
+                            // Restart the streaming recognizer so the new
+                            // metadata / provider takes effect on the next utterance.
+                            if (ws.elevenLabsSilenceTimer) {
+                                clearTimeout(ws.elevenLabsSilenceTimer);
+                                ws.elevenLabsSilenceTimer = null;
+                            }
+                            try { if (sttStream && typeof sttStream.end === 'function') sttStream.end(); } catch (_) { /* ignore */ }
+                            sttStream = null;
                             return;
                         }
 
@@ -1336,6 +2212,10 @@ function setupWebSocket(server, repositories = {}) {
         });
 
         ws.on('close', () => {
+            if (ws.elevenLabsSilenceTimer) {
+                clearTimeout(ws.elevenLabsSilenceTimer);
+                ws.elevenLabsSilenceTimer = null;
+            }
             if (sttStream) {
                 sttStream.end();
                 sttStream = null;

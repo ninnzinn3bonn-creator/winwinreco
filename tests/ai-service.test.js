@@ -44,8 +44,14 @@ describe('AIService Gemini fallback', () => {
         ]);
 
         expect(result.overall_summary).toBe('summary');
-        expect(mockGetGenerativeModel).toHaveBeenCalledWith({ model: 'gemini-2.5-pro' });
-        expect(mockGetGenerativeModel).toHaveBeenCalledWith({ model: 'gemini-2.5-flash' });
+        expect(mockGetGenerativeModel).toHaveBeenCalledWith(expect.objectContaining({
+            model: 'gemini-2.5-pro',
+            generationConfig: expect.any(Object)
+        }));
+        expect(mockGetGenerativeModel).toHaveBeenCalledWith(expect.objectContaining({
+            model: 'gemini-2.5-flash',
+            generationConfig: expect.any(Object)
+        }));
         expect(service.provider.name).toBe('gemini (gemini-2.5-flash)');
     });
 });

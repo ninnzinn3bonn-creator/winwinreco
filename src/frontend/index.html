@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>会議ログアプリ</title>
+    <title>GIJIRO</title>
     <link rel="stylesheet" href="style.css">
 </head>
 <body>
@@ -26,8 +26,104 @@
     <button id="btn-debug-float" class="debug-float-btn" title="デバッグログを開く">Log</button>
 
     <div id="app">
-        <section id="setup-screen" class="active">
-            <h1>会議に参加する</h1>
+        <!-- Global top bar — persistent across all screens. -->
+        <header class="app-topbar" role="banner">
+            <a class="topbar-brand" href="./" aria-label="GIJIRO ホームへ">
+                <span class="topbar-logo" aria-hidden="true">
+                    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                        <rect x="9" y="3" width="6" height="12" rx="3" fill="currentColor"/>
+                        <path d="M5 11a7 7 0 0 0 14 0" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+                        <path d="M12 18v3" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+                    </svg>
+                </span>
+                <span class="topbar-titles">
+                    <span class="topbar-title">GIJIRO</span>
+                    <span class="topbar-subtitle">議事録 / AI 要約 / ToDo</span>
+                </span>
+            </a>
+            <!-- Account badge: login/signup when anonymous, account name +
+                 archive/logout when logged in. Rendered by auth.js. -->
+            <div id="auth-badge" class="auth-badge" aria-live="polite"></div>
+        </header>
+
+        <!-- Read-only progress dots so the user knows where they are in the
+             flow. JS sets data-step on this element to one of:
+               welcome | setup | meeting | summary
+             (login is a sub-step of welcome). -->
+        <nav id="flow-progress" class="flow-progress" data-step="welcome" aria-label="進行状況">
+            <ol>
+                <li data-step="welcome"><span class="flow-dot"></span><span class="flow-label">ようこそ</span></li>
+                <li data-step="setup"><span class="flow-dot"></span><span class="flow-label">準備</span></li>
+                <li data-step="meeting"><span class="flow-dot"></span><span class="flow-label">会議中</span></li>
+                <li data-step="summary"><span class="flow-dot"></span><span class="flow-label">振り返り</span></li>
+            </ol>
+        </nav>
+
+        <!-- Welcome — initial screen. Login form sits inline so the user
+             never has to tap through a separate "login" page. -->
+        <section id="welcome-screen" class="welcome-screen">
+            <div class="welcome-card">
+                <span class="welcome-eyebrow">Welcome to</span>
+                <div class="welcome-logo" aria-hidden="true">
+                    <svg width="64" height="64" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                        <rect x="9" y="3" width="6" height="12" rx="3" fill="currentColor"/>
+                        <path d="M5 11a7 7 0 0 0 14 0" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+                        <path d="M12 18v3" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+                    </svg>
+                </div>
+                <h1 class="welcome-title">GIJIRO</h1>
+                <p class="welcome-subtitle">議事録 / AI 要約 / ToDo</p>
+                <p class="welcome-tagline">話すだけで、議事録・要約・ToDo が自動で残る。</p>
+
+                <!-- Three primary entry points. Email/password fields are
+                     collapsed by default; tapping「メールでログイン」expands them
+                     in place so a returning user signs in without leaving
+                     this screen. -->
+                <div id="welcome-actions" class="welcome-actions">
+                    <button type="button" id="welcome-btn-guest" class="primary welcome-action-btn">ゲストで使う (スキップ)</button>
+                    <button type="button" id="welcome-btn-login" class="secondary welcome-action-btn">📧 メールでログイン</button>
+                    <button type="button" id="welcome-btn-signup" class="ghost-btn welcome-action-btn">✨ 新規登録</button>
+                </div>
+
+                <form id="welcome-auth-form" class="welcome-auth-form" hidden autocomplete="on">
+                    <h2 id="welcome-form-title" class="welcome-form-title">ログイン</h2>
+                    <label class="welcome-field">
+                        <span>メールアドレス</span>
+                        <input type="email" id="welcome-email" placeholder="you@example.com" autocomplete="email" required>
+                    </label>
+                    <label class="welcome-field" id="welcome-name-field" hidden>
+                        <span>表示名 (任意)</span>
+                        <input type="text" id="welcome-name" placeholder="表示名" autocomplete="name">
+                    </label>
+                    <label class="welcome-field">
+                        <span>パスワード</span>
+                        <input type="password" id="welcome-password" placeholder="8文字以上" autocomplete="current-password" minlength="8" required>
+                    </label>
+                    <div id="welcome-error" class="welcome-error" role="alert"></div>
+                    <div class="welcome-form-actions">
+                        <button type="button" id="welcome-form-back" class="ghost-btn">← 戻る</button>
+                        <button type="submit" id="welcome-form-submit" class="primary">ログイン</button>
+                    </div>
+                </form>
+
+                <p class="welcome-hint">議事録は端末・アカウントに保存できます。</p>
+            </div>
+        </section>
+
+        <section id="setup-screen">
+            <!-- Banner shown in participant-join mode (?room=XXX in URL).
+                 Hidden by default; setup-mode-participant class on body
+                 reveals it and hides host-only sections. -->
+            <div id="participant-mode-banner" class="participant-mode-banner">
+                <strong>会議への参加</strong>
+                <span id="participant-mode-room-label">招待されたルームに参加します。</span>
+            </div>
+
+            <div class="setup-hero">
+                <span class="setup-hero-eyebrow">GIJIRO</span>
+                <h1 id="setup-screen-title">会議に参加する</h1>
+                <p class="setup-hero-lead">音声から自動で議事録・ToDo・要約を生成。<br>まずはマイクと表示名を整えてから、ルームに入りましょう。</p>
+            </div>
             <div class="form-group">
                 <label for="display-name">表示名</label>
                 <input type="text" id="display-name" placeholder="例: 田中">
@@ -95,10 +191,6 @@
                         <strong id="mic-preset-summary">ピンマイクを推奨設定で使います。</strong>
                         <ul id="mic-preset-tips" class="mic-tip-list"></ul>
                     </div>
-                    <div class="mic-preset-summary-card soft">
-                        <div class="container-label">事前チェック</div>
-                        <ul id="mic-requirements" class="mic-tip-list"></ul>
-                    </div>
                 </div>
                 <div class="form-group">
                     <label for="mic-min-threshold">細かいマイク調整</label>
@@ -125,26 +217,28 @@
                     <div id="mic-max-line" class="mic-threshold-line max-line"></div>
                     <div id="mic-level-bar" class="mic-meter-bar"></div>
                 </div>
+                <!-- マイクは setup 画面に来た時点で自動でレベルメーターが動きます。
+                     失敗時だけ「再確認」ボタンが表示されます。 -->
                 <div class="actions">
-                    <button id="btn-mic-check" class="secondary">マイクを確認</button>
+                    <button id="btn-mic-check" class="secondary" hidden>マイクを再確認</button>
                 </div>
             </div>
 
-            <div class="ai-config-group">
+            <div class="ai-config-group host-only">
                 <h3>AI設定</h3>
                 <div class="form-group-row">
                     <select id="ai-provider">
-                        <option value="gemini">Gemini (高速・標準)</option>
-                        <option value="groq">Groq (超高速・高精度)</option>
+                        <option value="groq">Groq (既定・高速)</option>
+                        <option value="gemini">Gemini (任意で選択)</option>
                     </select>
                 </div>
-                <p class="mic-check-status">事後処理（議事録生成・要約）に使用するAIを選択します。</p>
+                <p class="mic-check-status">事後処理は基本的に Groq を使います。必要なときだけ Gemini に切り替えられます。</p>
             </div>
 
-            <div class="dictionary-card">
+            <div class="dictionary-card host-only">
                 <div class="container-label">Domain Dictionary</div>
                 <h3>専門用語辞書</h3>
-                <p class="mic-check-status">会議前に専門用語や人名を登録すると、文字起こしの精度が向上します。</p>
+                <p class="mic-check-status">会議前に専門用語や人名を登録すると、文字起こしの精度が向上します。（会議ホストだけが設定してください）</p>
                 <div class="dictionary-form">
                     <div class="form-group-row compact-row">
                         <input type="text" id="dict-term" placeholder="用語 (例: 相同組換え)">
@@ -154,6 +248,26 @@
                         <button id="btn-dict-add" class="secondary">辞書に追加</button>
                     </div>
                 </div>
+
+                <div class="dictionary-bulk-section">
+                    <details>
+                        <summary>資料から一括抽出・登録 (AI解析)</summary>
+                        <div class="bulk-content">
+                            <textarea id="dict-bulk-text" placeholder="会議資料の本文や単語リストをここに貼り付けてください..."></textarea>
+                            <div class="bulk-actions">
+                                <button id="btn-dict-extract" class="secondary-outline">AIで用語を抽出</button>
+                            </div>
+                            <div id="dict-extract-results" class="extract-results hidden">
+                                <div class="results-header">
+                                    <span>抽出された用語 (チェックして追加)</span>
+                                    <button id="btn-dict-add-selected" class="btn-small">選択した用語を追加</button>
+                                </div>
+                                <div id="extract-list" class="extract-list"></div>
+                            </div>
+                        </div>
+                    </details>
+                </div>
+
                 <div id="dictionary-list" class="dictionary-list">
                     <!-- Terms will be rendered here -->
                     <span class="placeholder-text">登録された用語はありません。</span>
@@ -161,8 +275,12 @@
             </div>
 
             <div class="actions">
-                <button id="btn-create" class="primary">新しくルームを作る</button>
-                <button id="btn-join">既存ルームに参加</button>
+                <!-- Single primary CTA. Behavior is decided at click time:
+                       - Room ID 空 + ログイン中 (host)        → 作成
+                       - Room ID あり (or share URL participant) → 参加
+                     The label updates live as the room-id field changes. -->
+                <button id="btn-start-meeting" class="primary">会議を始める</button>
+                <p id="start-meeting-hint" class="start-meeting-hint">空欄で「新しい会議」、ID を入れると「既存会議に参加」</p>
             </div>
         </section>
 
@@ -173,9 +291,19 @@
                     <span id="room-info">ルーム: ---</span>
                     <button id="btn-copy-room" class="icon-btn" title="参加URLをコピー">Share</button>
                 </div>
+                <input
+                    type="text"
+                    id="meeting-title-input"
+                    class="meeting-title-input host-only"
+                    placeholder="会議のタイトル (任意・ホストのみ編集可)"
+                    maxlength="200"
+                    autocomplete="off">
+                <div id="meeting-title-readonly" class="meeting-title-readonly"></div>
                 <div class="header-actions">
-                    <button id="btn-reconnect-mic" class="secondary">マイクON</button>
-                    <button id="btn-toggle-mute" class="secondary">ミュート</button>
+                    <!-- Single mic state button. Click cycles through:
+                         🎙 OFF → 🔴 録音中 → 🔇 ミュート中 → 🔴 録音中 → … -->
+                    <button id="btn-mic-state" class="secondary" type="button">🎙 マイク ON</button>
+                    <button id="btn-meeting-mic-settings" class="secondary" title="マイク・感度設定" aria-expanded="false" aria-controls="mobile-meeting-menu">⚙ 設定</button>
                     <button id="btn-mobile-menu" class="secondary mobile-only" aria-expanded="false" aria-controls="mobile-meeting-menu">☰</button>
                     <button id="btn-end" class="danger">終了</button>
                 </div>
@@ -227,7 +355,6 @@
                             <div class="container-label">Workspace</div>
                             <h2>会話メモリ</h2>
                         </div>
-                        <button id="btn-jump-latest" class="secondary compact">最新へ</button>
                     </div>
 
                     <div class="log-toolbar">
@@ -255,6 +382,37 @@
                 <main class="conversation-panel">
                     <div id="timeline" class="conversation-list">
                         <div class="system-message">接続を待っています...</div>
+                    </div>
+                    <!-- Jump palette: long-press the FAB to open a radial
+                         menu of quick-navigation actions. Tap = jump to
+                         latest (existing behaviour). -->
+                    <div class="jump-fab-wrap">
+                        <div id="jump-palette" class="jump-palette" role="menu" aria-hidden="true">
+                            <!-- 5 items spread across 180°→360° (left → right
+                                 over the FAB) so they're well-separated and
+                                 easy to thumb-tap. -->
+                            <button type="button" class="jump-palette-item" data-jump="top" style="--ang:180deg;" role="menuitem" title="会話の先頭へ">
+                                <span class="jump-palette-icon" aria-hidden="true">⇞</span>
+                                <span class="jump-palette-label">先頭</span>
+                            </button>
+                            <button type="button" class="jump-palette-item" data-jump="star-prev" style="--ang:215deg;" role="menuitem" title="前の★へ">
+                                <span class="jump-palette-icon" aria-hidden="true">★↑</span>
+                                <span class="jump-palette-label">★ 前</span>
+                            </button>
+                            <button type="button" class="jump-palette-item" data-jump="minus-10" style="--ang:250deg;" role="menuitem" title="10分前へ">
+                                <span class="jump-palette-icon" aria-hidden="true">−10</span>
+                                <span class="jump-palette-label">10分前</span>
+                            </button>
+                            <button type="button" class="jump-palette-item" data-jump="plus-10" style="--ang:290deg;" role="menuitem" title="10分後へ">
+                                <span class="jump-palette-icon" aria-hidden="true">+10</span>
+                                <span class="jump-palette-label">10分後</span>
+                            </button>
+                            <button type="button" class="jump-palette-item" data-jump="star-next" style="--ang:325deg;" role="menuitem" title="次の★へ">
+                                <span class="jump-palette-icon" aria-hidden="true">★↓</span>
+                                <span class="jump-palette-label">★ 次</span>
+                            </button>
+                        </div>
+                        <button id="btn-jump-latest-floating" class="jump-latest-fab" title="タップ: 最新へ移動／長押し: ジャンプメニュー" aria-haspopup="menu" aria-controls="jump-palette">↓ 最新へ</button>
                     </div>
                 </main>
 
@@ -293,8 +451,7 @@
 
             <footer id="meeting-footer">
                 <div class="footer-actions">
-                    <button id="btn-memo" class="secondary">全体メモ</button>
-                    <button id="btn-save" class="secondary">保存</button>
+                    <button id="btn-memo" class="secondary">会議全体のメモを残す</button>
                 </div>
                 <div id="self-info">参加者: ---</div>
             </footer>
@@ -309,8 +466,10 @@
                 </div>
                 <div class="review-actions">
                     <button id="btn-summary-mobile-menu" class="secondary mobile-only" aria-expanded="false" aria-controls="summary-mobile-menu">☰</button>
-                    <button id="btn-download-final" class="primary">Markdownで保存</button>
-                    <button id="btn-home">ホームへ戻る</button>
+                    <button id="btn-home" class="btn-home">
+                        <span class="btn-home-label">ホームへ戻る</span>
+                        <span id="btn-home-hint" class="btn-home-hint" hidden>議事録はアカウントに保存されます</span>
+                    </button>
                 </div>
             </div>
 
@@ -324,9 +483,10 @@
             </div>
 
             <div class="tabs review-tabs">
+                <!-- Order: ログレビュー → 議事録 → AI整理 -->
                 <button id="tab-log" class="tab-btn active">ログレビュー</button>
-                <button id="tab-ai" class="tab-btn">AI整理</button>
                 <button id="tab-minutes" class="tab-btn">議事録</button>
+                <button id="tab-ai" class="tab-btn">AI整理</button>
             </div>
 
             <div id="summary-content">
@@ -411,6 +571,13 @@
                             </div>
                         </div>
                         <div class="ai-workspace-controls">
+                            <!-- 過去会議コンテクストのオン/オフは AI 解析実行ごとに
+                                 ユーザーが選べる場所に配置。議事録生成は別経路で
+                                 強制 OFF（過去のログを混ぜない）。 -->
+                            <label class="checkbox-row ai-context-toggle" for="use-past-meetings">
+                                <input type="checkbox" id="use-past-meetings" checked>
+                                <span>このAI解析で過去の会議の要約も参考にする (要約・自由解析・話者別アクション)</span>
+                            </label>
                             <div id="ai-mobile-controls" class="ai-mobile-controls">
                                 <div class="ai-action-row">
                                     <button id="btn-run-summary" class="primary">要約を解析</button>
@@ -425,6 +592,13 @@
                                 <div class="container-label">Result Editor</div>
                                 <h3 id="ai-output-title" class="insight-card-title">解析結果</h3>
                                 <p class="ai-output-note">解析ボタンを押すと、結果はこのエディターに表示されます。</p>
+                                <div id="ai-output-loading" class="workspace-loading hidden" aria-live="polite">
+                                    <span class="spinner"></span>
+                                    <span id="ai-loading-text">AIが解析中です...</span>
+                                    <div class="progress-bar-wrap hidden" id="ai-progress-wrap">
+                                        <div class="progress-bar-fill" id="ai-progress-bar"></div>
+                                    </div>
+                                </div>
                                 <textarea id="ai-output-editor" class="insight-text insight-result-box insight-editor ai-output-editor" placeholder="解析結果はここに表示されます。"></textarea>
                             </div>
                         </div>
@@ -442,16 +616,24 @@
                             <div class="insight-actions">
                                 <button id="btn-minutes-copy" class="secondary">コピー</button>
                                 <button id="btn-minutes-download" class="secondary">ダウンロード</button>
+                                <button id="btn-download-final" class="secondary" title="この会議を Markdown ファイルとしてこの端末にダウンロード">📄 Markdown 保存</button>
                             </div>
                         </div>
                         <div class="ai-workspace-controls">
                             <div class="ai-action-row">
                                 <button id="btn-run-minutes" class="primary">自動調整で議事録を生成</button>
                             </div>
-                            <div class="insight-card ai-output-card">
+                            <div class="insight-card ai-output-card" id="minutes-output-card">
                                 <div class="container-label">Minutes Editor</div>
                                 <h3 class="insight-card-title">議事録</h3>
                                 <p class="ai-output-note">生成後はこのエディターでそのまま手直しできます。</p>
+                                <div id="minutes-output-loading" class="workspace-loading hidden" aria-live="polite">
+                                    <span class="spinner"></span>
+                                    <span id="minutes-loading-text">議事録を生成中です...</span>
+                                    <div class="progress-bar-wrap hidden" id="minutes-progress-wrap">
+                                        <div class="progress-bar-fill" id="minutes-progress-bar"></div>
+                                    </div>
+                                </div>
                                 <textarea id="minutes-output-editor" class="insight-text insight-result-box insight-editor ai-output-editor" placeholder="生成した議事録はここに表示されます。"></textarea>
                             </div>
                         </div>
@@ -516,15 +698,18 @@
         </div>
     </div>
     <script src="debug.js"></script>
-    <div class="scroll-fab-group" aria-label="scroll controls">
-        <button id="btn-scroll-top" class="scroll-fab" title="一番上へ">↑</button>
-        <button id="btn-scroll-bottom" class="scroll-fab" title="一番下へ">↓</button>
-    </div>
     <script src="mic-presets.js"></script>
     <script src="state.js"></script>
     <script src="dom.js"></script>
     <script src="bindings.js"></script>
     <script src="utils.js"></script>
+    <script src="auth.js"></script>
+    <script src="profile.js"></script>
+    <script src="dictionary.js"></script>
+    <script src="audio.js"></script>
+    <script src="log-ui.js"></script>
+    <script src="shared-ai.js"></script>
+    <script src="meeting-ui.js"></script>
     <script src="main.js"></script>
 </body>
 </html>
