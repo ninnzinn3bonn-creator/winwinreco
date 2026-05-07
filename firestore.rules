@@ -1,0 +1,10 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Admin SDK (バックエンド) は Rules をバイパスするため、
+    // ここでは全クライアント直接アクセスを deny する。
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}

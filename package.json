@@ -8,6 +8,9 @@
     "check:duplicates": "node scripts/check-duplicate-functions.js",
     "pretest": "npm.cmd run check:frontend && npm.cmd run check:duplicates",
     "test": "jest",
+    "test:all": "npm.cmd run test && npm.cmd run test:firestore",
+    "test:firestore": "cross-env DB_DRIVER=firestore FIRESTORE_EMULATOR_HOST=localhost:8080 GOOGLE_CLOUD_PROJECT=demo-test NODE_ENV=test jest --runInBand",
+    "emulators": "firebase emulators:start --only firestore --project demo-test",
     "test:e2e": "playwright test",
     "start": "node src/backend/server.js"
   },
@@ -20,12 +23,15 @@
     "@google/generative-ai": "^0.24.1",
     "dotenv": "^17.3.1",
     "express": "^5.2.1",
+    "firebase-admin": "^12.7.0",
     "groq-sdk": "^1.1.2",
     "sqlite3": "^5.1.7",
     "ws": "^8.19.0"
   },
   "devDependencies": {
     "@playwright/test": "^1.59.1",
+    "cross-env": "^10.1.0",
+    "firebase-tools": "^13.35.1",
     "jest": "^30.2.0",
     "supertest": "^7.2.2"
   }

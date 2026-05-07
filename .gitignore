@@ -25,3 +25,10 @@ yarn-error.log*
 # Workspace
 .kiro/
 .gemini/
+
+# Firebase / Firestore
+.firebase/
+firebase-debug.log
+firestore-debug.log
+.runtimeconfig.json
+ui-debug.log

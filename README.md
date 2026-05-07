@@ -78,6 +78,31 @@ npm start
 
 Then open [http://localhost:3000](http://localhost:3000).
 
+### Firestore モードでローカル開発する
+
+1. 別ターミナルで Firestore Emulator を起動:
+   ```bash
+   npm run emulators
+   ```
+2. `.env` に以下を追加 (または `.env.local` に):
+   ```env
+   DB_DRIVER=firestore
+   FIRESTORE_EMULATOR_HOST=localhost:8080
+   GOOGLE_CLOUD_PROJECT=demo-test
+   ```
+3. `npm start`
+
+Firestore モードのテストを単体で実行する場合:
+```bash
+# Emulator 起動中に
+npm run test:firestore
+```
+
+両モードを一括テスト:
+```bash
+npm run test:all
+```
+
 ## Default Providers
 
 - default AI provider: Groq
