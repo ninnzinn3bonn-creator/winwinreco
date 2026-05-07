@@ -1316,7 +1316,7 @@ section > header,
     min-width: 0;
     min-height: 0;
     padding: 18px;
-    position: relative; /* For floating jump button */
+    position: relative;
 }
 
 /* Floating Jump to Latest Button + radial Jump Palette.
@@ -1327,7 +1327,9 @@ section > header,
    anchor: the FAB sits at its center and palette items are positioned
    absolutely around it using CSS custom property --ang per item. */
 .jump-fab-wrap {
-    position: absolute;
+    /* F1: fixed にすることでスクロール位置に関わらず常時表示される。
+       親が display:none のときは子も消えるので meeting-mode 以外では見えない。 */
+    position: fixed;
     bottom: 24px;
     left: 50%;
     transform: translateX(-50%);

@@ -2312,7 +2312,7 @@ function initWebSocket() {
 }
 
 function scrollLogToLatest(container, options = {}) {
-    if (!options.force && state.isWorkingOnLog) return;
+    if (!options.force && (state.isWorkingOnLog || state.logAtBottom === false)) return;
     // On desktop the .conversation-list element has its own scroll (overflow:auto).
     // On mobile we collapse it (overflow:visible) and the whole page scrolls,
     // so we fall back to scrolling the window to the bottom of the timeline

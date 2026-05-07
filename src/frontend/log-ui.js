@@ -441,7 +441,9 @@
     }
 
     function scrollLogToLatest(container, options = {}) {
-        if (!options.force && state.isWorkingOnLog) return;
+        // force=true はボタン押下など明示的な操作。それ以外は
+        // ① 編集中 または ② ユーザーが上にスクロール中 なら自動スクロールしない (F2)。
+        if (!options.force && (state.isWorkingOnLog || state.logAtBottom === false)) return;
         const containerScrolls = container && (container.scrollHeight - container.clientHeight) > 8;
         if (containerScrolls) {
             container.scrollTo({ top: container.scrollHeight, behavior: 'smooth' });

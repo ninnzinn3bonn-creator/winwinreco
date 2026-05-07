@@ -87,6 +87,7 @@ window.AppState = {
         transcriptDrafts: {},
         focusedUtteranceId: null,
         isWorkingOnLog: false,
+        logAtBottom: true,   // false = ユーザーが上にスクロール中 → 自動スクロール抑制
         dictionary: [],
         extractedTerms: []
     }

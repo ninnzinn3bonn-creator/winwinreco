@@ -166,6 +166,8 @@
                 }
                 const atBottom = distance < 80;
                 dom.btnJumpLatestFloating.classList.toggle('is-at-bottom', atBottom);
+                // F2: 共有フラグを更新。false = ユーザーが上にスクロール中。
+                if (state) state.logAtBottom = atBottom;
             };
             dom.timeline.addEventListener('scroll', updateFabState, { passive: true });
             window.addEventListener('scroll', updateFabState, { passive: true });
