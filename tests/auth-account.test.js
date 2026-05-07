@@ -2,12 +2,12 @@ const request = require('supertest');
 const path = require('path');
 const fs = require('fs');
 const { createApp } = require('../src/backend/app');
-const { initDB } = require('../src/backend/repo/db');
-const { RoomRepository } = require('../src/backend/repo/room-repo');
-const { ParticipantRepository } = require('../src/backend/repo/participant-repo');
-const { UserRepository } = require('../src/backend/repo/user-repo');
-const { UserAccountRepository } = require('../src/backend/repo/user-account-repo');
-const { SessionRepository } = require('../src/backend/repo/session-repo');
+const { initDB } = require('../src/backend/repo/sqlite/db');
+const { RoomRepository } = require('../src/backend/repo/sqlite/room-repo');
+const { ParticipantRepository } = require('../src/backend/repo/sqlite/participant-repo');
+const { UserRepository } = require('../src/backend/repo/sqlite/user-repo');
+const { UserAccountRepository } = require('../src/backend/repo/sqlite/user-account-repo');
+const { SessionRepository } = require('../src/backend/repo/sqlite/session-repo');
 
 /**
  * Covers /auth/signup, /auth/login, /auth/me, /auth/logout and cookie-based

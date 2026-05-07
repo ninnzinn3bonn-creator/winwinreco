@@ -1,4 +1,4 @@
-const { newId } = require('../lib/ids');
+const { newId } = require('../../lib/ids');
 
 /**
  * Stores host-login accounts. Email is normalized to lowercase on every

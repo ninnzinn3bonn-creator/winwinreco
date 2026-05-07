@@ -1,7 +1,7 @@
 const path = require('path');
 const fs = require('fs');
-const { initDB } = require('../src/backend/repo/db');
-const { RoomRepository } = require('../src/backend/repo/room-repo');
+const { initDB } = require('../src/backend/repo/sqlite/db');
+const { RoomRepository } = require('../src/backend/repo/sqlite/room-repo');
 
 describe('RoomRepository', () => {
     let db;

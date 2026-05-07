@@ -1,8 +1,8 @@
 const path = require('path');
 const fs = require('fs');
-const { initDB } = require('../src/backend/repo/db');
-const { UserRepository } = require('../src/backend/repo/user-repo');
-const { UserContextRepository } = require('../src/backend/repo/user-context-repo');
+const { initDB } = require('../src/backend/repo/sqlite/db');
+const { UserRepository } = require('../src/backend/repo/sqlite/user-repo');
+const { UserContextRepository } = require('../src/backend/repo/sqlite/user-context-repo');
 
 describe('UserContextRepository', () => {
     let db;

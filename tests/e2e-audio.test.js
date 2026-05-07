@@ -1,10 +1,10 @@
 const WebSocket = require('ws');
 const http = require('http');
 const { createApp, setupWebSocket } = require('../src/backend/app');
-const { initDB } = require('../src/backend/repo/db');
-const { RoomRepository } = require('../src/backend/repo/room-repo');
-const { ParticipantRepository } = require('../src/backend/repo/participant-repo');
-const { UtteranceRepository } = require('../src/backend/repo/utterance-repo');
+const { initDB } = require('../src/backend/repo/sqlite/db');
+const { RoomRepository } = require('../src/backend/repo/sqlite/room-repo');
+const { ParticipantRepository } = require('../src/backend/repo/sqlite/participant-repo');
+const { UtteranceRepository } = require('../src/backend/repo/sqlite/utterance-repo');
 const { AudioProcessor } = require('../src/backend/services/audio-processor');
 const { STTService } = require('../src/backend/services/stt-service');
 const path = require('path');

@@ -1,5 +1,5 @@
 const crypto = require('crypto');
-const { newId } = require('../lib/ids');
+const { newId } = require('../../lib/ids');
 
 const DEFAULT_TTL_MS = 30 * 24 * 60 * 60 * 1000; // 30 days sliding window.
 

@@ -1,9 +1,9 @@
 const WebSocket = require('ws');
 const http = require('http');
 const { createApp, setupWebSocket } = require('../src/backend/app');
-const { initDB } = require('../src/backend/repo/db');
-const { RoomRepository } = require('../src/backend/repo/room-repo');
-const { ParticipantRepository } = require('../src/backend/repo/participant-repo');
+const { initDB } = require('../src/backend/repo/sqlite/db');
+const { RoomRepository } = require('../src/backend/repo/sqlite/room-repo');
+const { ParticipantRepository } = require('../src/backend/repo/sqlite/participant-repo');
 const path = require('path');
 const fs = require('fs');
 

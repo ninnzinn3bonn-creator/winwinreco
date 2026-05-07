@@ -1,6 +1,6 @@
 const fs = require('fs');
 const path = require('path');
-const { initDB } = require('../src/backend/repo/db');
+const { initDB } = require('../src/backend/repo/sqlite/db');
 
 describe('Database Setup', () => {
     const dbPath = path.resolve(__dirname, './tmp/test_meeting.db');

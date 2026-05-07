@@ -1,4 +1,4 @@
-const { newId } = require('../lib/ids');
+const { newId } = require('../../lib/ids');
 
 /**
  * [L9] room_chunks テーブルの CRUD。

@@ -1,9 +1,9 @@
 const path = require('path');
 const fs = require('fs');
-const { initDB } = require('../src/backend/repo/db');
-const { RoomRepository } = require('../src/backend/repo/room-repo');
-const { ParticipantRepository } = require('../src/backend/repo/participant-repo');
-const { UtteranceRepository } = require('../src/backend/repo/utterance-repo');
+const { initDB } = require('../src/backend/repo/sqlite/db');
+const { RoomRepository } = require('../src/backend/repo/sqlite/room-repo');
+const { ParticipantRepository } = require('../src/backend/repo/sqlite/participant-repo');
+const { UtteranceRepository } = require('../src/backend/repo/sqlite/utterance-repo');
 
 describe('UtteranceRepository', () => {
     let db;
