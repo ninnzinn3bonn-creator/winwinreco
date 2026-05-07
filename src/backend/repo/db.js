@@ -190,6 +190,32 @@ async function initDB(dbPath) {
                                 resolveActions();
                             });
                         }))
+                        // [L9] チャンク単位の中間結果テーブル。部分再生成に使用。
+                        .then(() => new Promise((resolveChunks, rejectChunks) => {
+                            db.run(`CREATE TABLE IF NOT EXISTS room_chunks (
+                                id TEXT PRIMARY KEY,
+                                room_id TEXT NOT NULL,
+                                chunk_index INTEGER NOT NULL,
+                                analysis_type TEXT NOT NULL DEFAULT 'minutes',
+                                start_ts TEXT DEFAULT '',
+                                end_ts TEXT DEFAULT '',
+                                result_text TEXT DEFAULT '',
+                                status TEXT DEFAULT 'done',
+                                created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                                updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                                UNIQUE(room_id, chunk_index, analysis_type),
+                                FOREIGN KEY(room_id) REFERENCES rooms(id)
+                            )`, (chunksErr) => {
+                                if (chunksErr) return rejectChunks(chunksErr);
+                                db.run(
+                                    'CREATE INDEX IF NOT EXISTS idx_room_chunks_room ON room_chunks(room_id, analysis_type)',
+                                    (idxErr) => {
+                                        if (idxErr) return rejectChunks(idxErr);
+                                        resolveChunks();
+                                    }
+                                );
+                            });
+                        }))
                         .then(() => resolve(db))
                         .catch(reject);
                 });

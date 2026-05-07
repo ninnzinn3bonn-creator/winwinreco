@@ -797,6 +797,35 @@ L1〜L4 で議事録 Map-Reduce を実装した続きとして、要約/ToDo/自
 
 ---
 
+## 42. チャンク結果の DB 保存と部分再生成 L9 (2026-05-07)
+
+### 概要
+
+長時間会議の Map-Reduce 議事録生成において、チャンク単位の中間結果を DB に保存し、
+失敗チャンクだけをピンポイントで再生成できる仕組みを実装した。
+
+### バックエンド
+
+- `src/backend/repo/chunk-repo.js` (新規): `ChunkRepository` クラス。`upsert` / `findByRoom` / `findByIndex` / `deleteByRoom` を実装。UNIQUE(room_id, chunk_index, analysis_type) で upsert。
+- `src/backend/repo/db.js`: `room_chunks` テーブルを `.then()` チェーンに追加 (UNIQUE 制約 + インデックス付き)。
+- `src/backend/server.js`: `ChunkRepository` をインポートし `repos.chunkRepo` を登録。
+- `src/backend/app.js`:
+  - `generateSharedAiResult` 内の minutes Map フェーズで各チャンク完了後に `chunkRepo.upsert()` を呼び出し、エラーチャンクは `status: 'error'` で保存。
+  - `GET /rooms/:id/chunks` (ホスト限定): チャンク一覧 JSON を返す。
+  - `POST /rooms/:id/regenerate-chunk/:index` (ホスト限定 + aiLimiter): 指定インデックスのチャンクを単独再生成し、DB 全チャンクを読み直して `mergeMinutesChunks` で議事録全体を再構築・保存する。
+
+### フロントエンド
+
+- `src/frontend/index.html`: 議事録エディター下部に `#chunk-regenerate-panel` を追加 (初期非表示)。
+- `src/frontend/shared-ai.js`: `loadChunks()` / `renderChunkList()` / `regenerateChunk()` を追加。議事録生成完了後と `loadMeetingInsights` のホスト + minutes 存在時にパネルを更新。
+- `src/frontend/style.css`: `.chunk-regen-panel` / `.chunk-row` / `.chunk-regen-btn` などのスタイルを追加。
+
+### 確認
+
+- `node --check` で全変更ファイルの構文確認。
+
+---
+
 ## 31. 振り返りを開発ルールとスキルへ反映 (2026-05-05)
 - `README.md` を UTF-8 で書き直し、読む順番・既定設定・開発ルールの入口を整理した。
 - `docs/ARCHITECTURE.md` の文字化けしていた重要ルールを修正し、現在の past meeting toggle の位置と closeout ルールを追記した。

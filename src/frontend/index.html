@@ -636,6 +636,14 @@
                                 </div>
                                 <textarea id="minutes-output-editor" class="insight-text insight-result-box insight-editor ai-output-editor" placeholder="生成した議事録はここに表示されます。"></textarea>
                             </div>
+                            <!-- [L9] チャンク別再生成パネル (ホストかつチャンク分割会議のみ表示) -->
+                            <div id="chunk-regenerate-panel" class="chunk-regen-panel hidden">
+                                <div class="chunk-regen-header">
+                                    <span class="chunk-regen-title">チャンク別再生成</span>
+                                    <span class="chunk-regen-hint">失敗したチャンクだけをピンポイントで再生成できます。</span>
+                                </div>
+                                <div id="chunk-list" class="chunk-list"></div>
+                            </div>
                         </div>
                     </div>
                 </div>

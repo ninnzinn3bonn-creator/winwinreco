@@ -147,6 +147,46 @@ GIJIROでは「名前」を意図的に二層に分けて管理する。
 - `app:profile-updated` カスタムイベントは `profile_text` のみを通知する。
   `display_name` は含めない（誤って表示名を上書きしないための防衛）。
 
+## 長時間会議のチャンキング戦略 (L1〜L9)
+
+### 概要
+
+発話数や議事録テキストが閾値を超えた場合、Map-Reduce パイプラインで処理する。
+
+### 既定パラメータ (src/backend/services/chunking.js)
+
+| パラメータ | 値 |
+|---|---|
+| チャンク窓 | 10 分 |
+| 適応トリガー | 8000 トークン or 25 分 |
+| オーバーラップ | 30 秒 |
+| 並列度 | 2 (semaphore) |
+| タイムアウト | 60 秒/チャンク (L8) |
+| リトライ | 最大 3 回・指数バックオフ (L8) |
+
+### Map フェーズ (utterance ベース)
+
+`shouldChunk(utterances)` が true の場合、`chunkUtterances()` で 10 分窓に分割し、
+各チャンクを `aiService.generateMinutesPerChunk()` に渡す。
+L9 からチャンク結果を `room_chunks` テーブルに upsert する。
+
+### Map フェーズ (テキストベース)
+
+`shouldChunkText(minutesText)` が true の場合、`chunkText()` で分割し、
+summary / todo を並列生成してから `mergeSummaryChunks()` / `mergeTodoChunks()` で統合する。
+
+### Reduce フェーズ
+
+`aiService.mergeMinutesChunks(chunkResults, roomMeta)` で全チャンクを 1 本の議事録に統合。
+
+### チャンク結果の永続化 (L9)
+
+- テーブル: `room_chunks` (`room_id`, `chunk_index`, `analysis_type`, `start_ts`, `end_ts`, `result_text`, `status`)
+- 失敗チャンクは `status = 'error'` で保存される。
+- `GET /rooms/:id/chunks` でホストがチャンク一覧を取得できる。
+- `POST /rooms/:id/regenerate-chunk/:index` で失敗チャンクだけを再生成し、議事録全体を再マージして保存する。
+- フロントの「チャンク別再生成」パネル (議事録タブ下部) からホストが操作できる。
+
 ### 実装上の注意
 
 - `hydrateSetupProfile()` は `profile_text` のみを扱う。`#display-name` に触れてはならない。

@@ -108,7 +108,7 @@ function createApp(repositories = {}) {
     const {
         roomRepo, participantRepo, utteranceRepo, analysisRepo, actionRepo,
         userRepo, userContextRepo, dictionaryRepo, aiService,
-        accountRepo, sessionRepo
+        accountRepo, sessionRepo, chunkRepo
     } = repositories;
 
     const auth = createAuth({ participantRepo, roomRepo, accountRepo, sessionRepo });
@@ -262,6 +262,18 @@ function createApp(repositories = {}) {
                             ).then(result => {
                                 completedMinutes++;
                                 broadcastToRoom(roomId, { type: 'chunk_progress', analysis_type: 'minutes', completed: completedMinutes, total: chunks.length });
+                                // [L9] チャンク結果を DB に保存 (失敗チャンクも error ステータスで保存)
+                                if (chunkRepo) {
+                                    chunkRepo.upsert({
+                                        room_id: roomId,
+                                        chunk_index: result.chunkIndex,
+                                        analysis_type: 'minutes',
+                                        start_ts: result.startTs || '',
+                                        end_ts: result.endTs || '',
+                                        result_text: result.result || '',
+                                        status: result.provider === 'error' ? 'error' : 'done'
+                                    }).catch(e => console.warn('[L9] chunk upsert failed:', e.message));
+                                }
                                 return result;
                             })
                         )
@@ -1573,6 +1585,108 @@ function createApp(repositories = {}) {
             }
             console.error(error);
             res.status(500).json({ error: 'Failed to generate shared AI result' });
+        }
+    });
+
+    // [L9] GET /rooms/:id/chunks — ホストがチャンク一覧を取得する。
+    // フロントでの部分再生成 UI 用。
+    app.get('/rooms/:id/chunks', requireHost, async (req, res) => {
+        if (!chunkRepo) return res.status(503).json({ error: 'Chunk storage unavailable' });
+        try {
+            const chunks = await chunkRepo.findByRoom(req.roomId, 'minutes');
+            res.status(200).json({ chunks });
+        } catch (error) {
+            console.error('[L9] GET chunks error:', error);
+            res.status(500).json({ error: 'Failed to load chunks' });
+        }
+    });
+
+    // [L9] POST /rooms/:id/regenerate-chunk/:index — 特定チャンクを再生成する (ホスト限定)。
+    // DB に保存済みのチャンク結果を 1 件だけ差し替えて議事録全体を再合成する。
+    app.post('/rooms/:id/regenerate-chunk/:index', aiLimiter, requireHost, async (req, res) => {
+        if (!chunkRepo || !utteranceRepo || !aiService) {
+            return res.status(503).json({ error: 'AI generation or chunk storage unavailable' });
+        }
+
+        const roomId = req.roomId;
+        const chunkIndex = parseInt(req.params.index, 10);
+        if (isNaN(chunkIndex) || chunkIndex < 0) {
+            return res.status(400).json({ error: 'Invalid chunk index' });
+        }
+
+        try {
+            const room = await roomRepo.findById(roomId);
+            if (!room) return res.status(404).json({ error: 'Room not found' });
+
+            const utterances = await utteranceRepo.findByRoomIdWithParticipants(roomId);
+            if (!shouldChunk(utterances)) {
+                return res.status(409).json({ error: 'この会議はチャンク分割されていません' });
+            }
+
+            const chunks = chunkUtterances(utterances);
+            const targetChunk = chunks[chunkIndex];
+            if (!targetChunk) {
+                return res.status(404).json({ error: `チャンク ${chunkIndex} が見つかりません (合計 ${chunks.length} チャンク)` });
+            }
+
+            const provider = room.ai_provider || 'gemini';
+            const minutesAiConfig = {
+                provider,
+                model: room.ai_model || (provider === 'groq' ? 'openai/gpt-oss-120b' : 'gemini-2.5-flash')
+            };
+            const participants = await enrichParticipantsWithProfiles(participantRepo, userRepo, roomId);
+            const userIds = participants.map((p) => p.user_id).filter(Boolean);
+            const userContexts = userContextRepo ? await userContextRepo.findByUserIds(userIds) : [];
+            const roomMeta = {
+                roomId,
+                date: new Date().toLocaleString('ja-JP'),
+                title: `ルーム ${roomId}`
+            };
+
+            // 対象チャンクを再生成
+            broadcastToRoom(roomId, { type: 'chunk_progress', analysis_type: 'minutes', completed: 0, total: 1 });
+            const newResult = await withTimeoutAndRetry(
+                () => aiService.generateMinutesPerChunk(
+                    targetChunk, chunks.length, roomMeta,
+                    participants, userContexts, minutesAiConfig
+                ),
+                { timeoutMs: 60000, retries: 3 }
+            );
+            broadcastToRoom(roomId, { type: 'chunk_progress', analysis_type: 'minutes', completed: 1, total: 1 });
+
+            // DB のチャンクを更新
+            await chunkRepo.upsert({
+                room_id: roomId,
+                chunk_index: chunkIndex,
+                analysis_type: 'minutes',
+                start_ts: newResult.startTs || targetChunk.startTs || '',
+                end_ts: newResult.endTs || targetChunk.endTs || '',
+                result_text: newResult.result || '',
+                status: 'done'
+            });
+
+            // 全チャンク結果を DB から読み直して再 Merge
+            const allChunks = await chunkRepo.findByRoom(roomId, 'minutes');
+            // DB 行を ai-service が期待する shape に変換
+            const mergeInput = allChunks.map((row) => ({
+                chunkIndex: row.chunk_index,
+                startTs: row.start_ts,
+                endTs: row.end_ts,
+                result: row.result_text,
+                provider: 'regenerated'
+            }));
+            const mergedMinutes = aiService.mergeMinutesChunks(mergeInput, roomMeta);
+
+            const updatedRoom = await roomRepo.updateInsights(roomId, { minutes_text: mergedMinutes });
+
+            return res.status(200).json({
+                chunk_index: chunkIndex,
+                result: mergedMinutes,
+                updated_at: updatedRoom?.minutes_updated_at || null
+            });
+        } catch (error) {
+            console.error('[L9] regenerate-chunk error:', error);
+            res.status(500).json({ error: `チャンク再生成に失敗しました: ${error.message}` });
         }
     });
 

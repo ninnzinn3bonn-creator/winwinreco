@@ -11,6 +11,7 @@ const { UserContextRepository } = require('./repo/user-context-repo');
 const { DictionaryRepo } = require('./repo/dictionary-repo');
 const { UserAccountRepository } = require('./repo/user-account-repo');
 const { SessionRepository } = require('./repo/session-repo');
+const { ChunkRepository } = require('./repo/chunk-repo');
 const { initDB } = require('./repo/db');
 const { AudioProcessor } = require('./services/audio-processor');
 const { STTService } = require('./services/stt-service');
@@ -30,7 +31,8 @@ async function start() {
         userContextRepo: new UserContextRepository(db),
         dictionaryRepo: new DictionaryRepo(db),
         accountRepo: new UserAccountRepository(db),
-        sessionRepo: new SessionRepository(db)
+        sessionRepo: new SessionRepository(db),
+        chunkRepo: new ChunkRepository(db)
     };
 
     try {

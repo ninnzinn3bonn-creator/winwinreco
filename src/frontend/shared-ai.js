@@ -234,6 +234,8 @@
             scheduleInsightsPoll();
             renderMeetingInsights();
             renderMinutesWorkspace();
+            // [L9] 議事録が存在するならチャンクパネルも同期する (ホスト限定)
+            if (state.isHost && data.minutes) loadChunks().catch(() => {});
         } catch (error) {
             clearInsightsPoll();
             state.meetingInsights.status = 'error';
@@ -487,6 +489,8 @@
             dom.minutesOutputEditor.value = resultText;
             dom.minutesWorkspaceStatus.innerText = '議事録を生成しました。必要に応じて内容を整えてください。';
             await loadMeetingInsights({ silent: true });
+            // [L9] チャンク分割されていればパネルを表示する
+            await loadChunks();
             dom.minutesOutputEditor.focus();
             dom.minutesOutputEditor.scrollIntoView({ behavior: 'smooth', block: 'center' });
         } catch (error) {
@@ -606,6 +610,113 @@
         downloadTextFile(`minutes-${state.roomId || 'session'}.txt`, result);
     }
 
+    // [L9] チャンク別再生成 --------------------------------------------------------
+
+    /**
+     * ホスト限定: チャンク一覧を取得してパネルに描画する。
+     * チャンクが 0 件 (= チャンク分割なし) のときはパネルを非表示にする。
+     */
+    async function loadChunks() {
+        const panel = document.getElementById('chunk-regenerate-panel');
+        const listEl = document.getElementById('chunk-list');
+        if (!panel || !listEl || !state.roomId || !state.isHost) return;
+
+        try {
+            const res = await fetch(window.AppMain.withAuthQuery(`/rooms/${state.roomId}/chunks`));
+            if (!res.ok) {
+                panel.classList.add('hidden');
+                return;
+            }
+            const data = await res.json();
+            const chunks = Array.isArray(data.chunks) ? data.chunks : [];
+            if (chunks.length === 0) {
+                panel.classList.add('hidden');
+                return;
+            }
+            panel.classList.remove('hidden');
+            renderChunkList(chunks);
+        } catch (_) {
+            panel.classList.add('hidden');
+        }
+    }
+
+    function renderChunkList(chunks) {
+        const listEl = document.getElementById('chunk-list');
+        if (!listEl) return;
+        listEl.innerHTML = '';
+
+        chunks.forEach((chunk) => {
+            const row = document.createElement('div');
+            row.className = `chunk-row${chunk.status === 'error' ? ' is-error' : ''}`;
+            row.dataset.chunkIndex = chunk.chunk_index;
+
+            const start = chunk.start_ts || '';
+            const end = chunk.end_ts || '';
+            const label = document.createElement('span');
+            label.className = 'chunk-row-label';
+            label.textContent = `チャンク ${chunk.chunk_index + 1}` + (start ? `  (${start}〜${end})` : '');
+
+            const badge = document.createElement('span');
+            badge.className = `chunk-row-status ${chunk.status === 'error' ? 'error' : 'done'}`;
+            badge.textContent = chunk.status === 'error' ? '失敗' : '完了';
+
+            const btn = document.createElement('button');
+            btn.className = 'chunk-regen-btn';
+            btn.textContent = '再生成';
+            btn.addEventListener('click', () => regenerateChunk(chunk.chunk_index, btn));
+
+            row.append(label, badge, btn);
+            listEl.appendChild(row);
+        });
+    }
+
+    /**
+     * 指定 chunkIndex のチャンクを単独で再生成し、議事録全体を更新する。
+     */
+    async function regenerateChunk(chunkIndex, triggerBtn) {
+        if (!state.roomId || !state.isHost) return;
+
+        // ボタン類を無効化
+        const allBtns = document.querySelectorAll('.chunk-regen-btn');
+        allBtns.forEach((b) => { b.disabled = true; });
+        if (triggerBtn) triggerBtn.textContent = '再生成中...';
+
+        dom.minutesWorkspaceStatus.innerHTML = `<span class="spinner inline-spinner"></span> チャンク ${chunkIndex + 1} を再生成中...`;
+
+        try {
+            const res = await fetch(`/rooms/${state.roomId}/regenerate-chunk/${chunkIndex}`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    participant_id: state.participantId,
+                    control_token: state.controlToken
+                })
+            });
+            const data = await readApiResponse(res);
+            if (!res.ok) throw new Error(data.error || '再生成に失敗しました');
+
+            const resultText = String(data.result || '').trim();
+            if (resultText) {
+                state.minutesWorkspace.result = resultText;
+                state.meetingInsights.minutes = resultText;
+                state.minutesWorkspace.updatedAt = data.updated_at || new Date().toISOString();
+                state.editorDirty.minutes = 0;
+                if (dom.minutesOutputEditor) dom.minutesOutputEditor.value = resultText;
+            }
+            dom.minutesWorkspaceStatus.innerText = `チャンク ${chunkIndex + 1} を再生成しました。`;
+
+            // チャンク一覧を更新
+            await loadChunks();
+        } catch (error) {
+            dom.minutesWorkspaceStatus.innerText = `再生成に失敗しました: ${error.message}`;
+            alert(`チャンク ${chunkIndex + 1} の再生成に失敗しました: ${error.message}`);
+        } finally {
+            allBtns.forEach((b) => { b.disabled = false; });
+            if (triggerBtn) triggerBtn.textContent = '再生成';
+            renderMinutesWorkspace();
+        }
+    }
+
     window.AppSharedAi = {
         renderMinutesWorkspace,
         renderMeetingInsights,
@@ -631,6 +742,8 @@
         copyAiWorkspaceResult,
         downloadAiWorkspaceResult,
         copyMinutesResult,
-        downloadMinutesResult
+        downloadMinutesResult,
+        loadChunks,
+        regenerateChunk
     };
 })();
