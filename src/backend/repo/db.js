@@ -170,7 +170,10 @@ async function initDB(dbPath) {
                         // analyses, action extraction etc.) so they survive
                         // page reload and can be replayed in /me/rooms/:id.
                         ensureColumn(db, 'rooms', 'ai_workspace_json', 'TEXT DEFAULT \'\''),
-                        ensureColumn(db, 'rooms', 'ai_workspace_updated_at', 'DATETIME')
+                        ensureColumn(db, 'rooms', 'ai_workspace_updated_at', 'DATETIME'),
+                        // F4: ホストが指定した STT プロバイダー・言語を全参加者に適用するために保存。
+                        ensureColumn(db, 'rooms', 'stt_provider', 'TEXT DEFAULT \'\''),
+                        ensureColumn(db, 'rooms', 'stt_language', 'TEXT DEFAULT \'\'')
                     ])
                         .then(() => new Promise((resolveActions, rejectActions) => {
                             db.run(`CREATE TABLE IF NOT EXISTS actions (

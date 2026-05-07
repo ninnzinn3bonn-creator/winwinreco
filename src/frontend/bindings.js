@@ -64,7 +64,8 @@
             const hasRoomId = !!(roomIdInput && roomIdInput.value.trim());
             const participantMode = isParticipantMode();
             if (participantMode || hasRoomId) {
-                startBtn.textContent = '莨夊ｭｰ縺ｫ蜿ょ刈';
+                // F5: 参加モードではボタンラベルを「会議に参加する」に統一。
+                startBtn.textContent = '会議に参加する';
                 if (startHint) {
                     startHint.textContent = participantMode
                         ? '共有URLから会議に参加します。表示名を入力して開始してください。'
@@ -75,6 +76,10 @@
                 if (startHint) {
                     startHint.textContent = '空欄のままなら新しい会議を作成し、IDを入れると既存会議に参加します。';
                 }
+            }
+            // F5: participant-mode ではルーム ID 入力欄を readonly にして誤編集を防ぐ。
+            if (roomIdInput) {
+                roomIdInput.readOnly = isParticipantMode();
             }
         };
 

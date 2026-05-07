@@ -820,6 +820,30 @@ function createApp(repositories = {}) {
         }
     });
 
+    // --- Password change -------------------------------------------------
+    app.post('/me/password', requireSession, async (req, res) => {
+        try {
+            const { current_password, new_password } = req.body || {};
+            if (!current_password || !new_password) {
+                return res.status(400).json({ error: '現在のパスワードと新しいパスワードを入力してください' });
+            }
+            if (new_password.length < 8) {
+                return res.status(400).json({ error: 'パスワードは8文字以上にしてください' });
+            }
+            if (!accountRepo) return res.status(503).json({ error: 'Unavailable' });
+            const account = await accountRepo.findById(req.account.id);
+            if (!account) return res.status(404).json({ error: 'Account not found' });
+            const ok = await verifyPassword(current_password, account.password_hash);
+            if (!ok) return res.status(400).json({ error: '現在のパスワードが正しくありません' });
+            const newHash = await hashPassword(new_password);
+            await accountRepo.updatePasswordHash(req.account.id, newHash);
+            res.status(200).json({ ok: true });
+        } catch (error) {
+            console.error('[me/password]', error);
+            res.status(500).json({ error: 'Failed to change password' });
+        }
+    });
+
     // --- Account history endpoints ---------------------------------------
     /**
      * Backfill: when a user signs up or logs in for the first time on a
@@ -1018,11 +1042,16 @@ function createApp(repositories = {}) {
                 roomId = generateShortRoomId();
             } while (await roomRepo.findById(roomId));
 
+            // F4: ホストの現在の STT 設定をルームに保存し全参加者へ伝播する。
+            const roomSttProvider = process.env.STT_PROVIDER || 'google';
+            const roomSttLanguage = process.env.STT_LANGUAGE || 'ja';
             await roomRepo.create({
                 id: roomId,
                 owner_id: ownerId,
                 owner_account_id: req.account.id,
-                use_past_meetings: true
+                use_past_meetings: true,
+                stt_provider: roomSttProvider,
+                stt_language: roomSttLanguage
             });
 
             // Keep the legacy `users` row in sync so existing enrichment code
@@ -1907,13 +1936,17 @@ function setupWebSocket(server, repositories = {}, options = {}) {
         const sendReady = async () => {
             if (ws.readySent || ws.readyState !== WebSocket.OPEN) return;
 
-            const history = utteranceRepo
-                ? await utteranceRepo.findByRoomIdWithParticipants(ws.roomId)
-                : [];
+            const [history, room] = await Promise.all([
+                utteranceRepo ? utteranceRepo.findByRoomIdWithParticipants(ws.roomId) : [],
+                roomRepo ? roomRepo.findById(ws.roomId) : null
+            ]);
 
             ws.readySent = true;
             ws.send(JSON.stringify({
                 type: 'ready',
+                // F4: ホストが設定した STT プロバイダーを参加者全員に伝える。
+                room_stt_provider: room?.stt_provider || '',
+                room_stt_language: room?.stt_language || '',
                 history: history.map(h => ({
                     id: h.id,
                     participant_id: h.participant_id,

@@ -3763,6 +3763,23 @@ body.participant-mode .host-only { display: none !important; }
 .profile-form-row textarea { min-height: 140px; resize: vertical; }
 .profile-form-row input[disabled] { opacity: 0.7; cursor: not-allowed; background: var(--color-surface-soft, #f8f9f7); }
 
+/* F3: パスワード変更セクションのセパレーター */
+.profile-section-divider {
+    border: none;
+    border-top: 1px solid var(--color-border, #e5e7e3);
+    margin: var(--space-5) 0 var(--space-4);
+}
+.profile-settings-row {
+    display: flex;
+    align-items: center;
+    gap: var(--space-3);
+    flex-wrap: wrap;
+}
+.profile-settings-status {
+    font-size: var(--font-size-sm, 14px);
+    color: var(--color-accent, #3a9b66);
+}
+
 /* History tab */
 .profile-history-grid {
     display: grid;

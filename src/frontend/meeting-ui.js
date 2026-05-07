@@ -357,6 +357,14 @@
                 window.AppLogUi.renderAllLogs();
                 window.AppLogUi.scrollLogToLatest(dom.timeline);
             } else if (msg.type === 'ready') {
+                // F4: ホスト指定の STT 設定を state に保存し、mic_preset 送信時に使用する。
+                if (msg.room_stt_provider) {
+                    state.roomSttProvider = msg.room_stt_provider;
+                    try { localStorage.setItem('stt_provider', msg.room_stt_provider); } catch (_) { /* ignore */ }
+                }
+                if (msg.room_stt_language) {
+                    state.roomSttLanguage = msg.room_stt_language;
+                }
                 (msg.history || []).forEach((entry) => window.AppLogUi.upsertUtterance(entry));
                 window.AppLogUi.renderAllLogs();
                 window.AppAudio.startRecording({ onAudioChunk: (pcm) => state.ws.send(pcm) });

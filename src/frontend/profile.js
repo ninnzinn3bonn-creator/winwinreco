@@ -258,6 +258,40 @@
         state.profileTextarea.addEventListener('input', scheduleSave);
         state.profileTextarea.addEventListener('blur', persist);
 
+        // ---- Password change section ----
+        const pwCurrent  = el('input', { type: 'password', placeholder: '現在のパスワード', autocomplete: 'current-password' });
+        const pwNew      = el('input', { type: 'password', placeholder: '新しいパスワード (8文字以上)', autocomplete: 'new-password' });
+        const pwConfirm  = el('input', { type: 'password', placeholder: '新しいパスワード (確認)', autocomplete: 'new-password' });
+        const pwStatus   = el('span', { className: 'profile-settings-status' });
+        const pwBtn      = el('button', { className: 'secondary', type: 'button' }, 'パスワードを変更');
+        pwBtn.addEventListener('click', async () => {
+            const cur = pwCurrent.value;
+            const nw  = pwNew.value;
+            const cf  = pwConfirm.value;
+            if (!cur || !nw || !cf) { pwStatus.textContent = '全フィールドを入力してください'; return; }
+            if (nw.length < 8)       { pwStatus.textContent = 'パスワードは8文字以上にしてください'; return; }
+            if (nw !== cf)           { pwStatus.textContent = '新しいパスワードが一致しません'; return; }
+            pwBtn.disabled = true;
+            pwStatus.textContent = '変更中...';
+            try {
+                const res = await fetch('/me/password', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ current_password: cur, new_password: nw }),
+                    credentials: 'include'
+                });
+                const data = await res.json();
+                if (!res.ok) throw new Error(data.error || '変更に失敗しました');
+                pwStatus.textContent = 'パスワードを変更しました';
+                pwCurrent.value = ''; pwNew.value = ''; pwConfirm.value = '';
+                setTimeout(() => { pwStatus.textContent = ''; }, 2000);
+            } catch (err) {
+                pwStatus.textContent = err.message;
+            } finally {
+                pwBtn.disabled = false;
+            }
+        });
+
         return el('div', { className: 'profile-tab-pane profile-pane-edit' }, [
             el('p', { className: 'profile-pane-lead' }, 'アカウント名は本名推奨です。自己紹介はホストとしての要約・TODO の精度向上に使われます。入力を終えるか、フォーカスが外れた時点で自動保存されます。'),
             el('div', { className: 'profile-form-row' }, [
@@ -271,7 +305,13 @@
             el('div', { className: 'profile-form-row' }, [
                 el('label', {}, ['自己紹介・スキル', state.profileTextarea])
             ]),
-            el('div', { className: 'profile-settings-row' }, [status])
+            el('div', { className: 'profile-settings-row' }, [status]),
+            el('hr', { className: 'profile-section-divider' }),
+            el('p', { className: 'profile-pane-lead' }, 'パスワード変更'),
+            el('div', { className: 'profile-form-row' }, [el('label', {}, ['現在のパスワード', pwCurrent])]),
+            el('div', { className: 'profile-form-row' }, [el('label', {}, ['新しいパスワード', pwNew])]),
+            el('div', { className: 'profile-form-row' }, [el('label', {}, ['確認', pwConfirm])]),
+            el('div', { className: 'profile-settings-row' }, [pwBtn, pwStatus])
         ]);
     }
 

@@ -762,6 +762,41 @@ L1〜L4 で議事録 Map-Reduce を実装した続きとして、要約/ToDo/自
 
 ---
 
+## 41. ユーザーフィードバック改善 F1〜F5 (2026-05-07)
+
+### F1 — 生ログ「一番下へ」FAB を常時表示
+- `style.css` の `.jump-fab-wrap` を `position: absolute` → `position: fixed` に変更。
+  スクロール位置に関わらずビューポート下部中央に常時表示される。
+  親 (`#meeting-screen`) が非表示の場合は子も非表示になるため他画面への誤表示はない。
+
+### F2 — 新ログ追加時の自動スクロール抑制 (sticky bottom)
+- `state.js` に `logAtBottom: true` フラグを追加。
+- `bindings.js` の `updateFabState` がスクロール距離を監視し `state.logAtBottom` を更新。
+- `log-ui.js` / `main.js` の `scrollLogToLatest` でユーザーが上スクロール中 (`logAtBottom === false`) は自動スクロールをスキップ。`force: true`（FAB 押下）は無条件スクロール。
+
+### F3 — プロフィール画面からパスワード変更
+- `app.js` に `POST /me/password` エンドポイントを追加。現パスワード検証 → scrypt ハッシュ化 → `updatePasswordHash`。
+- `profile.js` の `renderProfileTab()` にパスワード変更セクション（現パスワード・新パスワード×2・変更ボタン）を追加。
+- `style.css` に `.profile-section-divider` / `.profile-settings-row` / `.profile-settings-status` スタイルを追加。
+
+### F4 — STT プロバイダーをホストが指定し参加者全員に適用
+- `db.js` で `rooms.stt_provider` / `rooms.stt_language` カラムを `ensureColumn` でマイグレーション。
+- `room-repo.js` の `create()` に `stt_provider` / `stt_language` を追加。
+- `app.js` の `POST /rooms` でホストのサーバー STT 設定をルームに保存。
+- `app.js` の `sendReady` で `room_stt_provider` / `room_stt_language` を `ready` メッセージに含める。
+- `state.js` に `roomSttProvider` / `roomSttLanguage` フィールドを追加。
+- `meeting-ui.js` の `ready` ハンドラで受け取った STT 設定を state と localStorage に反映。
+
+### F5 — 共有 URL から入った参加者に「会議に参加する」ボタン表示
+- `bindings.js` の `refreshStartCta()` で文字化けしていたボタンラベル (`莨夊ｭｰ縺ｫ蜿ょ刈`) を `'会議に参加する'` に修正。
+- participant-mode のときルーム ID 入力欄を `readOnly = true` にして誤編集を防止。
+
+### 確認
+- `node --check` で全変更ファイルの構文確認。
+- `npm test -- api-rooms / auth-account / room-repo` — 32 tests 全通過。
+
+---
+
 ## 31. 振り返りを開発ルールとスキルへ反映 (2026-05-05)
 - `README.md` を UTF-8 で書き直し、読む順番・既定設定・開発ルールの入口を整理した。
 - `docs/ARCHITECTURE.md` の文字化けしていた重要ルールを修正し、現在の past meeting toggle の位置と closeout ルールを追記した。

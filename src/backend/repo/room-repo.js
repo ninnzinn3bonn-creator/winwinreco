@@ -5,10 +5,18 @@ class RoomRepository {
 
     async create(room) {
         return new Promise((resolve, reject) => {
-            const { id, owner_id, material_summary, owner_account_id = null, use_past_meetings = true } = room;
+            const {
+                id, owner_id, material_summary,
+                owner_account_id = null,
+                use_past_meetings = true,
+                stt_provider = '',
+                stt_language = ''
+            } = room;
             this.db.run(
-                'INSERT INTO rooms (id, owner_id, material_summary, owner_account_id, use_past_meetings) VALUES (?, ?, ?, ?, ?)',
-                [id, owner_id, material_summary || '', owner_account_id, use_past_meetings ? 1 : 0],
+                `INSERT INTO rooms
+                 (id, owner_id, material_summary, owner_account_id, use_past_meetings, stt_provider, stt_language)
+                 VALUES (?, ?, ?, ?, ?, ?, ?)`,
+                [id, owner_id, material_summary || '', owner_account_id, use_past_meetings ? 1 : 0, stt_provider, stt_language],
                 (err) => {
                     if (err) return reject(err);
                     resolve();
