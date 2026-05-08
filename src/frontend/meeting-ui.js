@@ -341,7 +341,8 @@
         const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
         const params = new URLSearchParams({
             participantId: state.participantId || '',
-            controlToken: state.controlToken || ''
+            controlToken: state.controlToken || '',
+            roomId: state.roomId || ''
         });
         const wsUrl = `${protocol}//${window.location.host}?${params.toString()}`;
         state.ws = new WebSocket(wsUrl);

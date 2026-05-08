@@ -2048,15 +2048,21 @@ function setupWebSocket(server, repositories = {}, options = {}) {
 
         const participantId = url.searchParams.get('participantId');
         const controlToken = url.searchParams.get('controlToken') || url.searchParams.get('control_token');
+        const wsRoomId = url.searchParams.get('roomId') || '';
         if (!participantId || !controlToken) {
             return rejectUpgrade(socket, 401, 'Unauthorized');
         }
 
         let participant = null;
         try {
-            participant = typeof participantRepo?.findByIdAndToken === 'function'
-                ? await participantRepo.findByIdAndToken(participantId, controlToken)
-                : await participantRepo?.findById(participantId);
+            // roomId があれば direct doc get（collectionGroup インデックス不要）
+            if (wsRoomId && typeof participantRepo?.findInRoom === 'function') {
+                participant = await participantRepo.findInRoom(participantId, wsRoomId);
+            } else if (typeof participantRepo?.findByIdAndToken === 'function') {
+                participant = await participantRepo.findByIdAndToken(participantId, controlToken);
+            } else {
+                participant = await participantRepo?.findById(participantId);
+            }
         } catch (_err) {
             return rejectUpgrade(socket, 500, 'Internal Server Error');
         }

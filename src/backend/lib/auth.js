@@ -56,9 +56,14 @@ function createAuth({ participantRepo, roomRepo, sessionRepo, accountRepo } = {}
 
         let participant = null;
         try {
-            participant = typeof participantRepo.findByIdAndToken === 'function'
-                ? await participantRepo.findByIdAndToken(participantId, controlToken)
-                : await participantRepo.findById(participantId);
+            // findInRoom は直接ドキュメント取得なので collectionGroup インデックス不要
+            if (typeof participantRepo.findInRoom === 'function') {
+                participant = await participantRepo.findInRoom(participantId, roomId);
+            } else if (typeof participantRepo.findByIdAndToken === 'function') {
+                participant = await participantRepo.findByIdAndToken(participantId, controlToken);
+            } else {
+                participant = await participantRepo.findById(participantId);
+            }
         } catch (error) {
             return res.status(500).json({ error: 'Authentication lookup failed' });
         }
@@ -102,12 +107,18 @@ function createAuth({ participantRepo, roomRepo, sessionRepo, accountRepo } = {}
      * Validate a WebSocket upgrade. Returns the participant record on success,
      * null on failure (caller should terminate the socket).
      */
-    async function validateWsCredentials(participantId, controlToken) {
+    async function validateWsCredentials(participantId, controlToken, roomId = null) {
         if (!participantRepo || !participantId || !controlToken) return null;
         try {
-            const participant = typeof participantRepo.findByIdAndToken === 'function'
-                ? await participantRepo.findByIdAndToken(participantId, controlToken)
-                : await participantRepo.findById(participantId);
+            let participant = null;
+            if (roomId && typeof participantRepo.findInRoom === 'function') {
+                // roomId がある場合は direct doc get（collectionGroup 不要）
+                participant = await participantRepo.findInRoom(participantId, roomId);
+            } else if (typeof participantRepo.findByIdAndToken === 'function') {
+                participant = await participantRepo.findByIdAndToken(participantId, controlToken);
+            } else {
+                participant = await participantRepo.findById(participantId);
+            }
             if (!participant) return null;
             if (participant.control_token && participant.control_token !== controlToken) {
                 return null;
