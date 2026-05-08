@@ -222,3 +222,19 @@ Use them as follows:
   - after layout, interaction, mobile, modal, scroll, or sticky-header changes
 - `doc-sync-pass`
   - after behavior, defaults, architecture, auth, AI, or setup-flow changes
+
+---
+
+## Mobile meeting layout
+
+On screens ≤ 1023px, `body.meeting-mode` applies the following compaction:
+- `#flow-progress` is hidden (step progress is self-evident during a live meeting)
+- `.app-topbar` is reduced to 36px height (logo + auth-badge only)
+- `#meeting-screen > header` keeps only mic / ⚙ settings / ☰ / end; title input moves into ☰ menu
+- `#meeting-title-input` and `#meeting-title-readonly` are hidden via CSS; the mobile copy is `#mobile-meeting-title-input` inside the drawer
+- `mobileMemoryCollapsed` and `mobileAiCollapsed` are forced `true` in `showMeetingScreen()` so the conversation log is the first visible panel
+- `.conversation-panel` guarantees `min-height: 50dvh` (uses `dvh` for iOS Safari address-bar tracking, `vh` as fallback)
+
+Title sync between the two inputs is handled by `getMeetingTitleInputs()` + `syncMeetingTitleInputs()` in `main.js`, with a focus guard so the active input is never overwritten mid-type.
+
+PC (≥ 1024px) layout is entirely unaffected: all new rules live inside `@media (max-width: 1023px)` or `@media (max-width: 560px)` blocks.

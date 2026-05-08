@@ -7,6 +7,7 @@
         btnJumpLatestFloating: document.getElementById('btn-jump-latest-floating'),
         meetingTitleInput: document.getElementById('meeting-title-input'),
         meetingTitleReadonly: document.getElementById('meeting-title-readonly'),
+        mobileMeetingTitleInput: document.getElementById('mobile-meeting-title-input'),
         summaryLog: document.getElementById('summary-log'),
         roomInfo: document.getElementById('room-info'),
         summaryInfo: document.getElementById('summary-info'),

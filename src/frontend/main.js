@@ -1826,26 +1826,43 @@ async function persistAiWorkspaceNow() {
 // ----- Meeting title (host editable) -----
 let titleSaveTimer = null;
 let titleSaveAbort = null;
+
+function getMeetingTitleInputs() {
+    const primary = (window.AppDom && window.AppDom.meetingTitleInput) || document.getElementById('meeting-title-input');
+    const mobile = (window.AppDom && window.AppDom.mobileMeetingTitleInput) || document.getElementById('mobile-meeting-title-input');
+    return [primary, mobile].filter(Boolean);
+}
+
+function syncMeetingTitleInputs(value, sourceEl) {
+    getMeetingTitleInputs().forEach(el => {
+        if (el !== sourceEl && el !== document.activeElement && el.value !== value) {
+            el.value = value;
+        }
+    });
+}
+
 function setupMeetingTitle() {
-    const input = (window.AppDom && window.AppDom.meetingTitleInput) || document.getElementById('meeting-title-input');
-    if (!input) return;
-    const flush = () => {
-        if (titleSaveTimer) clearTimeout(titleSaveTimer);
-        titleSaveTimer = setTimeout(saveMeetingTitle, 600);
-    };
-    input.addEventListener('input', flush);
-    input.addEventListener('blur', () => {
-        if (titleSaveTimer) clearTimeout(titleSaveTimer);
-        saveMeetingTitle();
+    getMeetingTitleInputs().forEach(input => {
+        const flush = () => {
+            syncMeetingTitleInputs(input.value, input);
+            if (titleSaveTimer) clearTimeout(titleSaveTimer);
+            titleSaveTimer = setTimeout(saveMeetingTitle, 600);
+        };
+        input.addEventListener('input', flush);
+        input.addEventListener('blur', () => {
+            syncMeetingTitleInputs(input.value, input);
+            if (titleSaveTimer) clearTimeout(titleSaveTimer);
+            saveMeetingTitle();
+        });
     });
 }
 
 async function saveMeetingTitle() {
-    const input = (window.AppDom && window.AppDom.meetingTitleInput) || document.getElementById('meeting-title-input');
+    const inputs = getMeetingTitleInputs();
+    const input = inputs[0];
     if (!input || !state.roomId || !state.controlToken) return;
     const title = (input.value || '').trim().slice(0, 200);
-    input.classList.add('is-saving');
-    input.classList.remove('is-saved');
+    inputs.forEach(el => { el.classList.add('is-saving'); el.classList.remove('is-saved'); });
     try {
         if (titleSaveAbort) titleSaveAbort.abort();
         titleSaveAbort = new AbortController();
@@ -1861,12 +1878,11 @@ async function saveMeetingTitle() {
             })
         });
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
-        input.classList.remove('is-saving');
-        input.classList.add('is-saved');
-        setTimeout(() => input.classList.remove('is-saved'), 1500);
+        inputs.forEach(el => { el.classList.remove('is-saving'); el.classList.add('is-saved'); });
+        setTimeout(() => inputs.forEach(el => el.classList.remove('is-saved')), 1500);
     } catch (err) {
         if (err.name === 'AbortError') return;
-        input.classList.remove('is-saving');
+        inputs.forEach(el => el.classList.remove('is-saving'));
         AppDebug.log('warn', 'Title save failed', err.message);
     }
 }
