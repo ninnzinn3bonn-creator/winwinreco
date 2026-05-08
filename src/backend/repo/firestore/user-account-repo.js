@@ -79,6 +79,28 @@ class UserAccountRepository {
             updated_at: serverTs()
         });
     }
+
+    // Easter egg ハイスコア。スキーマ変更不要で user_accounts ドキュメントへ追加保存。
+    async getGameHighScore(id) {
+        if (!id) return 0;
+        const snap = await this.col.doc(id).get();
+        if (!snap.exists) return 0;
+        const d = snap.data() || {};
+        return Number(d.game_high_score || 0);
+    }
+
+    async updateGameHighScore(id, score) {
+        if (!id) return { is_new_high_score: false, high_score: 0, previous: 0 };
+        const docRef = this.col.doc(id);
+        const snap = await docRef.get();
+        const previous = Number((snap.exists && snap.data() && snap.data().game_high_score) || 0);
+        const next = Number(score) || 0;
+        if (next > previous) {
+            await docRef.update({ game_high_score: next, game_updated_at: serverTs() });
+            return { is_new_high_score: true, high_score: next, previous };
+        }
+        return { is_new_high_score: false, high_score: previous, previous };
+    }
 }
 
 module.exports = { UserAccountRepository };

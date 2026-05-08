@@ -134,6 +134,8 @@ async function initDB(dbPath) {
 
                     Promise.all([
                         ensureColumn(db, 'users', 'profile_text', 'TEXT DEFAULT \'\''),
+                        // Easter egg high score (本仕様には影響しない)
+                        ensureColumn(db, 'user_accounts', 'game_high_score', 'INTEGER DEFAULT 0'),
                         ensureColumn(db, 'participants', 'user_id', 'TEXT'),
                         ensureColumn(db, 'participants', 'control_token', 'TEXT'),
                         ensureColumn(db, 'utterances', 'is_starred', 'INTEGER DEFAULT 0'),

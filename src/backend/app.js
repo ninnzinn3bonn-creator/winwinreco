@@ -928,6 +928,36 @@ function createApp(repositories = {}) {
         }
     });
 
+    // --- Easter egg: high score (本仕様に影響しない隠し機能) -----------------
+    app.post('/me/easter-score', requireSession, async (req, res) => {
+        try {
+            const accountId = req.account?.id;
+            const score = Math.max(0, Math.min(99999, Math.floor(Number(req.body?.score) || 0)));
+            if (!accountRepo || typeof accountRepo.updateGameHighScore !== 'function') {
+                return res.status(200).json({ is_new_high_score: false, high_score: 0, previous: 0 });
+            }
+            const result = await accountRepo.updateGameHighScore(accountId, score);
+            res.status(200).json(result);
+        } catch (error) {
+            console.error('[me/easter-score]', error);
+            res.status(500).json({ error: 'Failed to save score' });
+        }
+    });
+
+    app.get('/me/easter-score', requireSession, async (req, res) => {
+        try {
+            const accountId = req.account?.id;
+            if (!accountRepo || typeof accountRepo.getGameHighScore !== 'function') {
+                return res.status(200).json({ high_score: 0 });
+            }
+            const high = await accountRepo.getGameHighScore(accountId);
+            res.status(200).json({ high_score: high });
+        } catch (error) {
+            console.error('[me/easter-score:get]', error);
+            res.status(500).json({ error: 'Failed to load score' });
+        }
+    });
+
     // --- Password change -------------------------------------------------
     app.post('/me/password', requireSession, async (req, res) => {
         try {

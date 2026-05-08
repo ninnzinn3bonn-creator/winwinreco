@@ -4259,3 +4259,238 @@ body.participant-mode .host-only { display: none !important; }
    guests get a read-only display so they still see the title. */
 .meeting-title-input,
 .meetin
+/* ====================================================================
+ * Easter Egg: Red horror theme + mini game (window.AppEasterGame)
+ * Trigger: profile → settings → 表示テーマ → "レッド"
+ * ==================================================================== */
+:root[data-theme="red"] {
+    color-scheme: dark;
+}
+:root[data-theme="red"] body {
+    background: linear-gradient(180deg, #0a0000 0%, #2a0000 50%, #1a0000 100%) !important;
+    color: #ff7a7a !important;
+}
+:root[data-theme="red"] body::before {
+    content: "";
+    position: fixed; inset: 0;
+    pointer-events: none;
+    background:
+        radial-gradient(ellipse at 18% 28%, rgba(255,0,0,0.22), transparent 55%),
+        radial-gradient(ellipse at 82% 72%, rgba(180,0,0,0.28), transparent 55%);
+    z-index: 9998;
+    animation: easter-pulse 5s ease-in-out infinite;
+    mix-blend-mode: screen;
+}
+@keyframes easter-pulse {
+    0%, 100% { opacity: 0.55; }
+    50% { opacity: 1; }
+}
+:root[data-theme="red"] .topbar-title,
+:root[data-theme="red"] h1, :root[data-theme="red"] h2, :root[data-theme="red"] h3 {
+    text-shadow: 0 0 12px rgba(255,0,0,0.6);
+    color: #ff5050 !important;
+}
+:root[data-theme="red"] button.primary,
+:root[data-theme="red"] .primary {
+    background: linear-gradient(180deg, #aa0000, #660000) !important;
+    color: #fff !important;
+    border-color: #ff2020 !important;
+    box-shadow: 0 0 14px rgba(255,0,0,0.5) !important;
+}
+:root[data-theme="red"] .panel,
+:root[data-theme="red"] .card,
+:root[data-theme="red"] .conversation-panel,
+:root[data-theme="red"] .meeting-ai-panel {
+    background: rgba(30,0,0,0.65) !important;
+    border-color: #4a0000 !important;
+}
+:root[data-theme="red"] input,
+:root[data-theme="red"] textarea,
+:root[data-theme="red"] select {
+    background: #1a0000 !important;
+    color: #ff9999 !important;
+    border-color: #800000 !important;
+}
+
+/* ── Game overlay ── */
+body.easter-game-active {
+    overflow: hidden;
+}
+.easter-game-overlay {
+    position: fixed; inset: 0;
+    z-index: 99999;
+    background: radial-gradient(ellipse at center, #2a0000 0%, #000 100%);
+    display: flex; flex-direction: column;
+    color: #ff8080;
+    font-family: 'Times New Roman', 'ヒラギノ明朝 ProN', serif;
+    overflow: hidden;
+    cursor: crosshair;
+    user-select: none;
+    -webkit-user-select: none;
+}
+.easter-game-hud {
+    display: flex;
+    justify-content: space-around;
+    align-items: center;
+    gap: 12px;
+    padding: 10px 16px;
+    background: rgba(0,0,0,0.75);
+    border-bottom: 2px solid #800000;
+    backdrop-filter: blur(2px);
+}
+.easter-game-stat {
+    display: flex; flex-direction: column; align-items: center;
+    min-width: 60px;
+}
+.easter-game-label {
+    font-size: 10px;
+    letter-spacing: 0.2em;
+    color: #cc6666;
+}
+.easter-game-value {
+    font-size: 22px;
+    font-weight: bold;
+    color: #ff3333;
+    text-shadow: 0 0 10px #ff0000;
+}
+.easter-game-quit {
+    background: #500000;
+    color: #fff;
+    border: 1px solid #aa0000;
+    padding: 6px 14px;
+    cursor: pointer;
+    font-family: inherit;
+    border-radius: 4px;
+}
+.easter-game-quit:hover {
+    background: #800000;
+}
+.easter-game-arena {
+    position: relative;
+    flex: 1;
+    overflow: hidden;
+    touch-action: manipulation;
+}
+.easter-game-banner {
+    position: absolute;
+    top: 50%; left: 50%;
+    transform: translate(-50%, -50%);
+    font-size: 32px;
+    color: #ff0000;
+    text-shadow: 0 0 20px #ff0000;
+    letter-spacing: 0.3em;
+    pointer-events: none;
+    transition: opacity 1s ease;
+    z-index: 5;
+}
+.easter-game-banner.fade {
+    opacity: 0;
+}
+.easter-eye {
+    position: absolute;
+    border-radius: 50%;
+    background: radial-gradient(circle at 50% 50%, #fff 8%, #ff0000 18%, #2a0000 55%, #000 100%);
+    box-shadow: 0 0 18px #ff0000, inset 0 0 14px #000;
+    cursor: pointer;
+    animation: easter-eye-pop 0.18s ease-out;
+    will-change: transform, opacity;
+}
+.easter-eye::after {
+    content: "";
+    position: absolute;
+    top: 50%; left: 50%;
+    width: 30%; height: 30%;
+    background: #000;
+    border-radius: 50%;
+    transform: translate(-50%, -50%);
+    animation: easter-eye-blink 1.5s infinite;
+    box-shadow: 0 0 4px rgba(255,0,0,0.4);
+}
+.easter-eye.cursed {
+    background: radial-gradient(circle at 50% 50%, #fff 8%, #cc00ff 18%, #2a0033 55%, #000 100%);
+    box-shadow: 0 0 22px #cc00ff, inset 0 0 14px #000;
+}
+.easter-eye.popped {
+    animation: easter-eye-pop-out 0.15s ease-out forwards;
+}
+@keyframes easter-eye-pop {
+    0% { transform: scale(0); opacity: 0; }
+    100% { transform: scale(1); opacity: 1; }
+}
+@keyframes easter-eye-pop-out {
+    0% { transform: scale(1); opacity: 1; }
+    100% { transform: scale(2); opacity: 0; }
+}
+@keyframes easter-eye-blink {
+    0%, 88%, 100% { transform: translate(-50%, -50%) scaleY(1); }
+    93%, 96% { transform: translate(-50%, -50%) scaleY(0.08); }
+}
+.easter-floating {
+    position: absolute;
+    pointer-events: none;
+    font-weight: bold;
+    font-size: 18px;
+    animation: easter-float-up 0.8s ease-out forwards;
+    text-shadow: 0 0 8px #000;
+    transform: translate(-50%, -50%);
+}
+.easter-floating.hit { color: #ffff66; }
+.easter-floating.curse { color: #ff66ff; }
+@keyframes easter-float-up {
+    0% { transform: translate(-50%, -50%) translateY(0); opacity: 1; }
+    100% { transform: translate(-50%, -50%) translateY(-50px); opacity: 0; }
+}
+body.easter-flash-curse {
+    animation: easter-flash-curse 0.28s;
+}
+@keyframes easter-flash-curse {
+    0%, 100% { filter: none; }
+    50% { filter: hue-rotate(280deg) brightness(1.5) saturate(2); }
+}
+.easter-game-end {
+    position: absolute;
+    inset: 0;
+    background: rgba(0,0,0,0.92);
+    display: flex; flex-direction: column;
+    justify-content: center; align-items: center;
+    text-align: center;
+    z-index: 20;
+    gap: 14px;
+    padding: 20px;
+}
+.easter-game-end.hidden { display: none; }
+.easter-game-end h2 {
+    color: #ff0000;
+    font-size: 56px;
+    text-shadow: 0 0 24px #ff0000, 0 0 40px #ff0000;
+    letter-spacing: 0.4em;
+    margin: 0;
+}
+.easter-game-final-score {
+    font-size: 22px;
+    color: #ff8080;
+}
+.easter-game-final-score span {
+    font-size: 36px; font-weight: bold; color: #ff3030;
+    text-shadow: 0 0 12px #ff0000;
+}
+.easter-game-high-msg {
+    font-size: 16px;
+    color: #ffaaaa;
+    min-height: 20px;
+}
+.easter-game-close {
+    margin-top: 16px;
+    background: #800000;
+    color: #fff;
+    border: 1px solid #ff0000;
+    padding: 10px 28px;
+    cursor: pointer;
+    font-family: inherit;
+    font-size: 16px;
+    border-radius: 4px;
+    box-shadow: 0 0 10px rgba(255,0,0,0.4);
+}
+.easter-game-close:hover {
+    background: #aa0000;
+}

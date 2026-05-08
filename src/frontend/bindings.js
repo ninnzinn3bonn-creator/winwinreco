@@ -85,6 +85,11 @@
 
         if (startBtn) {
             startBtn.addEventListener('click', () => {
+                // Easter egg: red テーマ + ログイン中なら会議の代わりにミニゲーム起動
+                if (window.AppEasterGame && window.AppEasterGame.shouldIntercept && window.AppEasterGame.shouldIntercept()) {
+                    window.AppEasterGame.startGame();
+                    return;
+                }
                 const hasRoomId = !!(roomIdInput && roomIdInput.value.trim());
                 if (isParticipantMode() || hasRoomId) {
                     callHandler('joinRoom');

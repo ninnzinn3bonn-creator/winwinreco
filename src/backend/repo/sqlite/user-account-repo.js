@@ -92,6 +92,40 @@ class UserAccountRepository {
             );
         });
     }
+
+    // Easter egg high score. ローカル開発用 (SQLite). 列が無い環境では黙って 0 を返す。
+    async getGameHighScore(id) {
+        if (!id) return 0;
+        return new Promise((resolve) => {
+            this.db.get(
+                'SELECT game_high_score FROM user_accounts WHERE id = ?',
+                [id],
+                (err, row) => {
+                    if (err || !row) return resolve(0);
+                    resolve(Number(row.game_high_score || 0));
+                }
+            );
+        });
+    }
+
+    async updateGameHighScore(id, score) {
+        if (!id) return { is_new_high_score: false, high_score: 0, previous: 0 };
+        const previous = await this.getGameHighScore(id);
+        const next = Number(score) || 0;
+        if (next > previous) {
+            return new Promise((resolve) => {
+                this.db.run(
+                    'UPDATE user_accounts SET game_high_score = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?',
+                    [next, id],
+                    (err) => {
+                        if (err) return resolve({ is_new_high_score: false, high_score: previous, previous });
+                        resolve({ is_new_high_score: true, high_score: next, previous });
+                    }
+                );
+            });
+        }
+        return { is_new_high_score: false, high_score: previous, previous };
+    }
 }
 
 module.exports = { UserAccountRepository };

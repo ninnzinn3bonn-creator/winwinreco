@@ -102,7 +102,7 @@
             const theme = s.theme || 'system';
             document.documentElement.setAttribute('data-theme', theme);
             // ネイティブ UI (スクロールバー・フォーム) もテーマに追従させる。
-            if (theme === 'dark') {
+            if (theme === 'dark' || theme === 'red') {
                 document.documentElement.style.colorScheme = 'dark';
             } else if (theme === 'light') {
                 document.documentElement.style.colorScheme = 'light';
@@ -547,11 +547,17 @@
     function renderSettingsTab() {
         const settings = loadSettings();
 
-        const themeSelect = el('select', {}, [
+        // ログイン済みユーザーのみ "レッド" テーマ (= イースターエッグ) を選択可能。
+        // 既存の動作には影響しない。レッド選択時の見た目変化は CSS だけで完結する。
+        const themeOptions = [
             el('option', { value: 'system' }, 'システム設定に合わせる'),
             el('option', { value: 'light' }, 'ライト'),
             el('option', { value: 'dark' }, 'ダーク')
-        ]);
+        ];
+        if (window.AppAuth?.state?.account) {
+            themeOptions.push(el('option', { value: 'red' }, 'レッド'));
+        }
+        const themeSelect = el('select', {}, themeOptions);
         themeSelect.value = settings.theme;
 
         const aiSelect = el('select', {}, [
