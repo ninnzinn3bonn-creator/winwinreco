@@ -53,6 +53,13 @@ class ParticipantRepository {
         return this._toDomain(snap.docs[0].data());
     }
 
+    // room_id が分かっている場合はこちらを使う（collectionGroup インデックス不要）
+    async findInRoom(id, roomId) {
+        const doc = await this._roomCol(roomId).doc(id).get();
+        if (!doc.exists) return undefined;
+        return this._toDomain(doc.data());
+    }
+
     async findByIdAndToken(id, controlToken) {
         const snap = await this.db.collectionGroup('participants')
             .where('id', '==', id)

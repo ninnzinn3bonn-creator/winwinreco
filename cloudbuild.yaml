@@ -31,7 +31,7 @@ steps:
       - '--max-instances=2'
       - '--concurrency=80'
       - '--memory=512Mi'
-      - '--set-env-vars=DB_DRIVER=firestore,GOOGLE_CLOUD_PROJECT=$PROJECT_ID,AI_PROVIDER=gemini,STT_PROVIDER=google,STT_LANGUAGE=ja,COOKIE_SECURE=true,PORT=8080,WS_ALLOWED_ORIGINS=https://winwinreco-cg57pktjvq-an.a.run.app,OWNER_EMAIL=ninnzinn.3bonn@gmail.com'
+      - '--set-env-vars=DB_DRIVER=firestore,GOOGLE_CLOUD_PROJECT=$PROJECT_ID,AI_PROVIDER=gemini,STT_PROVIDER=google,STT_LANGUAGE=ja,COOKIE_SECURE=true,WS_ALLOWED_ORIGINS=https://winwinreco-227823039350.asia-northeast1.run.app,OWNER_EMAIL=ninnzinn.3bonn@gmail.com'
       - '--set-secrets=GEMINI_API_KEY=gemini-api-key:latest,GOOGLE_API_KEY=google-api-key:latest,GROQ_API_KEY=groq-api-key:latest,ELEVENLABS_API_KEY=elevenlabs-api-key:latest'
 
 images:

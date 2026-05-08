@@ -1224,7 +1224,10 @@ function createApp(repositories = {}) {
                 user_account_id: accountId
             });
 
-            const joinedParticipant = await participantRepo.findById(participantId);
+            // findInRoom は direct doc get なので collectionGroup インデックス不要
+            const joinedParticipant = await (participantRepo.findInRoom
+                ? participantRepo.findInRoom(participantId, roomId)
+                : participantRepo.findById(participantId));
             // is_host: trust the account link when present (strongest signal),
             // fall back to the legacy owner_id match for anonymous hosts.
             const isHost = (!!accountId && room.owner_account_id === accountId)

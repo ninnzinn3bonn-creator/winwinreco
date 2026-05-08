@@ -30,6 +30,20 @@ class UtteranceRepository {
         };
     }
 
+    // Firestore フィールドのサブセットをドメイン形式に変換（updateMemory の返り値用）
+    _fieldsToPartialDomain(fields) {
+        const result = {};
+        if ('is_starred' in fields) result.is_starred = !!fields.is_starred ? 1 : 0;
+        if ('starred_at' in fields) result.starred_at = fromTimestamp(fields.starred_at);
+        if ('memory_note' in fields) result.memory_note = fields.memory_note;
+        if ('memo_text' in fields) result.memo_text = fields.memo_text;
+        if ('memo_updated_at' in fields) result.memo_updated_at = fromTimestamp(fields.memo_updated_at);
+        if ('transcript' in fields) result.transcript = fields.transcript;
+        if ('transcript_source' in fields) result.transcript_source = fields.transcript_source;
+        if ('corrected_at' in fields) result.corrected_at = fromTimestamp(fields.corrected_at);
+        return result;
+    }
+
     _enrichWithParticipants(utterances, participants) {
         const pMap = new Map(participants.map((p) => [p.id, p]));
         return utterances.map((u) => {
@@ -183,13 +197,9 @@ class UtteranceRepository {
 
         if (Object.keys(fields).length === 0) return this._toDomain(existing);
 
-        const snap = await this.db.collectionGroup('utterances')
-            .where('id', '==', id)
-            .limit(1)
-            .get();
-        if (snap.empty) return undefined;
-        await snap.docs[0].ref.update(fields);
-        return this.findById(id);
+        // room_id は findById の結果に含まれているので direct doc ref で更新（collectionGroup 不要）
+        await this._roomCol(existing.room_id).doc(id).update(fields);
+        return { ...this._toDomain(existing), ...this._fieldsToPartialDomain(fields) };
     }
 
     async mergeTranscript(id, nextTranscript, endedAt = new Date().toISOString()) {
@@ -199,18 +209,15 @@ class UtteranceRepository {
         const mergedTranscript = [existing.transcript, nextTranscript].filter(Boolean).join(' ').trim();
         const mergedRaw = [existing.raw_transcript || existing.transcript, nextTranscript].filter(Boolean).join(' ').trim();
 
-        const snap = await this.db.collectionGroup('utterances')
-            .where('id', '==', id)
-            .limit(1)
-            .get();
-        if (snap.empty) return null;
-        await snap.docs[0].ref.update({
+        // room_id は findById の結果に含まれているので direct doc ref で更新（collectionGroup 不要）
+        const updateFields = {
             transcript: mergedTranscript,
             raw_transcript: mergedRaw,
             ended_at: toTimestamp(endedAt),
             transcript_source: 'stt'
-        });
-        return this.findById(id);
+        };
+        await this._roomCol(existing.room_id).doc(id).update(updateFields);
+        return { ...this._toDomain(existing), transcript: mergedTranscript, raw_transcript: mergedRaw };
     }
 }
 
