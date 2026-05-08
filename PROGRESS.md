@@ -838,6 +838,31 @@ L1〜L4 で議事録 Map-Reduce を実装した続きとして、要約/ToDo/自
 
 ---
 
+## 44. ElevenLabs 仮カード即時表示・2秒コミット・FAB/パレット修正 (2026-05-08)
+
+### ElevenLabs provisional card (即時表示)
+
+- `stt-service.js`: `createElevenLabsStream` に `onPartial` コールバックを追加。`partial_transcript` メッセージ受信時に `onPartial(msg.text)` を呼ぶ。`createStream()` の第 4 引数として `onPartial` を受け取り ElevenLabs パスへ伝播。
+- `app.js`: `broadcastInterim(text)` 関数を追加。`type: 'transcript_interim'` の WS メッセージを同一ルームの全クライアントへブロードキャスト。`startSTTStream()` 内の `createStream` 第 4 引数として渡す。沈黙コミットタイマーを 4000ms → 2000ms に短縮。
+- `state.js`: `provisionalCards: {}` を初期ステートに追加。
+- `log-ui.js`: `createProvisionalElement(provisional)` / `showProvisional(msg)` / `clearProvisional(participantId)` を追加。`showProvisional` は既存カードがあれば `.text` の内容だけを差し替え (全再描画なし)、なければ新規作成してタイムラインに追記。`renderConversationList` 末尾で provisional カードを追加表示。`window.AppLogUi` にエクスポート。
+- `meeting-ui.js`: WS `onmessage` で `transcript_interim` を受け取ったら `showProvisional(msg)` を呼ぶ。確定 `transcript` を受け取ったら先に `clearProvisional(participant_id)` を呼んでから `upsertUtterance` / `renderAllLogs`。
+- `style.css`: `.utterance.provisional` に `opacity: 0.55; border-left: 3px solid accent-soft; font-style: italic` スタイルを追加。
+
+### 「最新へ」FAB 表示修正
+
+- `style.css`: `.jump-latest-fab.is-at-bottom` を `opacity: 0.55` (常時薄表示) から `opacity: 0; visibility: hidden; pointer-events: none; transform: translate(-50%, 15px)` (完全非表示) に変更。手動スクロールで上に移動したときだけボタンが現れるようになった。
+
+### ジャンプパレット items タッチ不能バグ修正
+
+- 根本原因: `#app` が `backdrop-filter: blur(18px)` を持つため独立したスタッキングコンテキスト (z-index: auto = 0) を形成する。スクリムを `document.body` に追加すると z-index 1000 がルートコンテキストで適用され、`#app` 全体を覆ってパレット items のタップを横取りしていた。
+- `main.js` `setupJumpPalette()`: スクリムの挿入先を `document.body` → `document.getElementById('app')` に変更。これで `#app` の同一スタッキングコンテキスト内に入り、wrap (z-index 1000) がスクリム (z-index 999) より上に来る。
+- `style.css`: `.jump-palette-scrim { z-index: 999 }` (旧 1000)。wrap と同一コンテキスト内で wrap より常に下。
+- `main.js` `openJumpPalette()` / `closeJumpPalette()`: `jumpPaletteState.wrap` に `.palette-open` クラスを付け外しして z-index 1002 を確実に適用 (`:has()` 非対応ブラウザへの fallback)。
+- `style.css`: `.jump-fab-wrap.palette-open { z-index: 1002 }` を `:has()` ルールと並列追加。
+
+---
+
 ## 31. 振り返りを開発ルールとスキルへ反映 (2026-05-05)
 - `README.md` を UTF-8 で書き直し、読む順番・既定設定・開発ルールの入口を整理した。
 - `docs/ARCHITECTURE.md` の文字化けしていた重要ルールを修正し、現在の past meeting toggle の位置と closeout ルールを追記した。

@@ -1377,13 +1377,12 @@ section > header,
     pointer-events: none;
 }
 
-/* Dimmed (but still tappable) when the user is already at the bottom of
-   the log — the button is always present but doesn't shout for attention. */
+/* Hidden when at the bottom — appears only when the user manually scrolls up. */
 .jump-latest-fab.is-at-bottom {
-    opacity: 0.55;
-}
-.jump-latest-fab.is-at-bottom:hover {
-    opacity: 1;
+    opacity: 0;
+    visibility: hidden;
+    pointer-events: none;
+    transform: translate(-50%, 15px);
 }
 
 .jump-latest-fab:hover {
@@ -1428,7 +1427,7 @@ section > header,
     height: 0;
     --r: 130px;
     pointer-events: none;
-    z-index: 1001; /* above the scrim (z-index 1000) */
+    z-index: 1001; /* above the scrim (z-index 999) within #app stacking context */
 }
 
 .jump-palette-item {
@@ -1527,14 +1526,17 @@ section > header,
    to dismiss. We deliberately drop the backdrop-filter blur (it created a
    mosaic / "frosted" effect that made the rest of the screen feel locked
    even though it wasn't meant to be), and use a near-transparent overlay
-   instead so the scrim is invisible but still catches taps. The palette
-   items live at z-index 1001, above the scrim's 1000, so they remain
-   touchable. */
+   instead so the scrim is invisible but still catches taps. The scrim lives
+   at z-index 999 and the wrap at 1000+ so palette items always remain
+   touchable (both are inside #app's stacking context). */
 .jump-palette-scrim {
     position: fixed;
     inset: 0;
     background: rgba(0, 0, 0, 0.04);
-    z-index: 1000;
+    /* 999 so it stays below the wrap (1000) which always paints above it
+       since both live in the same #app stacking context after the scrim
+       was moved from body into #app. */
+    z-index: 999;
     opacity: 0;
     transition: opacity var(--dur-base) var(--ease);
     pointer-events: none;
@@ -1544,9 +1546,10 @@ section > header,
     pointer-events: auto;
 }
 
-/* When the palette is open, hoist the wrap to the same root stacking
-   context so items aren't trapped beneath the scrim. */
-.jump-fab-wrap:has(.jump-palette.is-open) {
+/* When the palette is open, hoist the wrap above the scrim.
+   JS also adds .palette-open as a belt-and-suspenders fallback. */
+.jump-fab-wrap:has(.jump-palette.is-open),
+.jump-fab-wrap.palette-open {
     z-index: 1002;
 }
 

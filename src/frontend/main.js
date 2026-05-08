@@ -2497,6 +2497,7 @@ function openJumpPalette() {
     jumpPaletteState.palette.setAttribute('aria-hidden', 'false');
     if (jumpPaletteState.scrim) jumpPaletteState.scrim.classList.add('is-visible');
     if (jumpPaletteState.fab) jumpPaletteState.fab.setAttribute('aria-expanded', 'true');
+    if (jumpPaletteState.wrap) jumpPaletteState.wrap.classList.add('palette-open');
     vibrateSafe(10);
 }
 
@@ -2507,6 +2508,7 @@ function closeJumpPalette() {
     jumpPaletteState.palette.setAttribute('aria-hidden', 'true');
     if (jumpPaletteState.scrim) jumpPaletteState.scrim.classList.remove('is-visible');
     if (jumpPaletteState.fab) jumpPaletteState.fab.setAttribute('aria-expanded', 'false');
+    if (jumpPaletteState.wrap) jumpPaletteState.wrap.classList.remove('palette-open');
 }
 
 function clearLongPressTimer() {
@@ -2524,15 +2526,22 @@ function setupJumpPalette() {
     if (!fab || !palette) return;
 
     // Insert a full-screen scrim that captures taps to close the palette.
+    // IMPORTANT: append inside #app, not body. #app has backdrop-filter which
+    // creates a stacking context (z-index: auto). Appending the scrim to body
+    // would place it at z-index 999 in the ROOT context, above #app's entire
+    // stacking context and swallowing all taps on palette items inside #app.
     let scrim = document.querySelector('.jump-palette-scrim');
     if (!scrim) {
         scrim = document.createElement('div');
         scrim.className = 'jump-palette-scrim';
         scrim.setAttribute('aria-hidden', 'true');
-        document.body.appendChild(scrim);
+        (document.getElementById('app') || document.body).appendChild(scrim);
     }
 
+    const wrap = fab.closest('.jump-fab-wrap');
+
     jumpPaletteState.fab = fab;
+    jumpPaletteState.wrap = wrap;
     jumpPaletteState.palette = palette;
     jumpPaletteState.scrim = scrim;
     jumpPaletteState.items = Array.from(palette.querySelectorAll('.jump-palette-item'));
