@@ -164,10 +164,17 @@
                 let distance;
                 const containerScrolls = (container.scrollHeight - container.clientHeight) > 8;
                 if (containerScrolls) {
+                    // Timeline has internal scroll (desktop/large screen)
                     distance = container.scrollHeight - container.scrollTop - container.clientHeight;
                 } else {
-                    const rect = container.getBoundingClientRect();
-                    distance = rect.bottom - window.innerHeight;
+                    // Timeline has overflow:visible — the whole PAGE scrolls.
+                    // Check window scroll distance from the bottom of the document.
+                    const pageScrollable = document.documentElement.scrollHeight - window.innerHeight > 8;
+                    if (pageScrollable) {
+                        distance = document.documentElement.scrollHeight - window.scrollY - window.innerHeight;
+                    } else {
+                        distance = 0; // No page scroll possible → treat as at-bottom
+                    }
                 }
                 const atBottom = distance < 80;
                 dom.btnJumpLatestFloating.classList.toggle('is-at-bottom', atBottom);

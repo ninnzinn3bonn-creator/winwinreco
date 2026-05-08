@@ -1377,12 +1377,14 @@ section > header,
     pointer-events: none;
 }
 
-/* Hidden when at the bottom — appears only when the user manually scrolls up. */
+/* Very subtle when at the bottom; pops to full opacity when user scrolls up. */
 .jump-latest-fab.is-at-bottom {
-    opacity: 0;
-    visibility: hidden;
-    pointer-events: none;
-    transform: translate(-50%, 15px);
+    opacity: 0.22;
+    transform: translate(-50%, 6px);
+}
+.jump-latest-fab.is-at-bottom:hover {
+    opacity: 0.55;
+    transform: translate(-50%, 0);
 }
 
 .jump-latest-fab:hover {
