@@ -826,6 +826,18 @@ L1〜L4 で議事録 Map-Reduce を実装した続きとして、要約/ToDo/自
 
 ---
 
+## 43. モバイル会議中レイアウト圧縮 (2026-05-08)
+
+- モバイル (≤1023px) で会議画面のログ領域が画面の 25% 以下になっていた問題を修正。
+- `body.meeting-mode` 時に `flow-progress` を非表示、`app-topbar` を 36px に圧縮。
+- `meeting-screen header` を 1 行に収め、タイトル入力を `☰` メニュー内の `#mobile-meeting-title-input` に移動 (PC ヘッダーは従来通り)。
+- `conversation-panel` に `min-height: 50dvh` を保証 (iOS Safari のアドレスバー伸縮に追従)。
+- `@media (max-width: 560px)` で `meeting-ai-panel` / `memory-panel` の余白・フッターを圧縮。
+- `getMeetingTitleInputs()` / `syncMeetingTitleInputs()` で主・モバイル両入力を focus-guard 付きで同期。
+- `dom.js` に `mobileMeetingTitleInput` を追加。
+
+---
+
 ## 31. 振り返りを開発ルールとスキルへ反映 (2026-05-05)
 - `README.md` を UTF-8 で書き直し、読む順番・既定設定・開発ルールの入口を整理した。
 - `docs/ARCHITECTURE.md` の文字化けしていた重要ルールを修正し、現在の past meeting toggle の位置と closeout ルールを追記した。

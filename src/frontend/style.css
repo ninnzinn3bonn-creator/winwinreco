@@ -2624,6 +2624,75 @@ body.summary-mode.summary-sidebar-collapsed .review-main,
     body.summary-mode.summary-ai-controls-collapsed #panel-ai {
         width: 100%;
     }
+
+    /* === Phase 2: meeting-mode topbar / header compaction === */
+
+    body.meeting-mode #flow-progress {
+        display: none;
+    }
+
+    body.meeting-mode .app-topbar {
+        padding: var(--space-2) var(--space-3);
+        min-height: 36px;
+    }
+    body.meeting-mode .topbar-title {
+        font-size: var(--font-size-sm);
+    }
+    body.meeting-mode .topbar-subtitle {
+        display: none;
+    }
+    body.meeting-mode .topbar-logo {
+        width: 24px;
+        height: 24px;
+    }
+
+    body.meeting-mode #meeting-screen > header {
+        padding: var(--space-2) var(--space-3);
+        gap: var(--space-2);
+        flex-wrap: nowrap;
+    }
+    body.meeting-mode #meeting-title-input,
+    body.meeting-mode #meeting-title-readonly {
+        display: none;
+    }
+    body.meeting-mode .header-actions {
+        width: auto;
+        gap: 6px;
+        flex-wrap: nowrap;
+        justify-content: flex-end;
+    }
+    body.meeting-mode .header-actions > button {
+        padding: 6px 10px;
+        font-size: var(--font-size-sm);
+        min-height: 36px;
+    }
+    body.meeting-mode #meeting-screen > header .status {
+        gap: 6px;
+        font-size: var(--font-size-sm);
+        min-width: 0;
+    }
+    body.meeting-mode #meeting-screen > header #room-info {
+        max-width: 90px;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+    body.meeting-mode #meeting-screen > header .icon-btn {
+        padding: 4px 8px;
+        min-height: 30px;
+    }
+
+    /* === Phase 3: conversation-panel minimum visible height === */
+
+    body.meeting-mode .conversation-panel {
+        min-height: 50vh;
+        min-height: 50dvh;
+        padding: var(--space-3);
+    }
+    body.meeting-mode #timeline {
+        min-height: 40vh;
+        min-height: 40dvh;
+    }
 }
 
 .mic-check-steps {
@@ -4133,6 +4202,29 @@ body.participant-mode .host-only { display: none !important; }
 
     .insight-panel {
         padding: var(--space-4);
+    }
+
+    /* === Phase 3: meeting-mode small-screen padding/footer compaction === */
+
+    body.meeting-mode .memory-panel,
+    body.meeting-mode .meeting-ai-panel {
+        padding: var(--space-3);
+    }
+    body.meeting-mode .meeting-ai-editor {
+        min-height: 80px;
+    }
+    body.meeting-mode .meeting-ai-panel .panel-header h2 {
+        font-size: var(--font-size-base);
+    }
+    body.meeting-mode #meeting-footer {
+        padding: var(--space-2) var(--space-3) max(var(--space-2), env(safe-area-inset-bottom));
+    }
+    body.meeting-mode #meeting-footer .footer-actions button {
+        padding: 6px 12px;
+        font-size: var(--font-size-sm);
+    }
+    body.meeting-mode #self-info {
+        font-size: var(--font-size-xs);
     }
 }
 
