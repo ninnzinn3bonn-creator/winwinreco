@@ -266,6 +266,64 @@ class AIService {
         }));
     }
 
+    /**
+     * 高精度 STT (ElevenLabs Scribe) かどうかを判定。
+     * 高精度 STT の場合は議事録生成時に「内容を変更せず体裁を整える」プロンプトを使う。
+     */
+    _isHighAccuracyStt(roomMeta = {}) {
+        const provider = String(roomMeta.stt_provider || '').toLowerCase();
+        return provider === 'elevenlabs';
+    }
+
+    /**
+     * 議事録生成時の編集ルール（[ALLOWED EDITS] / [FORBIDDEN EDITS]）を STT プロバイダー別に返す。
+     * - 高精度 STT (ElevenLabs): 文字起こしをほぼそのままに、体裁整形のみ。
+     * - 通常 STT (Google 等): 誤認識修正・言い直し整形を含む従来プロンプト。
+     */
+    _buildMinutesEditingRules(roomMeta = {}) {
+        if (this._isHighAccuracyStt(roomMeta)) {
+            return {
+                systemNote: '文字起こしは高精度STTで生成済みのため、内容には基本的に手を加えません。読みやすい議事録の体裁を整えることに集中してください。',
+                allowed: [
+                    '[ALLOWED EDITS]',
+                    '- 同一話者の連続発話を1つの段落にまとめる（語順・語尾は保つ）',
+                    '- 「えー」「あー」「えっと」など意味のないフィラーの削除',
+                    '- 重複した相槌・無関係な雑音の削除',
+                    '- 句読点と改行の補正（読みやすさのみ）',
+                    '- 段落間の空行を入れる'
+                ].join('\n'),
+                forbidden: [
+                    '[FORBIDDEN EDITS]',
+                    '- 文字の置き換え・誤認識修正（高精度STTなので勝手に直さない）',
+                    '- 内容の要約・抽象化・パラフレーズ・箇条書き化',
+                    '- トピック・セクション・見出しによる分類',
+                    '- 話していない結論や行動項目の補足',
+                    '- 発言順の並び替え',
+                    '- 敬語/口調の変更'
+                ].join('\n')
+            };
+        }
+        return {
+            systemNote: '',
+            allowed: [
+                '[ALLOWED EDITS]',
+                '- 明らかな誤認識（音声→文字の取り違え）の修正',
+                '- 「えー」「あー」「えっと」など意味のないフィラーの削除',
+                '- 重複した相槌・無関係な雑音の削除',
+                '- 同一話者の連続発話を1段落にまとめる（語順・語尾は保つ）',
+                '- 句読点と改行の補正'
+            ].join('\n'),
+            forbidden: [
+                '[FORBIDDEN EDITS]',
+                '- 内容の要約・抽象化・パラフレーズ・箇条書き化',
+                '- トピック・セクション・見出しによる分類',
+                '- 話していない結論や行動項目の補足',
+                '- 発言順の並び替え',
+                '- 敬語/口調の変更'
+            ].join('\n')
+        };
+    }
+
     toMinuteMessages(utterances = []) {
         const merged = [];
         utterances.forEach((utterance) => {
@@ -452,28 +510,58 @@ class AIService {
 
         if (type === 'minutes') {
             const messages = this.toMinuteMessages(utterances);
-            const prompt = [
-                jp('あなたは研究室ゼミの議事録作成を支援するアシスタントです。'),
-                jp('以下の生ログを基に、そのまま議事録として配れる一歩手前の、読みやすい日本語の議事録を作成してください。'),
-                '',
-                jp('# 目的'),
-                jp('- 短く分断された生ログを、同じ話者の連続発話ごとに自然なまとまりへ統合する'),
-                jp('- 明らかな誤字や言い直しは、文脈上自然な表現へ整える'),
-                jp('- ただし、内容の捏造はしない'),
-                '',
-                jp('# 出力ルール'),
-                jp('- 日本語で出力する'),
-                jp('- 話者ごとにまとまった段落で並べる'),
-                jp('- 各段落は `- 話者名: 内容` の形式で始める'),
-                jp('- 時系列順を守る'),
-                jp('- 会議の議事録として、そのまま軽く手直しすれば使える読みやすさにする'),
-                jp('- 不明慮な固有名詞は、推測しすぎず自然な範囲で補正する'),
-                jp('- 箇条書きだけを返し、前置きや説明は書かない'),
-                '',
-                this.buildUserContextBlock(participants, userContexts),
-                jp('# 生ログ'),
-                JSON.stringify({ messages }, null, 2)
-            ].join('\n');
+            // aiConfig.stt_provider に基づきプロンプトを差し替える。
+            // 高精度STT (ElevenLabs) の場合は誤字修正をやめ、体裁整形のみに絞る。
+            const isHighAccuracy = this._isHighAccuracyStt({ stt_provider: aiConfig.stt_provider });
+            let prompt;
+            if (isHighAccuracy) {
+                prompt = [
+                    jp('あなたは研究室ゼミの議事録の体裁整形を支援するアシスタントです。'),
+                    jp('入力された文字起こしは高精度STT (ElevenLabs Scribe) で生成済みなので、内容には基本的に手を加えません。'),
+                    jp('読みやすい議事録の見た目を作ることに集中してください。'),
+                    '',
+                    jp('# 目的'),
+                    jp('- 短く分断された生ログを、同じ話者の連続発話ごとに自然な段落へ統合する'),
+                    jp('- 「えー」「あー」「えっと」など意味のないフィラーや、重複する相槌を削除する'),
+                    jp('- 句読点・改行を補正して読みやすくする'),
+                    jp('- ただし、文字起こしの内容そのものは変更しない（誤認識として勝手に直さない）'),
+                    '',
+                    jp('# 出力ルール'),
+                    jp('- 日本語で出力する'),
+                    jp('- 話者ごとにまとまった段落で並べる'),
+                    jp('- 各段落は `- 話者名: 内容` の形式で始める'),
+                    jp('- 時系列順を守る'),
+                    jp('- 文字の置き換え・要約・パラフレーズ・抽象化は行わない'),
+                    jp('- 箇条書きだけを返し、前置きや説明は書かない'),
+                    '',
+                    this.buildUserContextBlock(participants, userContexts),
+                    jp('# 生ログ (高精度STT済)'),
+                    JSON.stringify({ messages }, null, 2)
+                ].join('\n');
+            } else {
+                prompt = [
+                    jp('あなたは研究室ゼミの議事録作成を支援するアシスタントです。'),
+                    jp('以下の生ログを基に、そのまま議事録として配れる一歩手前の、読みやすい日本語の議事録を作成してください。'),
+                    '',
+                    jp('# 目的'),
+                    jp('- 短く分断された生ログを、同じ話者の連続発話ごとに自然なまとまりへ統合する'),
+                    jp('- 明らかな誤字や言い直しは、文脈上自然な表現へ整える'),
+                    jp('- ただし、内容の捏造はしない'),
+                    '',
+                    jp('# 出力ルール'),
+                    jp('- 日本語で出力する'),
+                    jp('- 話者ごとにまとまった段落で並べる'),
+                    jp('- 各段落は `- 話者名: 内容` の形式で始める'),
+                    jp('- 時系列順を守る'),
+                    jp('- 会議の議事録として、そのまま軽く手直しすれば使える読みやすさにする'),
+                    jp('- 不明慮な固有名詞は、推測しすぎず自然な範囲で補正する'),
+                    jp('- 箇条書きだけを返し、前置きや説明は書かない'),
+                    '',
+                    this.buildUserContextBlock(participants, userContexts),
+                    jp('# 生ログ'),
+                    JSON.stringify({ messages }, null, 2)
+                ].join('\n');
+            }
 
             const resultText = await provider.generate(prompt);
             return {
@@ -529,14 +617,26 @@ class AIService {
         }
 
         const provider = this.getProvider(aiConfig);
+        const isHighAccuracy = this._isHighAccuracyStt(roomMeta);
 
-        // Layer B: First pass - Reconstruct sentences to solve fragments and pronouns
-        const reconstructed = await this.reconstructSentences(utterances, participants, userContexts, aiConfig);
-        const transcript = reconstructed
-            .map((message) => `${message.speaker}: ${message.text}`)
-            .join('\n');
+        // 高精度 STT (ElevenLabs) の場合は文字起こしを変更せず体裁のみ整える方針。
+        // そのため reconstructSentences (誤変換修正等を含むクレンジング) はスキップし、
+        // raw 文字起こしを直接プロンプトへ渡す。
+        let transcript;
+        if (isHighAccuracy) {
+            transcript = this.toMinuteMessages(utterances)
+                .map((message) => `${message.speaker}: ${message.text}`)
+                .join('\n');
+        } else {
+            // Layer B: First pass - Reconstruct sentences to solve fragments and pronouns
+            const reconstructed = await this.reconstructSentences(utterances, participants, userContexts, aiConfig);
+            transcript = reconstructed
+                .map((message) => `${message.speaker}: ${message.text}`)
+                .join('\n');
+        }
 
         const participantNames = participants.map((participant) => participant.display_name).filter(Boolean).join('、') || '不明';
+        const editingRules = this._buildMinutesEditingRules(roomMeta);
 
         // Minutes are intentionally generated from THIS meeting only — past
         // meeting context is dropped so the output never leaks/imports
@@ -547,25 +647,16 @@ class AIService {
             'あなたは「忠実な発言録作成」を担当するAIです。',
             'これは要約ではありません。会話の流れを時系列のまま、話し手の口調・語彙・言い回しをできる限り残してください。',
             'トピックやセクションで分類・整理せず、発言順に並べた「発言録」を出力してください。',
+            editingRules.systemNote,
             '',
             '[CONTEXT]',
             '以下はこの会議の文字起こしログです。',
             transcript || '(ログなし)',
             '',
             this.buildUserContextBlock(participants, userContexts),
-            '[ALLOWED EDITS]',
-            '- 明らかな誤認識（音声→文字の取り違え）の修正',
-            '- 「えー」「あー」「えっと」など意味のないフィラーの削除',
-            '- 重複した相槌・無関係な雑音の削除',
-            '- 同一話者の連続発話を1段落にまとめる（語順・語尾は保つ）',
-            '- 句読点と改行の補正',
+            editingRules.allowed,
             '',
-            '[FORBIDDEN EDITS]',
-            '- 内容の要約・抽象化・パラフレーズ・箇条書き化',
-            '- トピック・セクション・見出しによる分類',
-            '- 話していない結論や行動項目の補足',
-            '- 発言順の並び替え',
-            '- 敬語/口調の変更',
+            editingRules.forbidden,
             '',
             '[FORMAT]',
             `日時: ${roomMeta.date || '不明'}`,
@@ -1025,6 +1116,8 @@ class AIService {
         const participantNames = participants.map((p) => p.display_name).filter(Boolean).join('、') || '不明';
         const chunkLabel = `${chunk.index + 1}/${totalChunks} (${chunk.startTs}〜${chunk.endTs})`;
 
+        const editingRules = this._buildMinutesEditingRules(roomMeta);
+
         const promptLines = [
             `[CHUNK INFO] ${chunkLabel}`,
             '',
@@ -1032,6 +1125,7 @@ class AIService {
             'あなたは「忠実な発言録作成」を担当するAIです。',
             'これは要約ではありません。会話の流れを時系列のまま、話し手の口調・語彙・言い回しをできる限り残してください。',
             'トピックやセクションで分類・整理せず、発言順に並べた「発言録」を出力してください。',
+            editingRules.systemNote,
             '',
         ];
 
@@ -1048,19 +1142,9 @@ class AIService {
             '[OUTPUT TARGET - ここから先のみを発言録として出力してください]',
             targetTranscript || '(ログなし)',
             '',
-            '[ALLOWED EDITS]',
-            '- 明らかな誤認識（音声→文字の取り違え）の修正',
-            '- 「えー」「あー」「えっと」など意味のないフィラーの削除',
-            '- 重複した相槌・無関係な雑音の削除',
-            '- 同一話者の連続発話を1段落にまとめる（語順・語尾は保つ）',
-            '- 句読点と改行の補正',
+            editingRules.allowed,
             '',
-            '[FORBIDDEN EDITS]',
-            '- 内容の要約・抽象化・パラフレーズ・箇条書き化',
-            '- トピック・セクション・見出しによる分類',
-            '- 話していない結論や行動項目の補足',
-            '- 発言順の並び替え',
-            '- 敬語/口調の変更',
+            editingRules.forbidden,
             '',
             '[FORMAT]',
             `参加者: ${participantNames}`,

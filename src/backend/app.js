@@ -233,7 +233,8 @@ function createApp(repositories = {}) {
             const roomMeta = {
                 roomId,
                 date: new Date().toLocaleString('ja-JP'),
-                title: `ルーム ${roomId}`
+                title: `ルーム ${roomId}`,
+                stt_provider: room.stt_provider || 'google'
             };
 
             let minutesText;
@@ -1773,7 +1774,8 @@ function createApp(repositories = {}) {
             const roomMeta = {
                 roomId,
                 date: new Date().toLocaleString('ja-JP'),
-                title: `ルーム ${roomId}`
+                title: `ルーム ${roomId}`,
+                stt_provider: room.stt_provider || 'google'
             };
 
             // 対象チャンクを再生成
@@ -1975,9 +1977,10 @@ function createApp(repositories = {}) {
             const provider = room.ai_provider || reqAiConfig?.provider || 'gemini';
             const aiConfig = {
                 provider,
-                model: room.ai_model || reqAiConfig?.model || (provider === 'groq' ? 'openai/gpt-oss-120b' : 'gemini-2.5-flash')
+                model: room.ai_model || reqAiConfig?.model || (provider === 'groq' ? 'openai/gpt-oss-120b' : 'gemini-2.5-flash'),
+                stt_provider: room.stt_provider || 'google'
             };
-            
+
             // Fetch utterances for context (all or only new ones)
             let utterances;
             if (last_timestamp) {
