@@ -2075,6 +2075,13 @@ function setupWebSocket(server, repositories = {}, options = {}) {
         wss.handleUpgrade(req, socket, head, (ws) => {
             ws._preVerifiedParticipant = participant;
             ws._preVerifiedParticipantId = participantId;
+            // upgrade 時点で wss.rooms に即登録することで、
+            // hello メッセージ待ち中に terminated が来てもゲストへ届くようにする
+            const earlyRoomId = participant.room_id || wsRoomId;
+            if (earlyRoomId) {
+                if (!wss.rooms.has(earlyRoomId)) wss.rooms.set(earlyRoomId, new Set());
+                wss.rooms.get(earlyRoomId).add(ws);
+            }
             wss.emit('connection', ws, req);
         });
     });

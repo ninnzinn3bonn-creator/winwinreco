@@ -258,6 +258,9 @@
         dom.meetingScreen.classList.add('active');
         window.AppMain.setFlowProgressStep('meeting');
         dom.roomInfo.innerText = `ルーム: ${state.roomId}`;
+        // 終了ボタンはホストのみ表示
+        const endBtn = document.getElementById('btn-end');
+        if (endBtn) endBtn.hidden = !state.isHost;
         window.AppAudio.syncMuteUi();
         state.mobileMenuOpen = false;
         state.mobileMemoryCollapsed = true;
