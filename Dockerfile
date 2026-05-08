@@ -11,8 +11,10 @@ WORKDIR /app
 # パッケージ定義ファイルをコピー
 COPY package*.json ./
 
-# 本番環境用の依存関係のみをクリーンインストール
-RUN npm ci --only=production
+# 本番環境用の依存関係のみをインストール
+# npm ci は dev/optional 依存の lock ファイル整合性チェックで失敗するケースがあるため
+# npm install --omit=dev に変更 (re2 → node-gyp → tinyglobby の picomatch 競合を回避)
+RUN npm install --omit=dev
 
 # アプリケーションのソースコードをコピー
 COPY . .
