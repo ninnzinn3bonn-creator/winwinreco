@@ -1420,7 +1420,9 @@ function createApp(repositories = {}) {
     app.patch('/rooms/:roomId/logs/:utteranceId', requireParticipant, async (req, res) => {
         try {
             const { roomId, utteranceId } = req.params;
-            const existing = await utteranceRepo.findById(utteranceId);
+            const existing = utteranceRepo.findInRoom
+                ? await utteranceRepo.findInRoom(utteranceId, roomId)
+                : await utteranceRepo.findById(utteranceId);
 
             if (!existing || existing.room_id !== roomId) {
                 return res.status(404).json({ error: 'Log not found' });
@@ -1442,7 +1444,7 @@ function createApp(repositories = {}) {
                 memo_text: sanitizedMemo,
                 transcript: sanitizedTranscript,
                 transcript_source: req.body.transcript_source
-            });
+            }, roomId);
 
             if (typeof req.body.transcript === 'string' && roomRepo) {
                 await roomRepo.updateInsights(roomId, { insights_dirty: true });
@@ -1461,7 +1463,9 @@ function createApp(repositories = {}) {
     app.post('/rooms/:roomId/logs/:utteranceId/correct', aiLimiter, requireParticipant, async (req, res) => {
         try {
             const { roomId, utteranceId } = req.params;
-            const existing = await utteranceRepo.findById(utteranceId);
+            const existing = utteranceRepo.findInRoom
+                ? await utteranceRepo.findInRoom(utteranceId, roomId)
+                : await utteranceRepo.findById(utteranceId);
 
             if (!existing || existing.room_id !== roomId) {
                 return res.status(404).json({ error: 'Log not found' });
@@ -1487,7 +1491,7 @@ function createApp(repositories = {}) {
             const updated = await utteranceRepo.updateMemory(utteranceId, {
                 transcript: correction.corrected,
                 transcript_source: 'ai'
-            });
+            }, roomId);
 
             const logs = await utteranceRepo.findByRoomIdWithParticipants(roomId);
             const enriched = logs.find((log) => log.id === utteranceId) || updated;
@@ -2231,7 +2235,7 @@ function setupWebSocket(server, repositories = {}, options = {}) {
                     && !((latest.memo_text || latest.memory_note || '').trim());
 
                 if (canMerge) {
-                    utterance = await utteranceRepo.mergeTranscript(latest.id, transcript, nowIso);
+                    utterance = await utteranceRepo.mergeTranscript(latest.id, transcript, nowIso, ws.roomId);
                 } else {
                     await utteranceRepo.add(utterance);
                 }

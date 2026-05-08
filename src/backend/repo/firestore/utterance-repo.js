@@ -108,6 +108,13 @@ class UtteranceRepository {
         return this._toDomain(snap.docs[0].data());
     }
 
+    // room_id が分かっている場合はこちらを使う（collectionGroup インデックス不要）
+    async findInRoom(id, roomId) {
+        const doc = await this._roomCol(roomId).doc(id).get();
+        if (!doc.exists) return undefined;
+        return this._toDomain(doc.data());
+    }
+
     async findByRoomId(room_id) {
         const snap = await this._roomCol(room_id)
             .orderBy('started_at', 'asc')
@@ -167,8 +174,8 @@ class UtteranceRepository {
         return this._enrichWithParticipants(utterances, participants);
     }
 
-    async updateMemory(id, updates = {}) {
-        const existing = await this.findById(id);
+    async updateMemory(id, updates = {}, roomId = null) {
+        const existing = roomId ? await this.findInRoom(id, roomId) : await this.findById(id);
         if (!existing) return undefined;
 
         const fields = {};
@@ -202,8 +209,8 @@ class UtteranceRepository {
         return { ...this._toDomain(existing), ...this._fieldsToPartialDomain(fields) };
     }
 
-    async mergeTranscript(id, nextTranscript, endedAt = new Date().toISOString()) {
-        const existing = await this.findById(id);
+    async mergeTranscript(id, nextTranscript, endedAt = new Date().toISOString(), roomId = null) {
+        const existing = roomId ? await this.findInRoom(id, roomId) : await this.findById(id);
         if (!existing) return null;
 
         const mergedTranscript = [existing.transcript, nextTranscript].filter(Boolean).join(' ').trim();
