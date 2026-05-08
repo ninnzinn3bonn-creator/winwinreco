@@ -150,7 +150,7 @@
 **背景**: Phase 0〜3 (環境整備 / DataStore 抽象化 / Firestore Repository 実装 / allowlist + admin UI) 完了。
 残作業は手動 GCP 操作が中心。`docs/CLOUD_DB_MIGRATION_PLAN.md` に詳細手順あり。
 
-### [DB-Phase4] Firestore Security Rules デプロイ
+### [DB-Phase4] Firestore Security Rules デプロイ (手動 1 コマンド)
 **優先度**: high (本番公開前に必須)
 **対象ファイル**: `firestore.rules`, GCP Console
 **現状の挙動**: `firestore.rules` は既に「全 deny」で確定済みだがまだデプロイ未実施。
@@ -179,13 +179,8 @@
 ---
 
 ### [DB-Phase6] 仕上げドキュメント整備
-**優先度**: low (稼働後)
-**対象ファイル**: `docs/ARCHITECTURE.md`, `PROGRESS.md`, `docs/BACKUP_PLAYBOOK.md`
-**実装ステップ**:
-1. `docs/ARCHITECTURE.md` に `Persistence Layer` セクション追加 (プラン §S6-1)。
-2. `docs/BACKUP_PLAYBOOK.md` 新規作成 (月次手動バックアップ手順)。
-3. Cloud Billing で Budget Alert ($5/$10/$20) を設定。
-**完了条件**: README → ARCHITECTURE → BACKUP_PLAYBOOK の順に読めば運用情報が揃う。
+**✅ 完了 (2026-05-08)** — PROGRESS.md §47 を参照。
+残作業: Cloud Billing で Budget Alert ($5/$10/$20) を手動設定。
 
 ---
 

@@ -193,6 +193,49 @@ summary / todo を並列生成してから `mergeSummaryChunks()` / `mergeTodoCh
 - `applyParticipantModeFromUrl()` は localStorage のみを参照して `#display-name` を補完する。
 - `showSetupScreenActive()` は表示のたびに `hydrateSetupProfile()` を呼び `profile_text` を更新する。
 
+## Persistence Layer
+
+DB ドライバーは `DB_DRIVER` 環境変数で切り替える。
+
+| 値 | 説明 | 用途 |
+|---|---|---|
+| `sqlite` (既定) | `db/meeting.db` へのローカルファイル | ローカル開発 |
+| `firestore` | firebase-admin 経由の Cloud Firestore | 本番 (Cloud Run) |
+
+両ドライバーは `src/backend/repo/{sqlite,firestore}/*-repo.js` に同一インターフェースで実装されている。
+ファクトリは `src/backend/repo/index.js` にあり、適切なセットを返す。
+
+### コレクション設計 (Firestore)
+
+| コレクション | 説明 |
+|---|---|
+| `rooms/{roomId}` | ルーム本体 |
+| `rooms/{roomId}/participants` | 参加者 (サブコレクション) |
+| `rooms/{roomId}/utterances` | 発話 (サブコレクション) |
+| `rooms/{roomId}/analyses` | AI 解析結果 (サブコレクション) |
+| `rooms/{roomId}/actions` | アクションアイテム (サブコレクション) |
+| `rooms/{roomId}/chunks` | チャンク中間結果 (サブコレクション, L9) |
+| `users/{userId}` | 端末ローカルユーザー |
+| `user_context/{userId}` | ユーザーコンテキスト (project_summary 等) |
+| `user_accounts/{accountId}` | ホストログインアカウント |
+| `sessions/{sessionId}` | cookie session (sha256 token_hash 保存) |
+| `dictionary/{termId}` | グローバル辞書 |
+| `host_allowlist/{emailLowercased}` | サインアップ allowlist (Phase 3) |
+
+### ドライバー切替ルール
+
+- SQLite モード: `repos._raw.close()` が必要 (シャットダウン時)。
+- Firestore モード: `_raw` は存在しない。`FIRESTORE_EMULATOR_HOST` 環境変数でエミュレーターへ接続。
+- テスト: `NODE_ENV=test` で allowlist チェック・レート制限が自動 OFF。
+
+### ホストアカウント管理
+
+- `OWNER_EMAIL` 環境変数でオーナーを特定。allowlist 不要で常にサインアップ可能。
+- `SIGNUP_ALLOWLIST_DISABLED=false` を明示するとテスト時でも allowlist が有効になる。
+- `/admin/hosts` (GET/POST/PATCH/DELETE) でオーナーが他のホストを管理。`requireOwner` ミドルウェアで保護。
+
+---
+
 ## Current technical debt
 
 - `src/frontend/main.js` still contains orchestration that can be split further.

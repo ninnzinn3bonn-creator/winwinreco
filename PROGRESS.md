@@ -938,3 +938,31 @@ L1〜L4 で議事録 Map-Reduce を実装した続きとして、要約/ToDo/自
 ### テスト結果
 
 - `npm test`: 18 スイート 81 テスト グリーン ✅
+
+---
+
+## 47. Firestore 移行 Phase 5〜6: cloudbuild.yaml + ドキュメント整備 (2026-05-08)
+
+### Phase 5 (コード部分): Cloud Run 設定
+
+- `cloudbuild.yaml` のデプロイステップに以下を追加:
+  - `--min-instances=0 --max-instances=2 --concurrency=80 --memory=512Mi`
+  - `--set-env-vars=DB_DRIVER=firestore,GOOGLE_CLOUD_PROJECT=$PROJECT_ID,...`
+  - `--set-secrets=GEMINI_API_KEY=gemini-api-key:latest,...`
+  - ★要書き換えプレースホルダー: `OWNER_EMAIL` / `WS_ALLOWED_ORIGINS`
+
+### Phase 6: ドキュメント整備
+
+- `docs/ARCHITECTURE.md` — Persistence Layer セクション追加:
+  - DB_DRIVER 切替ルール、Firestore コレクション設計一覧
+  - ホストアカウント管理 (OWNER_EMAIL / allowlist / requireOwner) の説明
+- `docs/BACKUP_PLAYBOOK.md` — 月次手動バックアップ手順:
+  - `gcloud firestore export` コマンド、保持期間 3 ヶ月、復旧手順
+  - Budget Alert 設定手順、関連コマンドチートシート
+- `.env.example` — Phase 0 で作成済み (変更なし)
+
+### 残る手動 GCP 作業 (Phase 4・Phase 5 実行フェーズ)
+
+1. **Phase 4 (Security Rules デプロイ)**: `firebase deploy --only firestore:rules,firestore:indexes`
+2. **Phase 5 (Cloud Run)**: Secret Manager にシークレット登録 → `cloudbuild.yaml` のプレースホルダーを実値に書き換えてコミット → 初回デプロイ後に URL 取得して `WS_ALLOWED_ORIGINS` を更新
+3. オーナーアカウントの初回サインアップ (`<URL>/auth/signup`)
