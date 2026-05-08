@@ -85,7 +85,7 @@ class STTService {
     //   - 接続後は初期化メッセージ不要。すぐに input_audio_chunk を送る
     //   - リアルタイム専用モデル: scribe_v2_realtime (バッチの scribe_v2 とは別)
     // -----------------------------------------------------------------------
-    createElevenLabsStream(onData, onError) {
+    createElevenLabsStream(onData, onError, onPartial) {
         if (!this.elevenLabsApiKey) {
             const err = new Error('ELEVENLABS_API_KEY is not set.');
             onError(err);
@@ -143,6 +143,7 @@ class STTService {
                 case 'partial_transcript':
                     if (msg.text) {
                         console.log('[ElevenLabs STT] partial:', msg.text);
+                        if (onPartial) onPartial(msg.text);
                     }
                     break;
 
@@ -247,10 +248,10 @@ class STTService {
         return String(data?.text || '').trim();
     }
 
-    createStream(onData, onError, options = {}) {
+    createStream(onData, onError, options = {}, onPartial) {
         // ElevenLabs: WebSocket リアルタイムストリームを返す
         if (this.provider === 'elevenlabs') {
-            return this.createElevenLabsStream(onData, onError);
+            return this.createElevenLabsStream(onData, onError, onPartial);
         }
 
         // Google: ネイティブストリーミング

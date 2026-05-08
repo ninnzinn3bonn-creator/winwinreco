@@ -348,6 +348,50 @@
         textEl.addEventListener('blur', () => commit(), { once: true });
     }
 
+    function createProvisionalElement(provisional) {
+        const article = document.createElement('article');
+        article.className = `utterance provisional${provisional.participant_id === state.participantId ? ' self' : ''}`;
+        article.dataset.provisionalParticipant = provisional.participant_id;
+        article.innerHTML = `
+            <div class="utterance-meta">
+                <div>
+                    <div class="speaker-name">${escapeHtml(provisional.display_name || '')}</div>
+                </div>
+                <div class="timestamp">認識中…</div>
+            </div>
+            <div class="text">${escapeHtml(provisional.text)}</div>
+        `;
+        return article;
+    }
+
+    function showProvisional(msg) {
+        const participantId = msg.participant_id;
+        const text = msg.text || '';
+        const displayName = msg.display_name || '';
+        state.provisionalCards[participantId] = { participant_id: participantId, display_name: displayName, text };
+
+        const containers = [dom.timeline].filter(Boolean);
+        containers.forEach((container) => {
+            const existing = container.querySelector(`[data-provisional-participant="${participantId}"]`);
+            if (existing) {
+                const textEl = existing.querySelector('.text');
+                if (textEl && textEl.textContent !== text) textEl.textContent = text;
+            } else {
+                container.appendChild(createProvisionalElement(state.provisionalCards[participantId]));
+                scrollLogToLatest(container);
+            }
+        });
+    }
+
+    function clearProvisional(participantId) {
+        delete state.provisionalCards[participantId];
+        const containers = [dom.timeline].filter(Boolean);
+        containers.forEach((container) => {
+            const existing = container.querySelector(`[data-provisional-participant="${participantId}"]`);
+            if (existing) existing.remove();
+        });
+    }
+
     function renderConversationList(container, includeSystemMessages) {
         if (!container) return;
         const previousScrollTop = container.scrollTop;
@@ -355,20 +399,26 @@
         const items = getVisibleItems().filter((item) => includeSystemMessages || item.type === 'utterance');
         container.innerHTML = '';
 
-        if (items.length === 0) {
+        if (items.length === 0 && Object.keys(state.provisionalCards).length === 0) {
             container.innerHTML = '<span class="placeholder-text">該当するログはありません。</span>';
-            return;
+        } else if (items.length === 0) {
+            // provisional cards only — render them below
+        } else {
+            items.forEach((item) => {
+                if (item.type === 'system') {
+                    const system = document.createElement('div');
+                    system.className = 'system-message';
+                    system.innerText = item.text;
+                    container.appendChild(system);
+                    return;
+                }
+                container.appendChild(createUtteranceElement(item.data));
+            });
         }
 
-        items.forEach((item) => {
-            if (item.type === 'system') {
-                const system = document.createElement('div');
-                system.className = 'system-message';
-                system.innerText = item.text;
-                container.appendChild(system);
-                return;
-            }
-            container.appendChild(createUtteranceElement(item.data));
+        // provisional cards always at the bottom
+        Object.values(state.provisionalCards).forEach((p) => {
+            container.appendChild(createProvisionalElement(p));
         });
 
         if (state.isWorkingOnLog) {
@@ -460,6 +510,8 @@
     window.AppLogUi = {
         normalizeUtterance,
         upsertUtterance,
+        showProvisional,
+        clearProvisional,
         getVisibleItems,
         getVisibleUtteranceCount,
         getAllUtterances,

@@ -1690,6 +1690,16 @@ section > header,
     border-left: 4px solid var(--star);
 }
 
+.utterance.provisional {
+    opacity: 0.55;
+    border-left: 3px solid var(--color-accent-soft, #a8d5be);
+    background: var(--color-glass-soft);
+}
+.utterance.provisional .text {
+    font-style: italic;
+    color: var(--muted);
+}
+
 .speaker-name {
     font-weight: 800;
 }

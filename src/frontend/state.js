@@ -34,6 +34,7 @@ window.AppState = {
         summarySidebarCollapsed: false,
         summaryAiControlsCollapsed: false,
         activityItems: [],
+        provisionalCards: {},
         aiProvider: 'groq',
         aiModel: 'openai/gpt-oss-120b',
         usePastMeetings: true,

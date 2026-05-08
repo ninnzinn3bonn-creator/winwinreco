@@ -2078,6 +2078,24 @@ function setupWebSocket(server, repositories = {}, options = {}) {
             }));
         };
 
+        const broadcastInterim = (text) => {
+            const interimMsg = JSON.stringify({
+                type: 'transcript_interim',
+                participant_id: participantId,
+                display_name: ws.participant?.display_name || '',
+                text,
+                ts: Date.now()
+            });
+            const roomClients = wss.rooms.get(ws.roomId);
+            if (roomClients) {
+                for (const client of roomClients) {
+                    if (client.readyState === WebSocket.OPEN) {
+                        client.send(interimMsg);
+                    }
+                }
+            }
+        };
+
         const persistAndBroadcastTranscript = async (transcript) => {
             const nowIso = new Date().toISOString();
             let utterance = {
@@ -2167,6 +2185,9 @@ function setupWebSocket(server, repositories = {}, options = {}) {
                         }
                         return cfg;
                     })()
+                },
+                (partialText) => {
+                    try { broadcastInterim(partialText); } catch (_) { /* ignore */ }
                 }
             );
 
@@ -2222,9 +2243,7 @@ function setupWebSocket(server, repositories = {}, options = {}) {
                             }
                         }
 
-                        // 無音タイマーをリセット。4 秒間音声が来なければ commit を送る。
-                        // ElevenLabs は commit 後に WS を閉じるため、タイマーを長めに取って
-                        // 再接続頻度を抑える（思考ポーズ程度では切れないようにする）。
+                        // 無音タイマーをリセット。2 秒間音声が来なければ commit を送る。
                         if (ws.elevenLabsSilenceTimer) {
                             clearTimeout(ws.elevenLabsSilenceTimer);
                         }
@@ -2233,7 +2252,7 @@ function setupWebSocket(server, repositories = {}, options = {}) {
                             if (sttStream && typeof sttStream.commit === 'function') {
                                 sttStream.commit();
                             }
-                        }, 4000);
+                        }, 2000);
 
                         return;
                     }

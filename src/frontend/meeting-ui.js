@@ -352,7 +352,10 @@
         };
         state.ws.onmessage = (event) => {
             const msg = JSON.parse(event.data);
-            if (msg.type === 'transcript') {
+            if (msg.type === 'transcript_interim') {
+                window.AppLogUi.showProvisional(msg);
+            } else if (msg.type === 'transcript') {
+                window.AppLogUi.clearProvisional(msg.participant_id);
                 window.AppLogUi.upsertUtterance(msg);
                 window.AppLogUi.renderAllLogs();
                 window.AppLogUi.scrollLogToLatest(dom.timeline);
