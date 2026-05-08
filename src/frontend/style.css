@@ -1328,13 +1328,19 @@ section > header,
    absolutely around it using CSS custom property --ang per item. */
 .jump-fab-wrap {
     /* F1: fixed にすることでスクロール位置に関わらず常時表示される。
-       親が display:none のときは子も消えるので meeting-mode 以外では見えない。 */
+       親が display:none のときは子も消えるので meeting-mode 以外では見えない。
+       width/height を実寸 (320×200px) にする理由: iOS Safari は親の bounding box
+       (旧: 0×0) 外の overflow 子要素へタッチイベントを送らない既知の挙動がある。
+       FAB は wrap の下端中央、パレット items は上方向 ~130px のアーク状に配置され
+       るため、320×200 があればすべての items が親の bounding box 内に収まる。 */
     position: fixed;
     bottom: 24px;
     left: 50%;
     transform: translateX(-50%);
-    width: 0;
-    height: 0;
+    /* 330×200: 左方向最大 (180°) = 130+32=162px, 右方向最大 (325°) ≈ 138px
+       → 中心が wrap 幅の半分 (165px) ≥ 162 なのですべての items が内側に収まる */
+    width: 330px;
+    height: 200px;
     z-index: 1000;
     pointer-events: none;
 }
@@ -1556,7 +1562,12 @@ section > header,
 }
 
 @media (max-width: 560px) {
-    .jump-fab-wrap { bottom: max(20px, env(safe-area-inset-bottom)); }
+    .jump-fab-wrap {
+        bottom: max(20px, env(safe-area-inset-bottom));
+        /* r=110px, item 60px (half=30px): 左方向最大 140px → width ≥ 280px */
+        width: 280px;
+        height: 170px;
+    }
     .jump-palette { --r: 110px; }
     .jump-palette-item { width: 60px; height: 60px; }
 }
