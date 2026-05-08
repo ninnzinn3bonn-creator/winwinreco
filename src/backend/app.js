@@ -108,11 +108,19 @@ function createApp(repositories = {}) {
     const {
         roomRepo, participantRepo, utteranceRepo, analysisRepo, actionRepo,
         userRepo, userContextRepo, dictionaryRepo, aiService,
-        accountRepo, sessionRepo, chunkRepo
+        accountRepo, sessionRepo, chunkRepo, hostAllowlistRepo
     } = repositories;
 
     const auth = createAuth({ participantRepo, roomRepo, accountRepo, sessionRepo });
-    const { requireParticipant, requireHost, requireSession, attachSessionIfPresent } = auth;
+    const { requireParticipant, requireHost, requireSession, requireOwner, attachSessionIfPresent } = auth;
+
+    // allowlist チェックをスキップする条件:
+    //   - SIGNUP_ALLOWLIST_DISABLED=true が明示されている
+    //   - NODE_ENV=test かつ SIGNUP_ALLOWLIST_DISABLED=false と明示されていない
+    // テストで allowlist 有効にしたい場合は SIGNUP_ALLOWLIST_DISABLED=false を明示する。
+    const SIGNUP_ALLOWLIST_DISABLED =
+        process.env.SIGNUP_ALLOWLIST_DISABLED === 'true' ||
+        (process.env.NODE_ENV === 'test' && process.env.SIGNUP_ALLOWLIST_DISABLED !== 'false');
 
     // Rate limiters — tune per concern:
     //   general:  covers all /rooms/* + /api/*
@@ -701,6 +709,19 @@ function createApp(repositories = {}) {
             const parsed = validateSignupInput(req.body || {});
             if (parsed.error) return res.status(400).json({ error: parsed.error });
 
+            // --- allowlist gate (Phase 3a) ---
+            if (!SIGNUP_ALLOWLIST_DISABLED) {
+                const ownerEmail = (process.env.OWNER_EMAIL || '').toLowerCase();
+                if (parsed.email !== ownerEmail) {
+                    const entry = hostAllowlistRepo
+                        ? await hostAllowlistRepo.findByEmail(parsed.email)
+                        : null;
+                    if (!entry || entry.disabled) {
+                        return res.status(403).json({ error: 'signup not allowed for this email' });
+                    }
+                }
+            }
+
             const existing = await accountRepo.findByEmail(parsed.email);
             if (existing) {
                 // Same generic shape as a signup with a bad password so
@@ -789,6 +810,81 @@ function createApp(repositories = {}) {
         } catch (error) {
             console.error('[auth/me]', error);
             res.status(500).json({ error: 'Failed to load session' });
+        }
+    });
+
+    // --- Admin: host allowlist management (Phase 3b) ---
+    // All routes require owner-level session. /admin HTML is served statically.
+
+    app.get('/admin', (req, res) => {
+        const path = require('path');
+        res.sendFile(path.join(__dirname, '../frontend/admin.html'));
+    });
+
+    app.get('/admin/hosts', requireOwner, async (req, res) => {
+        try {
+            const hosts = hostAllowlistRepo ? await hostAllowlistRepo.list() : [];
+            res.json({ hosts });
+        } catch (error) {
+            console.error('[admin/hosts:get]', error);
+            res.status(500).json({ error: 'Failed to list hosts' });
+        }
+    });
+
+    app.post('/admin/hosts', requireOwner, async (req, res) => {
+        try {
+            const { email, display_name, note } = req.body || {};
+            if (!email || !display_name) {
+                return res.status(400).json({ error: 'email and display_name required' });
+            }
+            const ownerEmail = (process.env.OWNER_EMAIL || '').toLowerCase();
+            if (email.toLowerCase() === ownerEmail) {
+                return res.status(400).json({ error: 'cannot add owner to allowlist' });
+            }
+            if (hostAllowlistRepo) {
+                await hostAllowlistRepo.add({
+                    email,
+                    display_name,
+                    note: note || '',
+                    added_by: req.account.email
+                });
+            }
+            res.json({ ok: true });
+        } catch (error) {
+            console.error('[admin/hosts:post]', error);
+            res.status(500).json({ error: 'Failed to add host' });
+        }
+    });
+
+    app.delete('/admin/hosts/:email', requireOwner, async (req, res) => {
+        try {
+            const ownerEmail = (process.env.OWNER_EMAIL || '').toLowerCase();
+            if (req.params.email.toLowerCase() === ownerEmail) {
+                return res.status(400).json({ error: 'cannot remove owner' });
+            }
+            if (hostAllowlistRepo) {
+                await hostAllowlistRepo.remove(req.params.email);
+            }
+            res.json({ ok: true });
+        } catch (error) {
+            console.error('[admin/hosts:delete]', error);
+            res.status(500).json({ error: 'Failed to remove host' });
+        }
+    });
+
+    app.patch('/admin/hosts/:email', requireOwner, async (req, res) => {
+        try {
+            const { disabled } = req.body || {};
+            if (typeof disabled !== 'boolean') {
+                return res.status(400).json({ error: 'disabled must be boolean' });
+            }
+            if (hostAllowlistRepo) {
+                await hostAllowlistRepo.setDisabled(req.params.email, disabled);
+            }
+            res.json({ ok: true });
+        } catch (error) {
+            console.error('[admin/hosts:patch]', error);
+            res.status(500).json({ error: 'Failed to update host' });
         }
     });
 

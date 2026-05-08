@@ -53,6 +53,7 @@
 **✅ F1〜F5 完了 (2026-05-07)** — PROGRESS.md §41 を参照。
 
 **✅ L9〜L10 完了 (2026-05-07)** — PROGRESS.md §42 を参照。
+**✅ Firestore 移行 Phase 0〜3 完了 (2026-05-08)** — PROGRESS.md §45〜46 を参照。
 
 ### L シリーズ — 長時間会議向けのチャンキング戦略 (L11)
 
@@ -141,6 +142,50 @@
 2. ルーム ID 入力欄を readonly にして URL パラメータの値を表示。
 **検証手順**: 共有 URL をシークレットウィンドウで開く → 「会議に参加する」ボタンだけが見える。
 **完了条件**: 共有リンクから入ったユーザーが参加フローに自然に誘導される。
+
+---
+
+## Section E — Firestore 移行 残フェーズ (Phase 4〜6)
+
+**背景**: Phase 0〜3 (環境整備 / DataStore 抽象化 / Firestore Repository 実装 / allowlist + admin UI) 完了。
+残作業は手動 GCP 操作が中心。`docs/CLOUD_DB_MIGRATION_PLAN.md` に詳細手順あり。
+
+### [DB-Phase4] Firestore Security Rules デプロイ
+**優先度**: high (本番公開前に必須)
+**対象ファイル**: `firestore.rules`, GCP Console
+**現状の挙動**: `firestore.rules` は既に「全 deny」で確定済みだがまだデプロイ未実施。
+**期待する挙動**: 本番 Firestore への直接アクセスを完全遮断。
+**実装ステップ**:
+1. `firebase use <PROJECT_ID>`
+2. `firebase deploy --only firestore:rules,firestore:indexes`
+3. `firebase firestore:rules:get` で確認。
+**完了条件**: DevTools から `fetch('https://firestore.googleapis.com/...')` が 403 を返す。
+
+---
+
+### [DB-Phase5] Cloud Run 環境設定
+**優先度**: high (本番公開前に必須)
+**対象ファイル**: `cloudbuild.yaml`, GCP Secret Manager
+**現状の挙動**: Cloud Run に `DB_DRIVER=sqlite` がセットされたまま (Firestore 未接続)。
+**期待する挙動**: `DB_DRIVER=firestore` で Cloud Run がデプロイされ、Firestore を使って全機能が動く。
+**実装ステップ**:
+1. Secret Manager にシークレット登録 (`GEMINI_API_KEY`, `GOOGLE_API_KEY`, `GROQ_API_KEY`)。
+2. `cloudbuild.yaml` のデプロイステップに `--set-env-vars` / `--set-secrets` を追加 (プラン §S5-2)。
+3. `OWNER_EMAIL` / `WS_ALLOWED_ORIGINS` を実値に書き換えてコミット。
+4. 初回デプロイ後 Cloud Run URL を取得 → `WS_ALLOWED_ORIGINS` を反映して再デプロイ。
+5. `<URL>/auth/signup` でオーナーアカウントを初回登録。
+**完了条件**: 本番 URL で議事録生成が完走し、Firestore Console にドキュメントが生成されている。
+
+---
+
+### [DB-Phase6] 仕上げドキュメント整備
+**優先度**: low (稼働後)
+**対象ファイル**: `docs/ARCHITECTURE.md`, `PROGRESS.md`, `docs/BACKUP_PLAYBOOK.md`
+**実装ステップ**:
+1. `docs/ARCHITECTURE.md` に `Persistence Layer` セクション追加 (プラン §S6-1)。
+2. `docs/BACKUP_PLAYBOOK.md` 新規作成 (月次手動バックアップ手順)。
+3. Cloud Billing で Budget Alert ($5/$10/$20) を設定。
+**完了条件**: README → ARCHITECTURE → BACKUP_PLAYBOOK の順に読めば運用情報が揃う。
 
 ---
 

@@ -1,0 +1,66 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Admin - ホスト管理</title>
+    <link rel="stylesheet" href="style.css">
+    <style>
+        #admin-app {
+            max-width: 800px;
+            margin: 40px auto;
+            padding: 0 20px;
+        }
+        #admin-app h1 { font-size: 1.5rem; margin-bottom: 8px; }
+        #admin-app h2 { font-size: 1.1rem; margin: 24px 0 8px; }
+        #current-user-email { font-weight: bold; }
+        table { width: 100%; border-collapse: collapse; margin-bottom: 16px; }
+        th, td { text-align: left; padding: 8px 10px; border-bottom: 1px solid #ddd; font-size: 0.9rem; }
+        th { background: #f5f5f5; }
+        #add-host-form { display: flex; gap: 8px; flex-wrap: wrap; }
+        #add-host-form input { flex: 1; min-width: 140px; padding: 6px 8px; border: 1px solid #ccc; border-radius: 4px; }
+        #add-host-form button { padding: 6px 16px; }
+        #error-output { color: #c00; margin-top: 8px; white-space: pre-wrap; }
+        .badge-disabled { color: #999; }
+        .badge-active { color: #080; }
+        button.danger { color: #c00; }
+    </style>
+</head>
+<body>
+    <div id="admin-app">
+        <div id="login-section">
+            <h1>管理画面 (オーナー専用)</h1>
+            <p>オーナーのアカウントでログインしてください。</p>
+            <p><a href="/">← トップへ戻る</a></p>
+        </div>
+        <div id="admin-section" hidden>
+            <h1>ホスト管理</h1>
+            <p>ログイン中: <span id="current-user-email"></span></p>
+
+            <h2>登録済みホスト</h2>
+            <table id="host-table">
+                <thead>
+                    <tr>
+                        <th>Email</th>
+                        <th>表示名</th>
+                        <th>追加日</th>
+                        <th>状態</th>
+                        <th>操作</th>
+                    </tr>
+                </thead>
+                <tbody id="host-tbody"></tbody>
+            </table>
+
+            <h2>ホスト追加</h2>
+            <form id="add-host-form">
+                <input name="email" type="email" placeholder="email@example.com" required>
+                <input name="display_name" placeholder="表示名" required>
+                <input name="note" placeholder="メモ (任意)">
+                <button type="submit">追加</button>
+            </form>
+            <pre id="error-output"></pre>
+        </div>
+    </div>
+    <script src="admin.js"></script>
+</body>
+</html>

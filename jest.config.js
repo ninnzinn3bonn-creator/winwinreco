@@ -1,6 +1,7 @@
 module.exports = {
     testEnvironment: 'node',
     testTimeout: 15000,
+    setupFilesAfterEnv: ['<rootDir>/tests/setup.js'],
     // .claude/worktrees 内のテストは別ワークツリーのもので実行しない
     // e2e / room-sync はサーバー起動が必要なため jest 対象外 (playwright や手動実行)
     testPathIgnorePatterns: [

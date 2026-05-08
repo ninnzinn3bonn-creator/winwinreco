@@ -158,10 +158,28 @@ function createAuth({ participantRepo, roomRepo, sessionRepo, accountRepo } = {}
         next();
     }
 
+    /**
+     * Only the account whose email matches OWNER_EMAIL env var can pass.
+     * Requires requireSession to have already run (attaches req.account).
+     */
+    async function requireOwner(req, res, next) {
+        await requireSession(req, res, async () => {
+            const ownerEmail = (process.env.OWNER_EMAIL || '').toLowerCase();
+            if (!ownerEmail) {
+                return res.status(500).json({ error: 'OWNER_EMAIL not configured' });
+            }
+            if ((req.account.email || '').toLowerCase() !== ownerEmail) {
+                return res.status(403).json({ error: 'owner only' });
+            }
+            next();
+        });
+    }
+
     return {
         requireParticipant,
         requireHost,
         requireSession,
+        requireOwner,
         attachSessionIfPresent,
         validateWsCredentials,
         extractCreds,

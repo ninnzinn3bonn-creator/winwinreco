@@ -4,7 +4,7 @@
   "description": "GIJIRO リアルタイム議事録 & AI要約 / ToDo 生成アプリ",
   "main": "index.js",
   "scripts": {
-    "check:frontend": "node --check src/frontend/main.js && node --check src/frontend/bindings.js && node --check src/frontend/utils.js && node --check src/frontend/state.js && node --check src/frontend/dom.js && node --check src/frontend/debug.js && node --check src/frontend/mic-presets.js && node --check src/frontend/auth.js && node --check src/frontend/profile.js && node --check src/frontend/dictionary.js && node --check src/frontend/audio.js && node --check src/frontend/log-ui.js && node --check src/frontend/shared-ai.js && node --check src/frontend/meeting-ui.js",
+    "check:frontend": "node --check src/frontend/main.js && node --check src/frontend/bindings.js && node --check src/frontend/utils.js && node --check src/frontend/state.js && node --check src/frontend/dom.js && node --check src/frontend/debug.js && node --check src/frontend/mic-presets.js && node --check src/frontend/auth.js && node --check src/frontend/profile.js && node --check src/frontend/dictionary.js && node --check src/frontend/audio.js && node --check src/frontend/log-ui.js && node --check src/frontend/shared-ai.js && node --check src/frontend/meeting-ui.js && node --check src/frontend/admin.js",
     "check:duplicates": "node scripts/check-duplicate-functions.js",
     "pretest": "npm.cmd run check:frontend && npm.cmd run check:duplicates",
     "test": "jest",

@@ -868,3 +868,73 @@ L1〜L4 で議事録 Map-Reduce を実装した続きとして、要約/ToDo/自
 - `docs/ARCHITECTURE.md` の文字化けしていた重要ルールを修正し、現在の past meeting toggle の位置と closeout ルールを追記した。
 - `docs/DEVELOPMENT_RULES.md` を追加し、`Closeout Pass` / `UI Regression Pass` / `Doc Sync Pass` をプロジェクトの共通ルールとして明文化した。
 - `docs/skills/closeout-pass/SKILL.md`, `docs/skills/ui-regression-pass/SKILL.md`, `docs/skills/doc-sync-pass/SKILL.md` を追加し、次回以降エージェントにそのまま渡せる形にした。
+
+---
+
+## 45. Firestore 移行 Phase 0〜2: 環境整備・DataStore 抽象化・Repository 実装 (2026-05-08)
+
+### Phase 0: 開発環境整備
+
+- `firebase.json` / `firestore.rules` / `firestore.indexes.json` を新規作成。
+- `package.json` に `firebase-admin@^12.7.0` / `firebase-tools@^13.35.1` / `cross-env@^10.1.0` を追加。
+- scripts に `emulators`, `test:firestore`, `test:all` を追加。
+- `.env.example` を新規作成 (全環境変数のリファレンス)。
+- `docs/CLOUD_DB_MIGRATION_PLAN.md` を追加 (6 フェーズ計画書)。
+
+### Phase 1: DataStore 抽象化
+
+- 全 11 個の SQLite Repository を `src/backend/repo/sqlite/` に `git mv`。
+- `src/backend/repo/sqlite/index.js` — `createRepos()` ファクトリ。
+- `src/backend/repo/firestore/index.js` — スタブ (Phase 2 で実装)。
+- `src/backend/repo/index.js` — `DB_DRIVER` 環境変数でドライバーを切り替え。
+- `src/backend/server.js` — `createRepos()` を単一エントリーポイントに集約。`repos._raw.close()` で SQLite グレースフルシャットダウン。
+- `jest.config.js` 新規作成 (`.claude/worktrees` / e2e を除外)。
+- テストの `require` パスを `repo/sqlite/` 経由に一括修正。
+
+### Phase 2: Firestore Repository 実装
+
+- `src/backend/repo/firestore/db.js` — `getDb` / `fromTimestamp` / `toTimestamp` / `serverTs` 共通ユーティリティ。
+- Firestore Repository 11 クラスを新規作成:
+  - `room-repo.js` (参照実装。`insights_dirty` / `use_past_meetings` を `0/1` で SQLite 互換出力)
+  - `user-account-repo.js` (email 重複チェック込み)
+  - `session-repo.js` (`sha256(token)` 保存、`pruneExpired` はバッチ削除・件数返却)
+  - `participant-repo.js` (`id` フィールド保存 → `collectionGroup` で `findById` / `findByIdAndToken`)
+  - `utterance-repo.js` (`_enrichWithParticipants` でアプリ層 JOIN、`is_starred` を `0/1` 返却)
+  - `analysis-repo.js` (`findLatestByTypes` はメモリソート)
+  - `action-repo.js` (`replaceForRoom` は delete → add)
+  - `user-repo.js` (`upsert` は `set({merge:true})`)
+  - `user-context-repo.js` (`active_tasks` をネイティブ配列で保存)
+  - `dictionary-repo.js`
+  - `chunk-repo.js` (DocID = `${chunk_index}_${analysis_type}` で UPSERT)
+- `tests/setup.js` 新規作成 (`NODE_ENV=test` 保証)。
+- `scripts/smoke-firestore.sh` 新規作成 (エミュレーター疎通チェック)。
+
+---
+
+## 46. Firestore 移行 Phase 3: host_allowlist サインアップゲート + /admin 管理 UI (2026-05-08)
+
+### Phase 3a: host_allowlist + signup ゲート
+
+- `sqlite/db.js` — `host_allowlist` テーブル追加 (email PK、disabled INTEGER)。
+- `sqlite/host-allowlist-repo.js` / `firestore/host-allowlist-repo.js` — `findByEmail` / `list` / `add` / `remove` / `setDisabled`。
+- `sqlite/index.js` / `firestore/index.js` — `hostAllowlistRepo` を追加。
+- `app.js` — `/auth/signup` に allowlist ゲートを追加:
+  - `OWNER_EMAIL` と一致するメールは無条件通過。
+  - それ以外は `hostAllowlistRepo.findByEmail()` → 未登録 or `disabled=1` なら 403。
+  - `SIGNUP_ALLOWLIST_DISABLED` フラグ: `SIGNUP_ALLOWLIST_DISABLED=true` で明示 OFF、`NODE_ENV=test` かつ `=false` と明示しない場合は自動 OFF (テスト互換)。
+
+### Phase 3b: /admin ホスト管理 UI
+
+- `lib/auth.js` — `requireOwner` 追加 (`OWNER_EMAIL` 一致のみ通過)。
+- `app.js` — admin ルート 4 本: `GET/POST /admin/hosts`、`PATCH/DELETE /admin/hosts/:email`。`GET /admin` → `admin.html`。
+- `src/frontend/admin.html` / `admin.js` — ホスト一覧・追加・有効/無効化・削除の管理画面。
+- `package.json` — `check:frontend` に `admin.js` を追加。
+
+### テスト追加
+
+- `tests/auth-allowlist.test.js` — allowlist gate 4 ケース (オーナー通過 / 未登録403 / 追加後通過 / disabled403)。
+- `tests/admin-routes.test.js` — 未ログイン401 / 非オーナー403 / CRUD 10 ケース。
+
+### テスト結果
+
+- `npm test`: 18 スイート 81 テスト グリーン ✅
