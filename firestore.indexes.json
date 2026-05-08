@@ -28,13 +28,6 @@
       "collectionGroup": "participants",
       "queryScope": "COLLECTION_GROUP",
       "fields": [
-        { "fieldPath": "id", "order": "ASCENDING" }
-      ]
-    },
-    {
-      "collectionGroup": "participants",
-      "queryScope": "COLLECTION_GROUP",
-      "fields": [
         { "fieldPath": "id", "order": "ASCENDING" },
         { "fieldPath": "control_token", "order": "ASCENDING" }
       ]
@@ -45,13 +38,6 @@
       "fields": [
         { "fieldPath": "user_id", "order": "ASCENDING" },
         { "fieldPath": "user_account_id", "order": "ASCENDING" }
-      ]
-    },
-    {
-      "collectionGroup": "utterances",
-      "queryScope": "COLLECTION_GROUP",
-      "fields": [
-        { "fieldPath": "id", "order": "ASCENDING" }
       ]
     }
   ],
