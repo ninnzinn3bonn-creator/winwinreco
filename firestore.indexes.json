@@ -15,13 +15,6 @@
         { "fieldPath": "owner_account_id", "order": "ASCENDING" },
         { "fieldPath": "created_at", "order": "DESCENDING" }
       ]
-    },
-    {
-      "collectionGroup": "sessions",
-      "queryScope": "COLLECTION",
-      "fields": [
-        { "fieldPath": "expires_at", "order": "ASCENDING" }
-      ]
     }
   ],
   "fieldOverrides": []
