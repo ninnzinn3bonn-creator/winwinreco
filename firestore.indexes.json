@@ -25,6 +25,14 @@
       ]
     },
     {
+      "collectionGroup": "chunks",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "analysis_type", "order": "ASCENDING" },
+        { "fieldPath": "chunk_index", "order": "ASCENDING" }
+      ]
+    },
+    {
       "collectionGroup": "participants",
       "queryScope": "COLLECTION_GROUP",
       "fields": [

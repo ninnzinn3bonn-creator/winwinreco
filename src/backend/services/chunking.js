@@ -99,8 +99,11 @@ function chunkUtterances(utterances, opts = {}) {
             overlapWith,
         });
 
-        // 次チャンクの開始位置: オーバーラップ分だけ巻き戻す
-        if (overlapMs > 0 && chunkEnd < utterances.length) {
+        // 次チャンクの開始位置: オーバーラップ分だけ巻き戻す。
+        // ただし「巨大発話 1 件のみのチャンク」や「窓を跨ぐサイレント区間直後」では
+        // overlapStart === chunkStart となり次チャンクが進まないので
+        // 必ず chunkEnd まで前進する保護をかける。
+        if (overlapMs > 0 && chunkEnd < utterances.length && chunkEnd > chunkStart + 1) {
             const overlapCutMs =
                 new Date(utterances[chunkEnd - 1].started_at).getTime() - overlapMs;
             let overlapStart = chunkEnd - 1;
@@ -108,7 +111,8 @@ function chunkUtterances(utterances, opts = {}) {
                    new Date(utterances[overlapStart - 1].started_at).getTime() >= overlapCutMs) {
                 overlapStart--;
             }
-            chunkStart = overlapStart;
+            // overlapStart は chunkStart より厳密に大きい必要がある (前進保証)
+            chunkStart = overlapStart > chunkStart ? overlapStart : chunkEnd;
         } else {
             chunkStart = chunkEnd;
         }
