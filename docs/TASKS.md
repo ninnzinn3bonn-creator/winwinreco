@@ -31,33 +31,31 @@
 
 ---
 
-## Section A — エディタの自動上書きバグ修正 (B1〜B7)
+## 完了済みフェーズの索引
 
-**✅ 完了 (2026-04-30)** — PROGRESS.md §31 を参照。
+| 範囲 | 完了日 | PROGRESS.md 節 |
+|---|---|---|
+| Section A (B1〜B7: エディタ自動上書きバグ) | 2026-04-30 | §31 |
+| Section B (Phase 5 UX 微調整) | 2026-04-30 | §32 |
+| L1〜L4 (チャンキング Phase 1) | 2026-05-02 | §38 |
+| L5〜L8 (チャンキング Phase 2) | 2026-05-05 | §39 |
+| 表示名 / アカウント名分離 + 同期バグ修正 | 2026-05-06 | §40 |
+| F1〜F5 (ユーザーフィードバック) | 2026-05-07 | §41 |
+| L9〜L10 (チャンク永続化・部分再生成) | 2026-05-07 | §42 |
+| Firestore 移行 Phase 0〜3 (DataStore 抽象化 + allowlist + /admin) | 2026-05-08 | §45〜46 |
+| Firestore 移行 Phase 5〜6 (cloudbuild.yaml + ドキュメント) | 2026-05-08 | §47 |
+| Firestore 移行 Phase 4・5 実行 + 本番起動 | 2026-05-09 | §48 |
+| collectionGroup → findInRoom パターン統一 | 2026-05-09 | §49 |
+| WS / ゲスト UX 修正 | 2026-05-09 | §50 |
+| STT プロバイダー別 議事録プロンプト | 2026-05-09 | §51 |
+| チャンキング検証 + 重大バグ修正 | 2026-05-09 | §52 |
+| イースターエッグミニゲーム | 2026-05-09 | §53 |
 
 ---
 
-## Section B — Phase 5 候補 (UX 微調整)
+## Section C — 残タスク
 
-**✅ 完了 (2026-04-30)** — PROGRESS.md §32 を参照。
-
----
-
-## Section C — その他 (随時追加)
-
-新発見の課題はここに追記してください。
-
-**✅ L1〜L4 完了 (2026-05-02)** — PROGRESS.md §38 を参照。
-**✅ L5〜L8 完了 (2026-05-05)** — PROGRESS.md §39 を参照。
-**✅ 表示名・アカウント名 分離 + 同期バグ修正 完了 (2026-05-06)** — PROGRESS.md §40 を参照。
-**✅ F1〜F5 完了 (2026-05-07)** — PROGRESS.md §41 を参照。
-
-**✅ L9〜L10 完了 (2026-05-07)** — PROGRESS.md §42 を参照。
-**✅ Firestore 移行 Phase 0〜3 完了 (2026-05-08)** — PROGRESS.md §45〜46 を参照。
-
-### L シリーズ — 長時間会議向けのチャンキング戦略 (L11)
-
-**背景**: L1〜L10 完了。チャンク永続化・部分再生成まで実装済み。
+### L シリーズ — 長時間会議向けのチャンキング戦略
 
 #### [L11] 将来検討: 会議中のストリーミング生成 (記録のみ)
 **優先度**: low (将来の最適化)
@@ -65,127 +63,35 @@
 **メモ**: 会議中に N 分ごとに「現時点までの議事録」を背景生成して `rooms.streaming_minutes_text` に保存。終了時は最後のチャンクだけ生成して merge。
 - 利点: 終了後の待ち時間 1 桁秒。
 - 欠点: 永続化と冪等性、話題が後から戻ってきた場合の上書きルール、コストが増える。
-- 現時点では L1〜L10 で十分な体感改善が得られると見込み、L11 は計測してから判断。
+- 現時点では L1〜L10 + §52 のバグ修正で十分な体感改善が得られると見込み、L11 は計測してから判断。
 
 ---
 
-## Section D — ユーザーフィードバック改善 (F1〜F5)
-
-**背景**: ユーザーテストで挙がったスマホ UX・設定権限・参加フローの課題。
-
----
-
-### [F1] 生ログの「一番下へ」ボタンを常時表示
-**優先度**: high
-**対象ファイル**: `src/frontend/log-ui.js`, `src/frontend/style.css`
-**現状の挙動**: ログコンテナが最下部に達したときだけ「↓」ボタンが表示される。
-**期待する挙動**: スクロール位置に関わらず常時表示する（最下部にいるときは薄く/無効化でもよい）。
-**実装ステップ**:
-1. ボタンの表示条件から「最下部判定」を外し、常時 `visible` にする。
-2. 最下部にいるときはボタンを `opacity: 0.3` または `disabled` で視覚的に抑制。
-**検証手順**: スマホ実機でログが流れている最中にボタンが見えるか確認。
-**完了条件**: ページ上部にいてもボタンが表示される。
-
----
-
-### [F2] 新ログ追加時の自動スクロールを抑制
-**優先度**: high
-**対象ファイル**: `src/frontend/log-ui.js`
-**現状の挙動**: 新しい発話が届くたびにログコンテナが強制的に最下部へスクロールされる。
-**期待する挙動**: ユーザーが手動でスクロールを上げている間は自動スクロールしない。最下部付近にいる場合のみ自動スクロールする（"sticky bottom" パターン）。
-**実装ステップ**:
-1. ログコンテナの `scroll` イベントで「ユーザーが手動スクロール中か」フラグを管理。
-   - `scrollTop + clientHeight < scrollHeight - 閾値(px)` なら `userScrolled = true`。
-   - 最下部付近に戻ったら `userScrolled = false`。
-2. 新ログ追加時、`userScrolled === false` のときのみ `scrollTop = scrollHeight` する。
-**検証手順**: ログ流入中に上スクロール → 自動スクロールが止まる → 手動で最下部へ戻す → 再び自動スクロール開始。
-**完了条件**: 手動スクロール中に画面が勝手に動かない。
-
----
-
-### [F3] パスワード変更をプロフィール画面から行えるようにする
+### [OPS-1] Cloud Billing Budget Alert 設定 (手動 GCP 作業)
 **優先度**: medium
-**対象ファイル**: `src/frontend/profile.js`, `src/backend/app.js`, `src/backend/repo/user-account-repo.js`
-**現状の挙動**: パスワード変更機能がない。
-**期待する挙動**: プロフィール画面に「パスワード変更」セクションを追加。現在のパスワード + 新パスワード × 2 を入力して変更できる。
-**実装ステップ**:
-1. バックエンド: `POST /me/password` エンドポイントを追加。現パスワードを検証してから bcrypt で更新。
-2. フロント: `profile.js` のプロフィールタブに「パスワード変更」フォームを追加。
-3. 成功・失敗メッセージを表示。
-**検証手順**: 正しい現パスワードで変更 → ログアウト → 新パスワードでログイン成功。誤った現パスワードは 400 エラー。
-**完了条件**: プロフィール画面からパスワードを変更できる。
+**対象ファイル**: なし (GCP Console 操作のみ)
+**現状の挙動**: 予算超過アラートが未設定。
+**期待する挙動**: $20/月の予算で 25% / 50% / 100% ($5 / $10 / $20) でメール通知。
+**実装ステップ**: `docs/BACKUP_PLAYBOOK.md` の「Budget Alert 設定」セクション参照。
+**完了条件**: GCP Console > Billing > Budgets & alerts にエントリが存在し、テストアラートが届く。
 
 ---
 
-### [F4] STT プロバイダーをホストが指定し参加者全員に適用
+### [OPS-2] API キーローテーション
 **優先度**: medium
-**対象ファイル**: `src/backend/app.js`, `src/frontend/meeting-ui.js`, `src/frontend/audio.js`
-**現状の挙動**: 各参加者が自分のブラウザ環境の STT 設定（または localStorage）を使う。
-**期待する挙動**: ルーム作成時にホストが選択した STT プロバイダー・言語設定がサーバー側に保存され、全参加者の STT セッションに適用される。
+**対象ファイル**: GCP Secret Manager
+**現状の挙動**: §48 のトラブルシュート時にチャットへ API キーの平文出力が一度残った経緯あり。
+**期待する挙動**: 4 シークレット (Gemini / Google / Groq / ElevenLabs) を各プロバイダーのダッシュボードで再発行 → Secret Manager の `versions add` で更新 → Cloud Run を新リビジョンへ。
 **実装ステップ**:
-1. `rooms` テーブルに `stt_provider`, `stt_language` カラムを追加（`ensureColumn` で）。
-2. ルーム作成 API でホストの設定を保存。
-3. 参加者が WebSocket 接続時、ルームの STT 設定を返す（`room_config` メッセージ）。
-4. フロントで `room_config` を受信したら、ローカル設定を上書きして STT を初期化。
-**検証手順**: ホストが ElevenLabs を指定 → 参加者ブラウザで Google がデフォルトでも ElevenLabs で文字起こしされる。
-**完了条件**: 参加者全員がホスト指定の STT で動作する。
-
----
-
-### [F5] 共有 URL から入った参加者に「会議に参加する」ボタンを表示
-**優先度**: high
-**対象ファイル**: `src/frontend/index.html`, `src/frontend/main.js`
-**現状の挙動**: 共有 URL (`?room=XXX`) で開いても「新しい会議を作る」ボタンが表示される（または participant-mode でも作成ボタンが残る）。
-**期待する挙動**: `?room=XXX` パラメータがある場合、セットアップ画面のボタンを「この会議に参加する」に切り替え、ルーム ID 入力欄を非表示またはロック。
-**実装ステップ**:
-1. `applyParticipantModeFromUrl()` で作成ボタンを非表示、参加ボタンのラベルを変更。
-2. ルーム ID 入力欄を readonly にして URL パラメータの値を表示。
-**検証手順**: 共有 URL をシークレットウィンドウで開く → 「会議に参加する」ボタンだけが見える。
-**完了条件**: 共有リンクから入ったユーザーが参加フローに自然に誘導される。
-
----
-
-## Section E — Firestore 移行 残フェーズ (Phase 4〜6)
-
-**背景**: Phase 0〜3 (環境整備 / DataStore 抽象化 / Firestore Repository 実装 / allowlist + admin UI) 完了。
-残作業は手動 GCP 操作が中心。`docs/CLOUD_DB_MIGRATION_PLAN.md` に詳細手順あり。
-
-### [DB-Phase4] Firestore Security Rules デプロイ (手動 1 コマンド)
-**優先度**: high (本番公開前に必須)
-**対象ファイル**: `firestore.rules`, GCP Console
-**現状の挙動**: `firestore.rules` は既に「全 deny」で確定済みだがまだデプロイ未実施。
-**期待する挙動**: 本番 Firestore への直接アクセスを完全遮断。
-**実装ステップ**:
-1. `firebase use <PROJECT_ID>`
-2. `firebase deploy --only firestore:rules,firestore:indexes`
-3. `firebase firestore:rules:get` で確認。
-**完了条件**: DevTools から `fetch('https://firestore.googleapis.com/...')` が 403 を返す。
-
----
-
-### [DB-Phase5] Cloud Run 環境設定
-**優先度**: high (本番公開前に必須)
-**対象ファイル**: `cloudbuild.yaml`, GCP Secret Manager
-**現状の挙動**: Cloud Run に `DB_DRIVER=sqlite` がセットされたまま (Firestore 未接続)。
-**期待する挙動**: `DB_DRIVER=firestore` で Cloud Run がデプロイされ、Firestore を使って全機能が動く。
-**実装ステップ**:
-1. Secret Manager にシークレット登録 (`GEMINI_API_KEY`, `GOOGLE_API_KEY`, `GROQ_API_KEY`)。
-2. `cloudbuild.yaml` のデプロイステップに `--set-env-vars` / `--set-secrets` を追加 (プラン §S5-2)。
-3. `OWNER_EMAIL` / `WS_ALLOWED_ORIGINS` を実値に書き換えてコミット。
-4. 初回デプロイ後 Cloud Run URL を取得 → `WS_ALLOWED_ORIGINS` を反映して再デプロイ。
-5. `<URL>/auth/signup` でオーナーアカウントを初回登録。
-**完了条件**: 本番 URL で議事録生成が完走し、Firestore Console にドキュメントが生成されている。
-
----
-
-### [DB-Phase6] 仕上げドキュメント整備
-**✅ 完了 (2026-05-08)** — PROGRESS.md §47 を参照。
-残作業: Cloud Billing で Budget Alert ($5/$10/$20) を手動設定。
+1. 各 API ダッシュボードでキー再発行。
+2. `gcloud secrets versions add <secret-id> --data-file=-` で新バージョンを登録。
+3. Cloud Run は `--set-secrets=...:latest` 指定なので次回デプロイ or 手動 `gcloud run services update --update-secrets=...` で自動的に新版へ。
+**完了条件**: 旧キーが各プロバイダー側で `disabled` になっており、本番が新キーで稼働している。
 
 ---
 
 ## 完了条件 (このファイル全体)
 
 - すべてのタスクが「PROGRESS.md に転記済み」「Section A〜C から削除済み」になったらこのファイルは空に近い状態になる。
-- そのとき、Section A 冒頭の「未完のまま次のセッションへ持ち越したいタスク」という前置きと、フォーマット節と、Section C のテンプレートだけが残る。
+- そのとき、運用ルール節とフォーマット節、完了済みフェーズの索引、Section C のテンプレートだけが残る。
 - このファイル自体を消す必要はない (将来の引き継ぎ用に残す)。

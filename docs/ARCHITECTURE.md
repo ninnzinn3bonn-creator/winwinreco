@@ -234,6 +234,95 @@ DB ドライバーは `DB_DRIVER` 環境変数で切り替える。
 - `SIGNUP_ALLOWLIST_DISABLED=false` を明示するとテスト時でも allowlist が有効になる。
 - `/admin/hosts` (GET/POST/PATCH/DELETE) でオーナーが他のホストを管理。`requireOwner` ミドルウェアで保護。
 
+### collectionGroup を避ける `findInRoom` パターン (重要)
+
+Firestore の `collectionGroup` クエリは、**`where + where` などの複合条件で必ず明示的な COLLECTION_GROUP インデックスが必要**。
+登録漏れがあると本番で `FAILED_PRECONDITION (code 9)` 500 エラーになり、検証に時間がかかる。
+
+そのため、本プロジェクトでは「**room_id が分かっているコールサイトでは collectionGroup を使わない**」を規約として運用する。
+
+- `participantRepo.findInRoom(id, roomId)` / `utteranceRepo.findInRoom(id, roomId)` で
+  サブコレクション `rooms/{roomId}/{participants|utterances}/{id}` を直接ドキュメント取得する。
+- `updateMemory(id, updates, roomId?)` / `mergeTranscript(id, ..., roomId?)` のように、
+  既存 API には `roomId` をオプション引数として渡せるようにし、与えられたら findInRoom 経由に切り替える。
+- `requireParticipant` / `validateWsCredentials` (auth.js) も `findInRoom` 経由を優先する。
+  フロント側で WebSocket URL に `?roomId=` を含めるのは、サーバー側で collectionGroup を回避するため。
+
+`collectionGroup` を使ってよいケース:
+- アカウント横断の backfill (`backfillAccountByUserId` のように `room_id` を持たない検索)
+- どうしても roomId が無い保守用ジョブ
+
+`collectionGroup` を使う場合は **必ず `firestore.indexes.json` にインデックスを登録** すること。
+レビュー時の必須チェック項目とする。
+
+### Firestore 複合インデックス一覧 (現状)
+
+| コレクション | スコープ | フィールド | 用途 |
+|---|---|---|---|
+| `utterances` | COLLECTION | `is_starred ASC, started_at ASC` | スター済み発話の時系列取得 |
+| `utterances` | COLLECTION | `participant_id ASC, ended_at DESC` | `findLatestByParticipant` |
+| `rooms` | COLLECTION | `owner_account_id ASC, created_at DESC` | `findRoomsForAccount` |
+| `chunks` | COLLECTION | `analysis_type ASC, chunk_index ASC` | `chunkRepo.findByRoom` |
+| `participants` | COLLECTION_GROUP | `id ASC, control_token ASC` | `findByIdAndToken` (レガシー経路用) |
+| `participants` | COLLECTION_GROUP | `user_id ASC, user_account_id ASC` | `backfillAccountByUserId` |
+
+単一フィールドは Firestore が自動生成するため `indexes` に追加すると `400 "not necessary"` エラーになる。
+
+---
+
+## STT プロバイダー別 議事録プロンプト
+
+`AIService` は議事録生成時に `roomMeta.stt_provider` または `aiConfig.stt_provider` を読み、編集ルールを切り替える。
+
+| STT | reconstructSentences | 誤認識修正 | フィラー削除 / 段落統合 |
+|---|---|---|---|
+| `google` (default) | 実行する | 許可 | 許可 |
+| `elevenlabs` | スキップ | 禁止 | 許可 |
+
+切替の唯一の真実源は `AIService._isHighAccuracyStt(roomMeta)` と `_buildMinutesEditingRules(roomMeta)`。
+影響を受けるメソッド:
+- `analyzeMeeting(type='minutes')`
+- `generateMinutesFromTranscript`
+- `generateMinutesPerChunk`
+
+`aiConfig.stt_provider` は `app.js` の `/rooms/:id/insights/regenerate` ルートで `room.stt_provider` から派生して渡す。
+`roomMeta.stt_provider` は `generateSharedAiResult` / `regenerate-chunk` で渡す。
+
+---
+
+## チャンキングシステム規約 (重要)
+
+### 必ず守る
+
+1. `chunkUtterances` で `chunkStart` が前進しないケースを潰す保護コードを残す:
+   `chunkEnd > chunkStart + 1` のときのみ overlap rewind、それ以外は強制 `chunkStart = chunkEnd`。
+   過去にこの保護が無く、10 分超のサイレント区間や巨大発話 1 件で無限ループ → OOM が発生した。
+2. `chunkRepo.upsert` は fire-and-forget で呼び出してよいが、`findByRoom` の `where + orderBy` 複合クエリには
+   Firestore 複合インデックス `chunks: [analysis_type, chunk_index]` が必須。
+3. 失敗チャンクは `withTimeoutAndRetry({ placeholder })` でプレースホルダーに退避し、議事録は必ず最後まで完走させる。
+   ユーザーが部分再生成パネルで失敗箇所だけ作り直せるよう、`chunks.status = 'error'` で保存する。
+
+### テスト
+
+長時間会議のシミュレーションは `tests/chunking.test.js` で 47 ケースカバー済み。
+- 30 分 / 1 時間 / 2 時間 / 4 時間会議の分割正しさ・全 utterance 網羅・パフォーマンス (4 時間で < 2 秒)
+- 1 件失敗 / 全件タイムアウト時のプレースホルダー fallback
+- 上記 1 の無限ループ回帰テスト
+
+---
+
+## Easter egg theme + game (実装上の隔離)
+
+`src/frontend/easter-game.js` に隔離された `window.AppEasterGame` モジュール。本仕様には一切影響させない設計。
+
+- トリガー: `data-theme="red"` (プロフィール → 設定 → 表示テーマ → "レッド"。ログイン中のみ選択肢が表示される) かつ認証済み。
+- セットアップ画面の「会議を始める」ボタン click 時、`AppEasterGame.shouldIntercept()` が true ならゲーム起動、それ以外は従来の `createRoom` / `joinRoom`。
+- ハイスコアは `user_accounts.game_high_score` フィールドに保存 (`POST /me/easter-score`)。Firestore はスキーマレスで追記、SQLite は `ensureColumn('user_accounts', 'game_high_score', 'INTEGER DEFAULT 0')`。
+- バックエンド送信失敗時は localStorage `gijiro:easter_high_score` に退避。
+
+CSS は `:root[data-theme="red"]` セレクタ配下にのみ書く。`body.easter-game-active` クラスでオーバーレイ表示中の `overflow: hidden`。
+通常テーマ (system / light / dark) には一切影響しない。
+
 ---
 
 ## Current technical debt

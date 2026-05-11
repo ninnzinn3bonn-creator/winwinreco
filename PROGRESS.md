@@ -966,3 +966,216 @@ L1〜L4 で議事録 Map-Reduce を実装した続きとして、要約/ToDo/自
 1. **Phase 4 (Security Rules デプロイ)**: `firebase deploy --only firestore:rules,firestore:indexes`
 2. **Phase 5 (Cloud Run)**: Secret Manager にシークレット登録 → `cloudbuild.yaml` のプレースホルダーを実値に書き換えてコミット → 初回デプロイ後に URL 取得して `WS_ALLOWED_ORIGINS` を更新
 3. オーナーアカウントの初回サインアップ (`<URL>/auth/signup`)
+
+---
+
+## 48. Firestore Phase 4・5 実行フェーズ完了 + 本番起動 (2026-05-09)
+
+### Phase 4: Firestore Security Rules / Indexes デプロイ
+
+- `gcloud services enable firestore.googleapis.com` で API 有効化。
+- `gcloud firestore databases create --location=asia-northeast1 --type=firestore-native` でネイティブモード DB を作成。
+- `firestore.indexes.json` から `sessions.expires_at` 単一フィールドインデックスを削除 (Firestore が "not necessary" と返したため。単一フィールドは自動生成される)。
+- `npx firebase-tools deploy --only firestore:indexes --project <PROJECT_ID>` でデプロイ成功。
+
+### Phase 5: Cloud Run 本番設定
+
+- Secret Manager に 4 シークレットを登録: `gemini-api-key` / `google-api-key` / `groq-api-key` / `elevenlabs-api-key`。
+- Cloud Run SA に `roles/secretmanager.secretAccessor` を 4 シークレットそれぞれに付与。
+- `cloudbuild.yaml` の `--set-env-vars` から `PORT=8080` を除去 (Cloud Run の予約変数のため `gcloud run deploy` でエラーになる)。
+- `WS_ALLOWED_ORIGINS` を新サービス URL `https://winwinreco-227823039350.asia-northeast1.run.app` に更新。
+
+### 本番デプロイ後のトラブルシュート
+
+1. **オーナーがサインアップできない (signup not allowed)**:
+   - 原因: Cloud Run のリビジョンに `OWNER_EMAIL` / `DB_DRIVER` 等が反映されていなかった (`cloudbuild.yaml` の `--set-env-vars` が以前のリビジョンに上書きされていた)。
+   - 対処: `gcloud run services update winwinreco --update-env-vars=...` で必要な env を直接セット。`SIGNUP_ALLOWLIST_DISABLED=true` を一時的に立ててサインアップ → 完了後に `--remove-env-vars=SIGNUP_ALLOWLIST_DISABLED` でロック復帰。
+
+2. **会議参加で 500 (FAILED_PRECONDITION code 9)**:
+   - 原因: `collectionGroup('participants').where('id', '==', id)` が Firestore に明示的な COLLECTION_GROUP インデックスを要求していた。
+   - 対処: §49 を参照 (findInRoom パターンへ全面切替)。
+
+3. **会議終了がゲストに伝わらない / ログ編集で 500**:
+   - 原因: 同じく collectionGroup クエリ問題で `requireParticipant` ミドルウェアが落ちていた。
+   - 対処: §49 で `findInRoom` 経由に統一して解決。
+
+### 完了状態
+
+- 本番 URL `https://winwinreco-227823039350.asia-northeast1.run.app` でオーナーのサインアップ / ログイン / 会議作成 / 参加 / 議事録生成すべて稼働。
+- Firestore に各コレクションへの書き込みを確認済み。
+
+---
+
+## 49. collectionGroup クエリ問題の全面解決 (findInRoom パターン) (2026-05-09)
+
+### 問題
+
+Firestore の `collectionGroup` クエリは `where + where` などの複合パターンで明示的なインデックス登録が必須。 §48 の本番稼働時に以下が連続して 500 を返した:
+
+- `participantRepo.findById(id)` — join 直後の応答取得
+- `participantRepo.findByIdAndToken(id, token)` — `requireParticipant` ミドルウェア
+- `utteranceRepo.findById(id)` — ログ星マーク・メモ編集の前提取得
+- `utteranceRepo.updateMemory` / `mergeTranscript` 内の二重 collectionGroup
+
+### 解決: findInRoom パターン
+
+`room_id` が分かっているコールサイトでは **collectionGroup を使わない** ことを規約として確立。`_roomCol(roomId).doc(id).get()` の直接ドキュメント取得 (= O(1) シンプル read) で代替する。
+
+#### Repository に追加したメソッド
+
+| Repo | メソッド | 動作 |
+|---|---|---|
+| `firestore/participant-repo.js` | `findInRoom(id, roomId)` | サブコレクション直接 doc get |
+| `firestore/utterance-repo.js` | `findInRoom(id, roomId)` | サブコレクション直接 doc get |
+| `firestore/utterance-repo.js` | `updateMemory(id, updates, roomId?)` | roomId が来たら findInRoom 経由 |
+| `firestore/utterance-repo.js` | `mergeTranscript(id, ..., roomId?)` | 同上 |
+
+#### 呼び出し側修正
+
+- `app.js` の `/rooms/:id/join` で `findInRoom(participantId, roomId)` を使うよう変更。
+- `app.js` の `PATCH /rooms/:roomId/logs/:utteranceId` で `findInRoom` を使うよう変更。`updateMemory` に `roomId` を渡す。
+- `app.js` の `POST /rooms/:roomId/logs/:utteranceId/correct` でも同様。
+- WebSocket 経由の `mergeTranscript` 呼び出しにも `ws.roomId` を渡す。
+- `lib/auth.js` の `requireParticipant` / `validateWsCredentials` を `findInRoom` ベースに置換 (両方とも `roomId` が利用可能)。
+- WS upgrade ハンドラで URL クエリ `?roomId=` を受け取り、フロント側 (`meeting-ui.js`) で WebSocket URL に追加。
+
+### 追加で必要だった Firestore 複合インデックス
+
+`firestore.indexes.json` に以下を追加:
+- `participants` (COLLECTION_GROUP): `[id ASC, control_token ASC]` — 万一 findInRoom が使えないレガシー経路用。
+- `participants` (COLLECTION_GROUP): `[user_id ASC, user_account_id ASC]` — `backfillAccountByUserId`。
+- `utterances` (COLLECTION): `[participant_id ASC, ended_at DESC]` — `findLatestByParticipant`。
+
+### 規約
+
+新規 Repository メソッドを追加する際:
+- **roomId が分かっている場合は必ず subcollection 直接アクセス**
+- collectionGroup は `room_id` を持たない検索 (アカウント横断の backfill 等) に限定
+- collectionGroup 複合クエリを書く場合は同時に `firestore.indexes.json` への登録を必須レビュー項目とする
+
+---
+
+## 50. WebSocket / ゲスト UX 修正 (2026-05-09)
+
+### 1. WS upgrade 時に wss.rooms へ即時登録
+
+`ensureValidated()` 内 (hello 受信時) に登録していたため、host が end しても guest がまだ未登録で `terminated` メッセージが届かないレースがあった。
+
+修正: `wss.handleUpgrade(...)` の callback 内、`wss.emit('connection')` の直前で `wss.rooms.get(roomId).add(ws)` を実行。`participant.room_id` または URL クエリの `wsRoomId` をキーに使う。
+
+### 2. ゲストの会議終了ボタンを非表示
+
+`showMeetingScreen()` で `state.isHost` が false なら `#btn-end` を `hidden` 属性で隠す。サーバー側は `requireHost` で 403 を返す設計なので二重ガード。
+
+### 3. #room-id 入力欄に autocomplete="off"
+
+iOS Safari でメールアドレスを `#room-id` フィールドへ補完してしまい、`/rooms/NINNZINN.3BONN@GMAIL.COM/join` の 404 が出る誤動作を防止。
+
+---
+
+## 51. STT プロバイダー別 議事録プロンプト切替 (2026-05-09)
+
+### 背景
+
+ユーザー要望: ElevenLabs Scribe は文字起こし精度が高いので議事録 LLM のクレンジングは最小限にしたい。Google STT の場合は従来通り誤認識修正も行う。
+
+### 実装
+
+- `AIService` に共通ヘルパーを追加:
+  - `_isHighAccuracyStt(roomMeta)` — `roomMeta.stt_provider === 'elevenlabs'` 判定。
+  - `_buildMinutesEditingRules(roomMeta)` — `[ALLOWED EDITS]` / `[FORBIDDEN EDITS]` を STT 別に出し分け。
+- 議事録生成 3 経路すべてに反映:
+  1. `generateMinutesFromTranscript` — 高精度 STT 時は `reconstructSentences` (誤変換修正含む前段) をスキップ。
+  2. `generateMinutesPerChunk` — `_buildMinutesEditingRules` で編集ルール出し分け。
+  3. `analyzeMeeting(type='minutes')` — `aiConfig.stt_provider` を読み、専用プロンプトに分岐。
+- `app.js` 側で `roomMeta` / `aiConfig` に `stt_provider: room.stt_provider || 'google'` を含めて伝搬。
+
+### 編集ルールの差分
+
+| 区分 | Google (default) | ElevenLabs |
+|---|---|---|
+| 誤認識修正 | 許可 | 禁止 (文字起こし精度を信頼) |
+| フィラー削除 | 許可 | 許可 |
+| 段落統合 | 許可 | 許可 |
+| 句読点補正 | 許可 | 許可 |
+
+---
+
+## 52. チャンキングシステム検証 + 重大バグ修正 (2026-05-09)
+
+### 検証スコープ
+
+`docs/CLOUD_DB_MIGRATION_PLAN.md` のチャンクシステム (L1〜L10) について `tests/chunking.test.js` を新規 47 ケースで網羅。
+
+### 発見した本番影響バグ
+
+#### Bug A: `chunkUtterances` の無限ループ → OOM
+
+- **再現条件**: あるチャンクに 1 件しか入らない状態 + 残りの発話あり + `overlapMs > 0`。
+- **実会議で起こりうるトリガー**:
+  - 巨大な発話 1 件 (transcript 数万文字)
+  - **10 分超のサイレント区間** (時間窓を跨ぐ無音 / 会議開始前のセットアップ時間など)
+- **挙動**: `overlapStart === chunkStart` となり `chunkStart` が前進せず無限ループ → Cloud Run でメモリ食い尽くしクラッシュ。
+- **修正**: `chunking.js` で `chunkEnd > chunkStart + 1` のときのみ overlap rewind、それ以外は強制 `chunkStart = chunkEnd`。
+
+#### Bug B: `chunks` サブコレクションの Firestore 複合インデックス未登録
+
+- **影響範囲**: `chunkRepo.findByRoom(roomId, 'minutes')` の `where('analysis_type') + orderBy('chunk_index')` クエリ。
+- **発生タイミング**: 長時間会議の議事録チャンク再生成 / Reduce 再 Merge 時に `FAILED_PRECONDITION` で 500。
+- **修正**: `firestore.indexes.json` に `chunks` (COLLECTION): `[analysis_type ASC, chunk_index ASC]` を追加してデプロイ。
+
+### テスト追加 (`tests/chunking.test.js`, 47 ケース)
+
+- `estimateTokens` / `shouldChunk` / `chunkUtterances` / `chunkText` / `shouldChunkText`
+- `createSemaphore` の並列度制御
+- `withTimeoutAndRetry` のリトライ + プレースホルダー fallback
+- `mergeMinutesChunks` の chunkIndex 順結合・空 result 除外
+- 30 分 / 1 時間 / 2 時間 / 4 時間会議のシミュレーション (全 utt 網羅・パフォーマンス < 2 秒)
+- 1 件失敗 / 全件タイムアウトでもクラッシュせず議事録生成
+- 上記 2 バグの回帰テスト
+
+### 残る運用上の懸念 (バグではない)
+
+1. Cloud Run `min-instances=0` + 議事録生成を `setTimeout(0)` で実行している点。トラフィックがなくなるとインスタンスが落ちる可能性。長時間会議で要監視。
+2. minutes → summary → todo がシーケンシャル。4 時間会議だと数分の総処理時間。
+3. `withTimeoutAndRetry` の最悪値 = 60秒 × 4 attempts + 1+2+4 秒バックオフ = チャンク 1 件あたり最悪 4 分強。
+
+---
+
+## 53. イースターエッグ: 赤テーマ + ミニゲーム「血まみれの目」 (2026-05-09)
+
+### 仕様
+
+- プロフィール → 設定 → 表示テーマに **"レッド"** 選択肢 (ログイン中のみ表示)。
+- レッド選択で `data-theme="red"` が `<html>` に付き、画面がホラー仕様 (赤グラデ + パルス) に。
+- レッド状態 + ログイン中 で「会議を始める」ボタンを押すとミニゲーム起動。
+- ゲーム: 5 分タイマー。赤い目をタップで +10点 (コンボボーナス最大 +9)、紫の呪い目で -50点 + コンボリセット。後半は呪い目の出現率が上昇 (12% → 30%)。
+- スコアは `user_accounts.game_high_score` に保存 (高スコア更新時のみ)。バックエンド失敗時は localStorage に退避。
+
+### 影響範囲を抑える設計
+
+- 新規ファイル `src/frontend/easter-game.js` に隔離し、`window.AppEasterGame` として公開。
+- `bindings.js` の start ボタン委譲は `window.AppEasterGame.shouldIntercept()` が true (= 赤テーマ + 認証済み + ゲーム未稼働) のときだけゲームへ分岐。
+- `data-theme="red"` が付いていない限り CSS は発火しない。
+- バックエンドはスキーマ変更不要 (Firestore は新フィールド追加で済む。SQLite は `ensureColumn` で `game_high_score INTEGER DEFAULT 0` 追加)。
+- 通常の会議フローへの影響はゼロ。
+
+### 追加したエンドポイント
+
+- `POST /me/easter-score` — スコア送信。`requireSession` 必須。`{ is_new_high_score, high_score, previous }` を返す。
+- `GET /me/easter-score` — ハイスコア取得。
+
+### ファイル一覧
+
+新規:
+- `src/frontend/easter-game.js`
+
+変更:
+- `src/frontend/index.html` — script タグ追加
+- `src/frontend/style.css` — レッドテーマ + ゲーム UI スタイル末尾追記
+- `src/frontend/profile.js` — テーマ選択肢に "レッド" 追加 (`AppAuth.state.account` がある時のみ)
+- `src/frontend/bindings.js` — start ボタンに intercept フック
+- `src/backend/repo/firestore/user-account-repo.js` — `getGameHighScore` / `updateGameHighScore`
+- `src/backend/repo/sqlite/user-account-repo.js` — 同上
+- `src/backend/repo/sqlite/db.js` — `ensureColumn('user_accounts', 'game_high_score', 'INTEGER DEFAULT 0')`
+- `src/backend/app.js` — `/me/easter-score` ルート追加

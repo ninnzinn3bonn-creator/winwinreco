@@ -24,24 +24,31 @@
 
 ---
 
-## 2. 現状サマリ (2026-04-30 時点)
+## 2. 現状サマリ (2026-05-09 時点)
 
-### 完了済みのフェーズ
-- セキュリティ強化 (auth / control_token / helmet / rate-limit / 入力サニタイズ) — タスク #1〜#9
-- DB / アカウント / セッション / 履歴 API / 過去会議コンテクスト — タスク #10〜#20
-- UI 大刷新 (デザイントークン / 各画面のリデザイン / モバイル対応) — タスク #21〜#33
-- GIJIRO リブランド・プロフィール画面・welcome 画面・マイク自動接続 — タスク #34〜#76
-- レビュー対応 R1〜R14 (表示名自動入力・ボタン整理・VAD 調整・議事録プロンプト書き換え 等) — タスク #77〜#90
-- バグ修正 B1〜B7 (エディタの自動上書きバグ) — タスク #91〜#97
-- Phase5 UX 微調整 (P5-1〜P5-7) — 完了
+### 本番稼働状況
+- **本番 URL**: `https://winwinreco-227823039350.asia-northeast1.run.app`
+- **DB**: Cloud Firestore (Native mode, `asia-northeast1`)
+- **デプロイ**: Cloud Build 経由で main push → 自動 deploy
+- **オーナーアカウント**: `ninnzinn.3bonn@gmail.com` (allowlist bypass)
+- **シークレット**: GCP Secret Manager (`gemini-api-key` / `google-api-key` / `groq-api-key` / `elevenlabs-api-key`)
 
-### 未完で次に着手すべき作業
-**Section C / L シリーズ — 長時間会議向けのチャンキング戦略 (L1〜L11)**
-1 時間以上の会議で AI 解析が返ってこない問題への対応。**時間ベース分割 (10 分窓) × Map-Reduce × 適応トリガー** の構成で実装する計画が `docs/TASKS.md` に細かく書かれている。
+### 完了済みのフェーズ (主要なもの)
+- セキュリティ強化 / DB / アカウント / セッション (タスク #1〜#20)
+- UI 大刷新・GIJIRO リブランド・プロフィール画面 (タスク #21〜#76)
+- レビュー対応 R1〜R14 / B1〜B7 / Phase5 UX
+- L1〜L10: 長時間会議チャンキング (時間窓 10 分 / Map-Reduce / 並列度 2 / タイムアウト+リトライ / 部分再生成)
+- F1〜F5: ユーザーフィードバック改善
+- DB-Phase0〜6: SQLite ↔ Firestore 抽象化 → 本番 Cloud Run 起動完了
+- collectionGroup → findInRoom パターン統一 (`docs/ARCHITECTURE.md` に規約あり)
+- STT プロバイダー別 議事録プロンプト (ElevenLabs ↔ Google)
+- チャンキング無限ループバグ修正 + 47 テスト追加 (`tests/chunking.test.js`)
+- イースターエッグ ミニゲーム (赤テーマ + 「血まみれの目」)
 
-実装順: **L1 → L2 → L3 → L4 → L5 → L6 → L7 → L8 → L9 → L10 → L11**
-
-L1 が他すべての前提なので、必ずここから着手。
+### 残タスク (`docs/TASKS.md`)
+- **L11** (low): 会議中ストリーミング議事録生成 (将来検討、計測してから判断)
+- **OPS-1** (medium): Cloud Billing Budget Alert ($5/$10/$20) の手動設定
+- **OPS-2** (medium): API キーローテーション (§48 のトラブルシュート時に平文露出あり)
 
 ---
 
@@ -105,12 +112,14 @@ L1 が他すべての前提なので、必ずここから着手。
 
 ## 6. 環境メモ
 
-- **Node.js + Express + SQLite3 + WebSocket** が backend。
+- **Node.js + Express + SQLite3 / Firestore + WebSocket** が backend (`DB_DRIVER` で切替)。
 - **Vanilla JS + CSS** が frontend。バンドラー無し。`<script src="...">` で順次読み込み。
-- **主要グローバル**: `window.AppState.state` / `window.AppDom` / `window.AppAuth` / `window.AppProfile` / `window.AppMicPresets`
+- **主要グローバル**: `window.AppState.state` / `window.AppDom` / `window.AppAuth` / `window.AppProfile` / `window.AppMicPresets` / `window.AppEasterGame`
 - `src/frontend/main.js` は **2900 行超** あるので、頭から読まず **関数名 grep** で目的箇所を特定するのが速い。
 - **WSL / Linux サンドボックスで日本語パス (`gpt - コピー`) を扱うとファイル切り捨て** が起きるケースあり (PROGRESS.md §43 の前後参照)。**Windows ネイティブの Read/Edit ツールを優先**。
-- **STT は Google Speech-to-Text が既定** (`STT_PROVIDER` 環境変数で `groq` に切替可)。AI 推論 (要約/議事録生成) は **Groq の gpt-oss-120b** が既定。
+- **既定の AI プロバイダ / モデル**: 本番 (`cloudbuild.yaml`) は `AI_PROVIDER=gemini` (`gemini-2.5-flash`)、`STT_PROVIDER=google`。プロバイダ切替は環境変数または `aiConfig` 経由。
+- **STT 別の議事録プロンプト**: `AIService._isHighAccuracyStt(roomMeta)` が `elevenlabs` のとき体裁整形のみのプロンプトに切替。詳細は `docs/ARCHITECTURE.md` の「STT プロバイダー別 議事録プロンプト」節。
+- **collectionGroup を避ける**: Firestore で room scope のクエリは必ず `findInRoom(id, roomId)` などサブコレクション直接アクセスを使う (規約は `docs/ARCHITECTURE.md` 参照)。
 
 ---
 
