@@ -114,14 +114,6 @@ function createApp(repositories = {}) {
     const auth = createAuth({ participantRepo, roomRepo, accountRepo, sessionRepo });
     const { requireParticipant, requireHost, requireSession, requireOwner, attachSessionIfPresent } = auth;
 
-    // allowlist チェックをスキップする条件:
-    //   - SIGNUP_ALLOWLIST_DISABLED=true が明示されている
-    //   - NODE_ENV=test かつ SIGNUP_ALLOWLIST_DISABLED=false と明示されていない
-    // テストで allowlist 有効にしたい場合は SIGNUP_ALLOWLIST_DISABLED=false を明示する。
-    const SIGNUP_ALLOWLIST_DISABLED =
-        process.env.SIGNUP_ALLOWLIST_DISABLED === 'true' ||
-        (process.env.NODE_ENV === 'test' && process.env.SIGNUP_ALLOWLIST_DISABLED !== 'false');
-
     // Rate limiters — tune per concern:
     //   general:  covers all /rooms/* + /api/*
     //   ai:       tighter cap for the expensive AI generation routes

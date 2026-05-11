@@ -36,7 +36,7 @@ When UI, scroll behavior, or mobile layouts change, also review
 
 - Backend: Node.js + Express
 - Frontend: Vanilla JavaScript + CSS
-- Database: SQLite3
+- Database: SQLite3 (local dev / CI) または Firestore (Cloud Run 本番)。`DB_DRIVER` env で切替
 - Communication: WebSocket
 - STT: Groq Whisper or Google Speech-to-Text
 - AI: Groq or Gemini

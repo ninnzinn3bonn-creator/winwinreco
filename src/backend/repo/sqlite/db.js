@@ -78,7 +78,6 @@ async function initDB(dbPath) {
                     control_token TEXT,
                     location_id TEXT,
                     joined_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-                    left_at DATETIME,
                     FOREIGN KEY(room_id) REFERENCES rooms(id)
                 )`);
 
@@ -224,19 +223,6 @@ async function initDB(dbPath) {
                                         resolveChunks();
                                     }
                                 );
-                            });
-                        }))
-                        .then(() => new Promise((resolveAllowlist, rejectAllowlist) => {
-                            db.run(`CREATE TABLE IF NOT EXISTS host_allowlist (
-                                email TEXT PRIMARY KEY,
-                                display_name TEXT DEFAULT '',
-                                added_by TEXT DEFAULT '',
-                                added_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-                                note TEXT DEFAULT '',
-                                disabled INTEGER DEFAULT 0
-                            )`, (allowlistErr) => {
-                                if (allowlistErr) return rejectAllowlist(allowlistErr);
-                                resolveAllowlist();
                             });
                         }))
                         .then(() => resolve(db))
