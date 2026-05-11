@@ -179,7 +179,11 @@ async function initDB(dbPath) {
                         // 事後承認フロー: 既存ユーザーは 'approved' になる (DEFAULT が適用される)。
                         // 新規 signup は repo の create() で明示的に 'pending' を渡す。
                         // 値: 'pending' | 'approved' | 'rejected'
-                        ensureColumn(db, 'user_accounts', 'status', "TEXT DEFAULT 'approved'")
+                        ensureColumn(db, 'user_accounts', 'status', "TEXT DEFAULT 'approved'"),
+                        // DB-based ownership. 1 = owner. 旧 OWNER_EMAIL 環境変数を
+                        // 置き換える。最初のユーザーが /admin/bootstrap-owner で
+                        // 自分自身をオーナーに昇格させてセットアップを始められる。
+                        ensureColumn(db, 'user_accounts', 'is_owner', 'INTEGER DEFAULT 0')
                     ])
                         .then(() => new Promise((resolveActions, rejectActions) => {
                             db.run(`CREATE TABLE IF NOT EXISTS actions (

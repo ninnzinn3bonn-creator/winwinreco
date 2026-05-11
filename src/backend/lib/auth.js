@@ -170,19 +170,26 @@ function createAuth({ participantRepo, roomRepo, sessionRepo, accountRepo } = {}
     }
 
     /**
-     * Only the account whose email matches OWNER_EMAIL env var can pass.
+     * オーナー権限チェック。判定順:
+     *   1. DB の is_owner = 1
+     *   2. (後方互換) email が OWNER_EMAIL 環境変数と一致
+     * どちらの仕組みでもオーナーになれる。OWNER_EMAIL は廃止予定だが、既存
+     * デプロイで env var を頼りに動いている運用を壊さないために残してある。
+     *
      * Requires requireSession to have already run (attaches req.account).
      */
     async function requireOwner(req, res, next) {
         await requireSession(req, res, async () => {
+            // DB-based check (primary)
+            if (req.account && Number(req.account.is_owner) === 1) {
+                return next();
+            }
+            // Env-based check (legacy fallback)
             const ownerEmail = (process.env.OWNER_EMAIL || '').toLowerCase();
-            if (!ownerEmail) {
-                return res.status(500).json({ error: 'OWNER_EMAIL not configured' });
+            if (ownerEmail && (req.account.email || '').toLowerCase() === ownerEmail) {
+                return next();
             }
-            if ((req.account.email || '').toLowerCase() !== ownerEmail) {
-                return res.status(403).json({ error: 'owner only' });
-            }
-            next();
+            return res.status(403).json({ error: 'owner only' });
         });
     }
 

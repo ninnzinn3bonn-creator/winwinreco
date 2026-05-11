@@ -140,27 +140,97 @@ document.addEventListener('click', async (ev) => {
     }
 });
 
+/**
+ * オーナー初回ブートストラップ画面。誰もオーナーがいない場合に、
+ * 現在ログインしているユーザーが自分自身をオーナーに昇格できる。
+ */
+function renderBootstrapScreen(me) {
+    const root = document.getElementById('login-section');
+    root.innerHTML = `
+        <h1>初回セットアップ</h1>
+        <p>このシステムにはまだ管理者 (オーナー) がいません。</p>
+        <p>現在ログイン中のアカウント <strong>${escapeHtml(me.account.email)}</strong> をオーナーにしてセットアップを開始できます。</p>
+        <p style="color:#666; font-size:0.9rem;">⚠ 一度設定すると、ここから他のユーザーを承認・拒否できる管理権限を持ちます。</p>
+        <div style="margin-top:20px; display:flex; gap:12px;">
+            <button id="bootstrap-btn" class="approve" style="padding:10px 22px; font-size:1rem;">このアカウントをオーナーにする</button>
+            <a href="/" style="align-self:center;">← トップへ戻る</a>
+        </div>
+        <pre id="error-output" style="color:#c00; margin-top:8px;"></pre>
+    `;
+    document.getElementById('bootstrap-btn').addEventListener('click', async () => {
+        clearError();
+        try {
+            await api('POST', '/admin/bootstrap-owner');
+            // 成功したらリロードで通常 admin UI に入る
+            window.location.reload();
+        } catch (e) {
+            showError(e.message);
+        }
+    });
+}
+
+function renderNoPermissionScreen(me) {
+    const root = document.getElementById('login-section');
+    root.innerHTML = `
+        <h1>権限がありません</h1>
+        <p>現在のアカウント <strong>${escapeHtml(me.account.email)}</strong> には管理者権限がありません。</p>
+        <p>オーナーアカウントでログインしてください。</p>
+        <p><a href="/">← トップへ戻る</a></p>
+    `;
+}
+
+function renderNotLoggedInScreen() {
+    const root = document.getElementById('login-section');
+    root.innerHTML = `
+        <h1>管理画面</h1>
+        <p>ログインしてください。</p>
+        <p><a href="/">← トップへ戻り、画面右上から「ログイン」してください。</a></p>
+    `;
+}
+
 async function init() {
+    let me;
     try {
-        const me = await api('GET', '/auth/me');
-        if (!me || !me.account) return;
-        // オーナーかどうかは /admin/users で 403 が返るかで判定。
+        me = await api('GET', '/auth/me');
+    } catch (_e) {
+        renderNotLoggedInScreen();
+        return;
+    }
+    if (!me || !me.account) {
+        renderNotLoggedInScreen();
+        return;
+    }
+
+    // オーナー判定はサーバーに聞く (DB の is_owner と OWNER_EMAIL の両方を見ている)
+    let status;
+    try {
+        status = await api('GET', '/admin/owner-status');
+    } catch (e) {
+        showError(e.message);
+        return;
+    }
+
+    if (status.is_self_owner) {
+        // 通常の admin UI
         try {
             await reloadAll();
             document.getElementById('login-section').hidden = true;
             document.getElementById('admin-section').hidden = false;
             document.getElementById('current-user-email').textContent = me.account.email;
         } catch (e) {
-            if (e.status === 403) {
-                document.getElementById('login-section').innerHTML =
-                    '<h1>権限がありません</h1><p>オーナーアカウントでログインしてください。</p><p><a href="/">← トップへ戻る</a></p>';
-            } else {
-                showError(e.message);
-            }
+            showError(e.message);
         }
-    } catch (_e) {
-        // 未ログイン → デフォルト画面のまま
+        return;
     }
+
+    if (status.can_bootstrap) {
+        // まだ誰もオーナーでない → 初回セットアップ画面
+        renderBootstrapScreen(me);
+        return;
+    }
+
+    // 他にオーナーがいる + 自分はオーナーでない → 権限なし
+    renderNoPermissionScreen(me);
 }
 
 init();

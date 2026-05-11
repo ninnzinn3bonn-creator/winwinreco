@@ -110,6 +110,55 @@ class UserAccountRepository {
         });
     }
 
+    /**
+     * オーナー一覧 (is_owner = 1)。複数オーナーをサポート。
+     */
+    async findOwners() {
+        return new Promise((resolve, reject) => {
+            this.db.all(
+                `SELECT id, email, display_name, status, is_owner, created_at
+                 FROM user_accounts WHERE is_owner = 1 ORDER BY created_at ASC`,
+                [],
+                (err, rows) => {
+                    if (err) return reject(err);
+                    resolve(rows || []);
+                }
+            );
+        });
+    }
+
+    /**
+     * オーナー総数。0 ならまだブートストラップされていない (初回セットアップ可能)。
+     */
+    async countOwners() {
+        return new Promise((resolve, reject) => {
+            this.db.get(
+                `SELECT COUNT(*) AS c FROM user_accounts WHERE is_owner = 1`,
+                [],
+                (err, row) => {
+                    if (err) return reject(err);
+                    resolve(Number(row?.c || 0));
+                }
+            );
+        });
+    }
+
+    /**
+     * is_owner フラグを切り替え。
+     */
+    async setOwner(id, isOwner) {
+        return new Promise((resolve, reject) => {
+            this.db.run(
+                `UPDATE user_accounts SET is_owner = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?`,
+                [isOwner ? 1 : 0, id],
+                function (err) {
+                    if (err) return reject(err);
+                    resolve({ changes: this.changes });
+                }
+            );
+        });
+    }
+
     async findByEmail(email) {
         const normalized = UserAccountRepository.normalizeEmail(email);
         if (!normalized) return null;

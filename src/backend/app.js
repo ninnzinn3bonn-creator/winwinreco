@@ -136,12 +136,18 @@ function createApp(repositories = {}) {
 
     function serializeAccount(account) {
         if (!account) return null;
+        // OWNER_EMAIL 環境変数による後方互換オーナー判定もここで合算しておく。
+        // フロント側で is_owner=true なら管理リンクを表示する判断に使える。
+        const ownerEmail = (process.env.OWNER_EMAIL || '').toLowerCase();
+        const matchesOwnerEmail = ownerEmail
+            && (account.email || '').toLowerCase() === ownerEmail;
         return {
             id: account.id,
             email: account.email,
             display_name: account.display_name || '',
             // 'pending' | 'approved' | 'rejected'。フロントが承認待ち画面を出すのに使う。
-            status: account.status || 'approved'
+            status: account.status || 'approved',
+            is_owner: Number(account.is_owner) === 1 || matchesOwnerEmail
         };
     }
 
@@ -721,11 +727,13 @@ function createApp(repositories = {}) {
 
             const passwordHash = await hashPassword(parsed.password);
             // 事後承認フロー:
-            //   - OWNER_EMAIL は最初の登録時に自動 approve (admin が自分自身でログインできるように)
+            //   - OWNER_EMAIL に一致 → 自動 approved (後方互換)
             //   - それ以外は status='pending' で作成。admin が /admin で承認するまでログイン不可。
+            // Owner 権限 (is_owner) は signup 時には付与しない。Bootstrap エンドポイント
+            // (/admin/bootstrap-owner) で初回ログインユーザーが自分自身を昇格させる。
             const ownerEmail = (process.env.OWNER_EMAIL || '').toLowerCase();
-            const isOwner = ownerEmail && parsed.email === ownerEmail;
-            const initialStatus = isOwner ? 'approved' : 'pending';
+            const isOwnerEmail = ownerEmail && parsed.email === ownerEmail;
+            const initialStatus = isOwnerEmail ? 'approved' : 'pending';
 
             const account = await accountRepo.create({
                 email: parsed.email,
@@ -841,6 +849,67 @@ function createApp(repositories = {}) {
     app.get('/admin', (req, res) => {
         const path = require('path');
         res.sendFile(path.join(__dirname, '../frontend/admin.html'));
+    });
+
+    /**
+     * オーナー状態の確認用エンドポイント。ログイン済みなら誰でも呼べる。
+     * フロント (/admin) は最初にこれを叩いて、以下のいずれかを判定する:
+     *   - has_owner=false  → 初回セットアップ画面 (「自分をオーナーにする」ボタン)
+     *   - is_self_owner=true → 通常の admin UI を表示
+     *   - 以外            → 「権限がありません」表示
+     */
+    app.get('/admin/owner-status', async (req, res) => {
+        try {
+            await new Promise((resolve) => attachSessionIfPresent(req, res, resolve));
+            if (!req.account) return res.status(401).json({ error: 'Not authenticated' });
+            const ownerCount = accountRepo ? await accountRepo.countOwners() : 0;
+            const ownerEmail = (process.env.OWNER_EMAIL || '').toLowerCase();
+            const matchesEnvOwner = !!(ownerEmail
+                && (req.account.email || '').toLowerCase() === ownerEmail);
+            const isSelfOwner = Number(req.account.is_owner) === 1 || matchesEnvOwner;
+            // OWNER_EMAIL 環境変数が設定されている場合は実質オーナーがいるので
+            // ブートストラップは許可しない (env のオーナーがログインすれば admin に入れる)。
+            const hasOwner = ownerCount > 0 || !!ownerEmail;
+            res.json({
+                has_owner: hasOwner,
+                is_self_owner: isSelfOwner,
+                can_bootstrap: !hasOwner
+            });
+        } catch (error) {
+            console.error('[admin/owner-status]', error);
+            res.status(500).json({ error: 'Failed to fetch owner status' });
+        }
+    });
+
+    /**
+     * ブートストラップ: まだオーナーが 1 人もいない状態で、approved な
+     * ログインユーザーが自分自身をオーナーに昇格できる。一度誰かが昇格すると
+     * has_owner=true になり、以降このエンドポイントは 409 で拒否される。
+     */
+    app.post('/admin/bootstrap-owner', authLimiter, async (req, res) => {
+        try {
+            await new Promise((resolve) => attachSessionIfPresent(req, res, resolve));
+            if (!req.account) return res.status(401).json({ error: 'Not authenticated' });
+            if (!accountRepo) return res.status(503).json({ error: 'Accounts unavailable' });
+
+            const ownerCount = await accountRepo.countOwners();
+            const ownerEmail = (process.env.OWNER_EMAIL || '').toLowerCase();
+            if (ownerCount > 0 || ownerEmail) {
+                return res.status(409).json({
+                    error: 'Owner already exists. Bootstrap is disabled.'
+                });
+            }
+            // approved 状態でなければ admin に入れる意味がない
+            if ((req.account.status || 'approved') !== 'approved') {
+                return res.status(403).json({ error: 'Approve the account first.' });
+            }
+            await accountRepo.setOwner(req.account.id, true);
+            const updated = await accountRepo.findById(req.account.id);
+            res.json({ ok: true, account: serializeAccount(updated) });
+        } catch (error) {
+            console.error('[admin/bootstrap-owner]', error);
+            res.status(500).json({ error: 'Failed to bootstrap owner' });
+        }
     });
 
     // 承認待ち件数 (admin リンクのバッジ表示用)。owner なら誰でも参照可。

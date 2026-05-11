@@ -190,3 +190,86 @@ describe('GET /admin/users', () => {
         expect(owner.status).toBe('approved');
     });
 });
+
+/**
+ * オーナーブートストラップ (DB-based ownership)。
+ * env OWNER_EMAIL を一時的に外して、まっさらな DB で動作を確認する。
+ */
+describe('/admin/owner-status & /admin/bootstrap-owner', () => {
+    let bootDb;
+    let bootApp;
+    let bootAccountRepo;
+    const BOOT_DB = path.join(__dirname, '../db/test-admin-boot.db');
+    const BOOT_EMAIL = 'bootuser@example.com';
+
+    beforeAll(async () => {
+        delete process.env.OWNER_EMAIL;
+        const fs = require('fs');
+        for (const ext of ['', '-wal', '-shm']) {
+            try { fs.unlinkSync(BOOT_DB + ext); } catch (_) { /* ignore */ }
+        }
+        bootDb = await initDB(BOOT_DB);
+        bootAccountRepo = new UserAccountRepository(bootDb);
+        bootApp = createApp({
+            accountRepo: bootAccountRepo,
+            sessionRepo: new SessionRepository(bootDb),
+            userRepo: new UserRepository(bootDb)
+        });
+    });
+
+    afterAll(async () => {
+        await new Promise((res) => bootDb.close(res));
+        const fs = require('fs');
+        for (const ext of ['', '-wal', '-shm']) {
+            try { fs.unlinkSync(BOOT_DB + ext); } catch (_) { /* ignore */ }
+        }
+        // 元の OWNER_EMAIL を復帰しておく (他テストへの影響回避)
+        process.env.OWNER_EMAIL = OWNER_EMAIL;
+    });
+
+    test('未ログインで owner-status は 401', async () => {
+        const res = await request(bootApp).get('/admin/owner-status');
+        expect(res.status).toBe(401);
+    });
+
+    test('owner がまだ誰もいない → can_bootstrap=true', async () => {
+        // signup → approve → login
+        const agent = request.agent(bootApp);
+        await agent.post('/auth/signup').send({ email: BOOT_EMAIL, password: PASSWORD });
+        const acc = await bootAccountRepo.findByEmail(BOOT_EMAIL);
+        await bootAccountRepo.setStatus(acc.id, 'approved');
+        await agent.post('/auth/login').send({ email: BOOT_EMAIL, password: PASSWORD });
+
+        const res = await agent.get('/admin/owner-status');
+        expect(res.status).toBe(200);
+        expect(res.body.has_owner).toBe(false);
+        expect(res.body.is_self_owner).toBe(false);
+        expect(res.body.can_bootstrap).toBe(true);
+    });
+
+    test('bootstrap でオーナー昇格 → 2 回目は 409', async () => {
+        const agent = request.agent(bootApp);
+        await agent.post('/auth/login').send({ email: BOOT_EMAIL, password: PASSWORD });
+        const res = await agent.post('/admin/bootstrap-owner');
+        expect(res.status).toBe(200);
+        expect(res.body.account.is_owner).toBe(true);
+
+        // 2 回目は他のユーザーがやっても 409
+        const otherAgent = request.agent(bootApp);
+        const otherEmail = 'late-comer@example.com';
+        await otherAgent.post('/auth/signup').send({ email: otherEmail, password: PASSWORD });
+        const otherAcc = await bootAccountRepo.findByEmail(otherEmail);
+        await bootAccountRepo.setStatus(otherAcc.id, 'approved');
+        await otherAgent.post('/auth/login').send({ email: otherEmail, password: PASSWORD });
+        const dupRes = await otherAgent.post('/admin/bootstrap-owner');
+        expect(dupRes.status).toBe(409);
+    });
+
+    test('bootstrap 後の owner は /admin/users にアクセスできる', async () => {
+        const agent = request.agent(bootApp);
+        await agent.post('/auth/login').send({ email: BOOT_EMAIL, password: PASSWORD });
+        const res = await agent.get('/admin/users');
+        expect(res.status).toBe(200);
+        expect(Array.isArray(res.body.users)).toBe(true);
+    });
+});
