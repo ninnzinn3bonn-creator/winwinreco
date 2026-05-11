@@ -16,17 +16,19 @@ const { SessionRepository } = require('../src/backend/repo/sqlite/session-repo')
 describe('Account history endpoints', () => {
     let app;
     let db;
+    let accountRepo;
     const dbPath = path.resolve(__dirname, './tmp/test_me_rooms.db');
 
     beforeAll(async () => {
         fs.mkdirSync(path.dirname(dbPath), { recursive: true });
         if (fs.existsSync(dbPath)) fs.unlinkSync(dbPath);
         db = await initDB(dbPath);
+        accountRepo = new UserAccountRepository(db);
         app = createApp({
             roomRepo: new RoomRepository(db),
             participantRepo: new ParticipantRepository(db),
             userRepo: new UserRepository(db),
-            accountRepo: new UserAccountRepository(db),
+            accountRepo,
             sessionRepo: new SessionRepository(db)
         });
     });
@@ -35,13 +37,18 @@ describe('Account history endpoints', () => {
         await new Promise((resolve) => db.close(resolve));
     });
 
+    // 事後承認フロー: signup → repo で approved → login で初めてセッションが発行される。
     async function signupFresh(label) {
         const agent = request.agent(app);
         const email = `${label}+${Date.now()}@example.test`;
-        const signup = await agent
+        const password = 'correcthorse';
+        await agent
             .post('/auth/signup')
-            .send({ email, password: 'correcthorse', display_name: label });
-        return { agent, account: signup.body.account };
+            .send({ email, password, display_name: label });
+        const account = await accountRepo.findByEmail(email);
+        await accountRepo.setStatus(account.id, 'approved');
+        const loginRes = await agent.post('/auth/login').send({ email, password });
+        return { agent, account: loginRes.body.account };
     }
 
     test('/me/rooms requires login', async () => {

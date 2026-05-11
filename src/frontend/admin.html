@@ -3,27 +3,48 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Admin - ホスト管理</title>
+    <title>Admin - ユーザー承認</title>
     <link rel="stylesheet" href="style.css">
     <style>
         #admin-app {
-            max-width: 800px;
+            max-width: 960px;
             margin: 40px auto;
             padding: 0 20px;
         }
         #admin-app h1 { font-size: 1.5rem; margin-bottom: 8px; }
-        #admin-app h2 { font-size: 1.1rem; margin: 24px 0 8px; }
+        #admin-app h2 { font-size: 1.1rem; margin: 28px 0 10px; display: flex; align-items: center; gap: 8px; }
         #current-user-email { font-weight: bold; }
         table { width: 100%; border-collapse: collapse; margin-bottom: 16px; }
-        th, td { text-align: left; padding: 8px 10px; border-bottom: 1px solid #ddd; font-size: 0.9rem; }
-        th { background: #f5f5f5; }
-        #add-host-form { display: flex; gap: 8px; flex-wrap: wrap; }
-        #add-host-form input { flex: 1; min-width: 140px; padding: 6px 8px; border: 1px solid #ccc; border-radius: 4px; }
-        #add-host-form button { padding: 6px 16px; }
+        th, td { text-align: left; padding: 10px 12px; border-bottom: 1px solid #ddd; font-size: 0.92rem; vertical-align: middle; }
+        th { background: #f5f5f5; font-weight: 600; }
         #error-output { color: #c00; margin-top: 8px; white-space: pre-wrap; }
-        .badge-disabled { color: #999; }
-        .badge-active { color: #080; }
-        button.danger { color: #c00; }
+        .user-actions { display: flex; gap: 8px; }
+        .user-actions button { padding: 6px 14px; font-size: 0.85rem; }
+        button.approve { background: #2da44e; color: white; border: none; border-radius: 4px; cursor: pointer; }
+        button.approve:hover { background: #228636; }
+        button.reject { background: #cf222e; color: white; border: none; border-radius: 4px; cursor: pointer; }
+        button.reject:hover { background: #a40e26; }
+        button.revert { background: #6e7781; color: white; border: none; border-radius: 4px; cursor: pointer; padding: 6px 14px; }
+        button.revert:hover { background: #57606a; }
+        .pending-badge {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            min-width: 22px;
+            height: 22px;
+            padding: 0 8px;
+            background: #cf222e;
+            color: white;
+            border-radius: 11px;
+            font-size: 0.75rem;
+            font-weight: 700;
+        }
+        .pending-badge.zero { background: #6e7781; }
+        .status-pending { color: #bf8700; font-weight: 600; }
+        .status-approved { color: #1a7f37; font-weight: 600; }
+        .status-rejected { color: #cf222e; font-weight: 600; }
+        .empty-row { color: #999; font-style: italic; }
+        .section-help { color: #666; font-size: 0.85rem; margin-bottom: 8px; }
     </style>
 </head>
 <body>
@@ -34,30 +55,38 @@
             <p><a href="/">← トップへ戻る</a></p>
         </div>
         <div id="admin-section" hidden>
-            <h1>ホスト管理</h1>
-            <p>ログイン中: <span id="current-user-email"></span></p>
+            <h1>ユーザー承認</h1>
+            <p>ログイン中: <span id="current-user-email"></span> &nbsp;|&nbsp; <a href="/">← トップへ戻る</a></p>
 
-            <h2>登録済みホスト</h2>
-            <table id="host-table">
+            <h2>承認待ち <span id="pending-badge" class="pending-badge zero">0</span></h2>
+            <p class="section-help">新規登録したユーザーがここに表示されます。承認するとログインして機能を使えるようになります。拒否してもレコードは残ります (誤拒否の復帰用)。</p>
+            <table id="pending-table">
                 <thead>
                     <tr>
                         <th>Email</th>
                         <th>表示名</th>
-                        <th>追加日</th>
-                        <th>状態</th>
+                        <th>登録日時</th>
                         <th>操作</th>
                     </tr>
                 </thead>
-                <tbody id="host-tbody"></tbody>
+                <tbody id="pending-tbody"></tbody>
             </table>
 
-            <h2>ホスト追加</h2>
-            <form id="add-host-form">
-                <input name="email" type="email" placeholder="email@example.com" required>
-                <input name="display_name" placeholder="表示名" required>
-                <input name="note" placeholder="メモ (任意)">
-                <button type="submit">追加</button>
-            </form>
+            <h2>すべてのユーザー</h2>
+            <p class="section-help">過去に承認・拒否したユーザーを含む全アカウント。誤って拒否した場合はここから「保留に戻す」で再度承認待ちにできます。</p>
+            <table id="users-table">
+                <thead>
+                    <tr>
+                        <th>Email</th>
+                        <th>表示名</th>
+                        <th>状態</th>
+                        <th>登録日時</th>
+                        <th>操作</th>
+                    </tr>
+                </thead>
+                <tbody id="users-tbody"></tbody>
+            </table>
+
             <pre id="error-output"></pre>
         </div>
     </div>

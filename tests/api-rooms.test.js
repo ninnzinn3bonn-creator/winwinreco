@@ -19,6 +19,7 @@ describe('Room API', () => {
     let app;
     let db;
     let roomRepo;
+    let accountRepo;
     const dbPath = path.resolve(__dirname, './tmp/test_api.db');
 
     beforeAll(async () => {
@@ -29,7 +30,7 @@ describe('Room API', () => {
         const participantRepo = new ParticipantRepository(db);
         const userRepo = new UserRepository(db);
         const userContextRepo = new UserContextRepository(db);
-        const accountRepo = new UserAccountRepository(db);
+        accountRepo = new UserAccountRepository(db);
         const sessionRepo = new SessionRepository(db);
         app = createApp({
             roomRepo, participantRepo, userRepo, userContextRepo,
@@ -42,14 +43,19 @@ describe('Room API', () => {
     });
 
     let emailCounter = 0;
+    // 事後承認フロー: signup → repo で approved → login で初めてセッションが発行される。
     async function signupAgent() {
         const agent = request.agent(app);
         emailCounter += 1;
         const email = `host${emailCounter}+${Date.now()}@example.test`;
-        const signup = await agent
+        const password = 'correcthorse';
+        await agent
             .post('/auth/signup')
-            .send({ email, password: 'correcthorse', display_name: `Host${emailCounter}` });
-        return { agent, account: signup.body.account, email };
+            .send({ email, password, display_name: `Host${emailCounter}` });
+        const account = await accountRepo.findByEmail(email);
+        await accountRepo.setStatus(account.id, 'approved');
+        const loginRes = await agent.post('/auth/login').send({ email, password });
+        return { agent, account: loginRes.body.account, email };
     }
 
     test('POST /rooms/:id/end should end a room', async () => {

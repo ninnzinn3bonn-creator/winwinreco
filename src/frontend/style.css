@@ -3093,6 +3093,24 @@ body.summary-mode.summary-sidebar-collapsed .review-main,
 .auth-modal-error:not(:empty) {
     display: block;
 }
+
+/* 新規登録 → 承認待ち画面のメッセージスタイル */
+.auth-modal-pending-msg {
+    color: var(--color-text);
+    font-size: var(--font-size-base);
+    line-height: 1.5;
+    margin: var(--space-2) 0;
+    padding: var(--space-3);
+    background: var(--color-accent-softer, #ecf9f6);
+    border-left: 3px solid var(--color-accent, #3db8af);
+    border-radius: var(--radius-sm);
+}
+.auth-modal-pending-sub {
+    color: var(--color-text-muted, #6b7280);
+    font-size: var(--font-size-sm);
+    margin: var(--space-2) 0 var(--space-3);
+}
+
 .auth-modal-toggle {
     background: transparent;
     color: var(--color-accent-active);

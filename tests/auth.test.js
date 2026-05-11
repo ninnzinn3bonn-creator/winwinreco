@@ -46,14 +46,20 @@ describe('Participant auth middleware', () => {
     // signup+room-creation handshake. Returns a supertest agent (holds the
     // cookie) plus the ids used by downstream assertions.
     let uniq = 0;
+    // 事後承認フロー: signup は pending を返すだけなので、accountRepo 経由で
+    // approved に切り替えてから /auth/login でセッションを発行する。
     async function seedRoomAndParticipant() {
         uniq += 1;
         const agent = request.agent(app);
         const email = `auth${uniq}+${Date.now()}@example.test`;
-        const signup = await agent.post('/auth/signup').send({
-            email, password: 'correcthorse', display_name: `User${uniq}`
+        const password = 'correcthorse';
+        await agent.post('/auth/signup').send({
+            email, password, display_name: `User${uniq}`
         });
-        const accountId = signup.body.account.id;
+        const account = await accountRepo.findByEmail(email);
+        await accountRepo.setStatus(account.id, 'approved');
+        await agent.post('/auth/login').send({ email, password });
+        const accountId = account.id;
         const roomRes = await agent.post('/rooms').send({});
         const joinRes = await agent
             .post(`/rooms/${roomRes.body.id}/join`)

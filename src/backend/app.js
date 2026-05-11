@@ -139,7 +139,9 @@ function createApp(repositories = {}) {
         return {
             id: account.id,
             email: account.email,
-            display_name: account.display_name || ''
+            display_name: account.display_name || '',
+            // 'pending' | 'approved' | 'rejected'。フロントが承認待ち画面を出すのに使う。
+            status: account.status || 'approved'
         };
     }
 
@@ -710,19 +712,6 @@ function createApp(repositories = {}) {
             const parsed = validateSignupInput(req.body || {});
             if (parsed.error) return res.status(400).json({ error: parsed.error });
 
-            // --- allowlist gate (Phase 3a) ---
-            if (!SIGNUP_ALLOWLIST_DISABLED) {
-                const ownerEmail = (process.env.OWNER_EMAIL || '').toLowerCase();
-                if (parsed.email !== ownerEmail) {
-                    const entry = hostAllowlistRepo
-                        ? await hostAllowlistRepo.findByEmail(parsed.email)
-                        : null;
-                    if (!entry || entry.disabled) {
-                        return res.status(403).json({ error: 'signup not allowed for this email' });
-                    }
-                }
-            }
-
             const existing = await accountRepo.findByEmail(parsed.email);
             if (existing) {
                 // Same generic shape as a signup with a bad password so
@@ -731,10 +720,18 @@ function createApp(repositories = {}) {
             }
 
             const passwordHash = await hashPassword(parsed.password);
+            // 事後承認フロー:
+            //   - OWNER_EMAIL は最初の登録時に自動 approve (admin が自分自身でログインできるように)
+            //   - それ以外は status='pending' で作成。admin が /admin で承認するまでログイン不可。
+            const ownerEmail = (process.env.OWNER_EMAIL || '').toLowerCase();
+            const isOwner = ownerEmail && parsed.email === ownerEmail;
+            const initialStatus = isOwner ? 'approved' : 'pending';
+
             const account = await accountRepo.create({
                 email: parsed.email,
                 passwordHash,
-                displayName: parsed.displayName
+                displayName: parsed.displayName,
+                status: initialStatus
             });
 
             // Mirror the account into the legacy `users` table so the existing
@@ -743,12 +740,20 @@ function createApp(repositories = {}) {
                 await userRepo.upsert({ id: account.id, name: parsed.displayName, profile_text: '' });
             }
 
-            const { token } = await sessionRepo.create(account.id);
-            res.setHeader('Set-Cookie', buildSessionCookie(token, {
-                maxAgeSeconds: SESSION_TTL_SECONDS,
-                secure: COOKIE_SECURE
-            }));
-            res.status(201).json({ account: serializeAccount(account) });
+            // approved (=オーナー) のみセッション発行。pending は承認待ちなのでセッション無し。
+            if (initialStatus === 'approved') {
+                const { token } = await sessionRepo.create(account.id);
+                res.setHeader('Set-Cookie', buildSessionCookie(token, {
+                    maxAgeSeconds: SESSION_TTL_SECONDS,
+                    secure: COOKIE_SECURE
+                }));
+                return res.status(201).json({ account: serializeAccount(account) });
+            }
+
+            return res.status(201).json({
+                pending: true,
+                message: 'ご登録ありがとうございます。管理者の承認をお待ちください。'
+            });
         } catch (error) {
             console.error('[auth/signup]', error);
             res.status(500).json({ error: 'Failed to sign up' });
@@ -772,6 +777,22 @@ function createApp(repositories = {}) {
             const ok = await verifyPassword(password, account?.password_hash || dummy);
             if (!account || !ok) {
                 return res.status(401).json({ error: 'Invalid email or password' });
+            }
+
+            // 事後承認フロー: 'approved' 以外は機能解放しない。
+            // フロントは error_code を見て承認待ち / 拒否のメッセージを出し分ける。
+            const status = account.status || 'approved';
+            if (status === 'pending') {
+                return res.status(403).json({
+                    error_code: 'pending_approval',
+                    error: 'アカウントは管理者の承認待ちです。'
+                });
+            }
+            if (status === 'rejected') {
+                return res.status(403).json({
+                    error_code: 'account_rejected',
+                    error: 'このアカウントは承認されませんでした。管理者にお問い合わせください。'
+                });
             }
 
             const { token } = await sessionRepo.create(account.id);
@@ -814,78 +835,75 @@ function createApp(repositories = {}) {
         }
     });
 
-    // --- Admin: host allowlist management (Phase 3b) ---
-    // All routes require owner-level session. /admin HTML is served statically.
+    // --- Admin: 事後承認ユーザー管理 ---
+    // 全 admin エンドポイントは OWNER_EMAIL の所有者セッションが必要。
 
     app.get('/admin', (req, res) => {
         const path = require('path');
         res.sendFile(path.join(__dirname, '../frontend/admin.html'));
     });
 
-    app.get('/admin/hosts', requireOwner, async (req, res) => {
+    // 承認待ち件数 (admin リンクのバッジ表示用)。owner なら誰でも参照可。
+    app.get('/admin/users/pending/count', requireOwner, async (req, res) => {
         try {
-            const hosts = hostAllowlistRepo ? await hostAllowlistRepo.list() : [];
-            res.json({ hosts });
+            const count = accountRepo ? await accountRepo.countPending() : 0;
+            res.json({ count });
         } catch (error) {
-            console.error('[admin/hosts:get]', error);
-            res.status(500).json({ error: 'Failed to list hosts' });
+            console.error('[admin/users/pending/count]', error);
+            res.status(500).json({ error: 'Failed to count pending users' });
         }
     });
 
-    app.post('/admin/hosts', requireOwner, async (req, res) => {
+    // 承認待ちユーザー一覧。
+    app.get('/admin/users/pending', requireOwner, async (req, res) => {
         try {
-            const { email, display_name, note } = req.body || {};
-            if (!email || !display_name) {
-                return res.status(400).json({ error: 'email and display_name required' });
-            }
+            const users = accountRepo ? await accountRepo.findPending() : [];
+            res.json({ users });
+        } catch (error) {
+            console.error('[admin/users/pending]', error);
+            res.status(500).json({ error: 'Failed to list pending users' });
+        }
+    });
+
+    // 全ユーザー一覧 (status 別の管理用)。
+    app.get('/admin/users', requireOwner, async (req, res) => {
+        try {
+            const users = accountRepo ? await accountRepo.findAll() : [];
+            res.json({ users });
+        } catch (error) {
+            console.error('[admin/users:get]', error);
+            res.status(500).json({ error: 'Failed to list users' });
+        }
+    });
+
+    // 承認 / 拒否 / 保留戻し。レコードは削除しない (拒否でも保持)。
+    app.post('/admin/users/:id/approve', requireOwner, async (req, res) => {
+        try {
+            if (!accountRepo) return res.status(503).json({ error: 'Accounts unavailable' });
+            const result = await accountRepo.setStatus(req.params.id, 'approved');
+            if (!result.changes) return res.status(404).json({ error: 'user not found' });
+            res.json({ ok: true });
+        } catch (error) {
+            console.error('[admin/users/approve]', error);
+            res.status(500).json({ error: 'Failed to approve user' });
+        }
+    });
+
+    app.post('/admin/users/:id/reject', requireOwner, async (req, res) => {
+        try {
+            if (!accountRepo) return res.status(503).json({ error: 'Accounts unavailable' });
+            // owner 自身の reject は禁止 (admin がロックアウトされるため)
+            const target = await accountRepo.findById(req.params.id);
             const ownerEmail = (process.env.OWNER_EMAIL || '').toLowerCase();
-            if (email.toLowerCase() === ownerEmail) {
-                return res.status(400).json({ error: 'cannot add owner to allowlist' });
+            if (target && ownerEmail && target.email.toLowerCase() === ownerEmail) {
+                return res.status(400).json({ error: 'cannot reject the owner account' });
             }
-            if (hostAllowlistRepo) {
-                await hostAllowlistRepo.add({
-                    email,
-                    display_name,
-                    note: note || '',
-                    added_by: req.account.email
-                });
-            }
+            const result = await accountRepo.setStatus(req.params.id, 'rejected');
+            if (!result.changes) return res.status(404).json({ error: 'user not found' });
             res.json({ ok: true });
         } catch (error) {
-            console.error('[admin/hosts:post]', error);
-            res.status(500).json({ error: 'Failed to add host' });
-        }
-    });
-
-    app.delete('/admin/hosts/:email', requireOwner, async (req, res) => {
-        try {
-            const ownerEmail = (process.env.OWNER_EMAIL || '').toLowerCase();
-            if (req.params.email.toLowerCase() === ownerEmail) {
-                return res.status(400).json({ error: 'cannot remove owner' });
-            }
-            if (hostAllowlistRepo) {
-                await hostAllowlistRepo.remove(req.params.email);
-            }
-            res.json({ ok: true });
-        } catch (error) {
-            console.error('[admin/hosts:delete]', error);
-            res.status(500).json({ error: 'Failed to remove host' });
-        }
-    });
-
-    app.patch('/admin/hosts/:email', requireOwner, async (req, res) => {
-        try {
-            const { disabled } = req.body || {};
-            if (typeof disabled !== 'boolean') {
-                return res.status(400).json({ error: 'disabled must be boolean' });
-            }
-            if (hostAllowlistRepo) {
-                await hostAllowlistRepo.setDisabled(req.params.email, disabled);
-            }
-            res.json({ ok: true });
-        } catch (error) {
-            console.error('[admin/hosts:patch]', error);
-            res.status(500).json({ error: 'Failed to update host' });
+            console.error('[admin/users/reject]', error);
+            res.status(500).json({ error: 'Failed to reject user' });
         }
     });
 

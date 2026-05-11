@@ -14,7 +14,7 @@ class UserAccountRepository {
         return (email || '').trim().toLowerCase();
     }
 
-    async create({ email, passwordHash, displayName = '' }) {
+    async create({ email, passwordHash, displayName = '', status = 'pending' }) {
         const normalized = UserAccountRepository.normalizeEmail(email);
         if (!normalized) throw new Error('email is required');
         if (!passwordHash) throw new Error('passwordHash is required');
@@ -22,17 +22,89 @@ class UserAccountRepository {
         const id = newId('acc');
         return new Promise((resolve, reject) => {
             this.db.run(
-                `INSERT INTO user_accounts (id, email, password_hash, display_name)
-                 VALUES (?, ?, ?, ?)`,
-                [id, normalized, passwordHash, displayName],
+                `INSERT INTO user_accounts (id, email, password_hash, display_name, status)
+                 VALUES (?, ?, ?, ?, ?)`,
+                [id, normalized, passwordHash, displayName, status],
                 (err) => {
                     if (err) return reject(err);
                     resolve({
                         id,
                         email: normalized,
                         password_hash: passwordHash,
-                        display_name: displayName
+                        display_name: displayName,
+                        status
                     });
+                }
+            );
+        });
+    }
+
+    /**
+     * 保留中 (status='pending') のユーザーを古い順に返す。管理画面の承認待ちリスト用。
+     */
+    async findPending() {
+        return new Promise((resolve, reject) => {
+            this.db.all(
+                `SELECT id, email, display_name, status, created_at
+                 FROM user_accounts
+                 WHERE status = 'pending'
+                 ORDER BY created_at ASC`,
+                [],
+                (err, rows) => {
+                    if (err) return reject(err);
+                    resolve(rows || []);
+                }
+            );
+        });
+    }
+
+    /**
+     * 全ユーザーを取得 (admin 画面で全体を見る場合用)。
+     */
+    async findAll() {
+        return new Promise((resolve, reject) => {
+            this.db.all(
+                `SELECT id, email, display_name, status, created_at, updated_at
+                 FROM user_accounts
+                 ORDER BY created_at DESC`,
+                [],
+                (err, rows) => {
+                    if (err) return reject(err);
+                    resolve(rows || []);
+                }
+            );
+        });
+    }
+
+    /**
+     * status を更新。'pending' | 'approved' | 'rejected' のみ許可。
+     */
+    async setStatus(id, status) {
+        const allowed = new Set(['pending', 'approved', 'rejected']);
+        if (!allowed.has(status)) throw new Error(`invalid status: ${status}`);
+        return new Promise((resolve, reject) => {
+            this.db.run(
+                `UPDATE user_accounts SET status = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?`,
+                [status, id],
+                function (err) {
+                    if (err) return reject(err);
+                    resolve({ changes: this.changes });
+                }
+            );
+        });
+    }
+
+    /**
+     * 承認待ち件数 (admin リンクのバッジ表示用)。
+     */
+    async countPending() {
+        return new Promise((resolve, reject) => {
+            this.db.get(
+                `SELECT COUNT(*) AS c FROM user_accounts WHERE status = 'pending'`,
+                [],
+                (err, row) => {
+                    if (err) return reject(err);
+                    resolve(Number(row?.c || 0));
                 }
             );
         });

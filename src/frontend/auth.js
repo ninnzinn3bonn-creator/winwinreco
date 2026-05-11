@@ -81,11 +81,20 @@
         return state.account;
     }
 
+    /**
+     * 新規登録。事後承認フローのため、戻り値は次の 2 通り:
+     *   - { pending: true, message }  承認待ち。state.account は null のまま。
+     *   - account オブジェクト        オーナー (OWNER_EMAIL) の場合のみ即時ログイン。
+     */
     async function signup(email, password, displayName) {
         const data = await request('/auth/signup', {
             method: 'POST',
             body: JSON.stringify({ email, password, display_name: displayName })
         });
+        if (data && data.pending) {
+            // 承認待ち: セッション無し。state は触らない。
+            return { pending: true, message: data.message || 'ご登録ありがとうございます。承認をお待ちください。' };
+        }
         state.account = data.account || null;
         notify();
         if (state.account) await backfillAnonymousHistory();
@@ -210,6 +219,27 @@
         }
     }
 
+    /**
+     * 新規登録成功 (承認待ち) のときに、フォームを置き換えてメッセージを表示する。
+     * モーダル自体はそのまま開いた状態を保つ (ユーザーが「閉じる」を押すまで)。
+     */
+    function showSignupPendingScreen(message) {
+        if (!modalOverlay) return;
+        const form = modalOverlay.querySelector('.auth-modal-form');
+        if (!form) return;
+        form.innerHTML = '';
+        form.appendChild(el('h2', { className: 'auth-modal-title' }, '登録完了'));
+        form.appendChild(el('p', { className: 'auth-modal-pending-msg' }, message || 'ご登録ありがとうございます。管理者の承認をお待ちください。'));
+        form.appendChild(el('p', { className: 'auth-modal-pending-sub' }, '承認されると、メールアドレスとパスワードでログインできるようになります。'));
+        form.appendChild(el('div', { className: 'auth-modal-actions' }, [
+            el('button', {
+                type: 'button',
+                className: 'primary',
+                onClick: () => closeLoginModal(null)
+            }, '閉じる')
+        ]));
+    }
+
     function showLoginModal(mode = 'login') {
         closeLoginModal(null);
 
@@ -260,12 +290,28 @@
                     const email = emailInput.value.trim();
                     const password = pwInput.value;
                     const displayName = nameInput.value.trim();
-                    const account = mode === 'signup'
-                        ? await signup(email, password, displayName)
-                        : await login(email, password);
-                    closeLoginModal(account);
+                    if (mode === 'signup') {
+                        const result = await signup(email, password, displayName);
+                        if (result && result.pending) {
+                            // 承認待ち: フォームを置き換えて完了メッセージ表示
+                            showSignupPendingScreen(result.message);
+                            return;
+                        }
+                        closeLoginModal(result);
+                    } else {
+                        const account = await login(email, password);
+                        closeLoginModal(account);
+                    }
                 } catch (err) {
-                    errorBox.textContent = err.message || '処理に失敗しました';
+                    // login 時の pending_approval / account_rejected を専用メッセージで表示
+                    const code = err.data?.error_code;
+                    if (code === 'pending_approval') {
+                        errorBox.textContent = err.message || 'アカウントは管理者の承認待ちです。';
+                    } else if (code === 'account_rejected') {
+                        errorBox.textContent = err.message || 'このアカウントは承認されませんでした。';
+                    } else {
+                        errorBox.textContent = err.message || '処理に失敗しました';
+                    }
                 } finally {
                     submitBtn.disabled = false;
                 }

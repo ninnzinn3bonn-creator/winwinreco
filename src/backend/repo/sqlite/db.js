@@ -175,7 +175,11 @@ async function initDB(dbPath) {
                         ensureColumn(db, 'rooms', 'ai_workspace_updated_at', 'DATETIME'),
                         // F4: ホストが指定した STT プロバイダー・言語を全参加者に適用するために保存。
                         ensureColumn(db, 'rooms', 'stt_provider', 'TEXT DEFAULT \'\''),
-                        ensureColumn(db, 'rooms', 'stt_language', 'TEXT DEFAULT \'\'')
+                        ensureColumn(db, 'rooms', 'stt_language', 'TEXT DEFAULT \'\''),
+                        // 事後承認フロー: 既存ユーザーは 'approved' になる (DEFAULT が適用される)。
+                        // 新規 signup は repo の create() で明示的に 'pending' を渡す。
+                        // 値: 'pending' | 'approved' | 'rejected'
+                        ensureColumn(db, 'user_accounts', 'status', "TEXT DEFAULT 'approved'")
                     ])
                         .then(() => new Promise((resolveActions, rejectActions) => {
                             db.run(`CREATE TABLE IF NOT EXISTS actions (
