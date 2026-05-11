@@ -47,6 +47,22 @@
         { "fieldPath": "user_id", "order": "ASCENDING" },
         { "fieldPath": "user_account_id", "order": "ASCENDING" }
       ]
+    },
+    {
+      "collectionGroup": "user_accounts",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "status", "order": "ASCENDING" },
+        { "fieldPath": "created_at", "order": "ASCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "user_accounts",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "is_owner", "order": "ASCENDING" },
+        { "fieldPath": "created_at", "order": "ASCENDING" }
+      ]
     }
   ],
   "fieldOverrides": []

@@ -1,6 +1,10 @@
 const { newId } = require('../../lib/ids');
 const { getDb, fromTimestamp, serverTs } = require('./db');
 
+/**
+ * Firestore 実装 — SQLite 版 (src/backend/repo/sqlite/user-account-repo.js) と
+ * メソッドシグネチャを一致させる。事後承認フロー (status / is_owner) サポート。
+ */
 class UserAccountRepository {
     constructor() {
         this.col = getDb().collection('user_accounts');
@@ -16,12 +20,15 @@ class UserAccountRepository {
             email: d.email,
             password_hash: d.password_hash,
             display_name: d.display_name || '',
+            status: d.status || 'approved',
+            // Firestore は boolean だが、SQLite との互換のため数値で返す
+            is_owner: d.is_owner === true || d.is_owner === 1 ? 1 : 0,
             created_at: fromTimestamp(d.created_at),
             updated_at: fromTimestamp(d.updated_at)
         };
     }
 
-    async create({ email, passwordHash, displayName = '' }) {
+    async create({ email, passwordHash, displayName = '', status = 'pending' }) {
         const normalized = UserAccountRepository.normalizeEmail(email);
         if (!normalized) throw new Error('email is required');
         if (!passwordHash) throw new Error('passwordHash is required');
@@ -39,6 +46,8 @@ class UserAccountRepository {
             email: normalized,
             password_hash: passwordHash,
             display_name: displayName,
+            status,
+            is_owner: false,
             created_at: serverTs(),
             updated_at: serverTs()
         });
@@ -46,7 +55,8 @@ class UserAccountRepository {
             id,
             email: normalized,
             password_hash: passwordHash,
-            display_name: displayName
+            display_name: displayName,
+            status
         };
     }
 
@@ -80,7 +90,85 @@ class UserAccountRepository {
         });
     }
 
-    // Easter egg ハイスコア。スキーマ変更不要で user_accounts ドキュメントへ追加保存。
+    // --- 事後承認フロー: 承認待ち管理 -------------------------------------
+
+    /**
+     * 保留中 (status='pending') のユーザーを古い順に返す。
+     */
+    async findPending() {
+        const snap = await this.col
+            .where('status', '==', 'pending')
+            .orderBy('created_at', 'asc')
+            .get();
+        return snap.docs.map((d) => this._toDomain(d.id, d.data()));
+    }
+
+    /**
+     * 全ユーザー一覧 (新しい順)。admin の全体ビュー用。
+     */
+    async findAll() {
+        const snap = await this.col.orderBy('created_at', 'desc').get();
+        return snap.docs.map((d) => this._toDomain(d.id, d.data()));
+    }
+
+    /**
+     * status を更新。'pending' | 'approved' | 'rejected'。
+     */
+    async setStatus(id, status) {
+        const allowed = new Set(['pending', 'approved', 'rejected']);
+        if (!allowed.has(status)) throw new Error(`invalid status: ${status}`);
+        const ref = this.col.doc(id);
+        const snap = await ref.get();
+        if (!snap.exists) return { changes: 0 };
+        await ref.update({ status, updated_at: serverTs() });
+        return { changes: 1 };
+    }
+
+    /**
+     * 承認待ち件数 (バッジ用)。
+     */
+    async countPending() {
+        // Firestore は count() aggregation を使うのが軽量
+        try {
+            const agg = await this.col.where('status', '==', 'pending').count().get();
+            return Number(agg.data().count || 0);
+        } catch (_) {
+            // 古い firebase-admin で count() がない場合のフォールバック
+            const snap = await this.col.where('status', '==', 'pending').get();
+            return snap.size;
+        }
+    }
+
+    // --- DB-based ownership -----------------------------------------------
+
+    async findOwners() {
+        const snap = await this.col
+            .where('is_owner', '==', true)
+            .orderBy('created_at', 'asc')
+            .get();
+        return snap.docs.map((d) => this._toDomain(d.id, d.data()));
+    }
+
+    async countOwners() {
+        try {
+            const agg = await this.col.where('is_owner', '==', true).count().get();
+            return Number(agg.data().count || 0);
+        } catch (_) {
+            const snap = await this.col.where('is_owner', '==', true).get();
+            return snap.size;
+        }
+    }
+
+    async setOwner(id, isOwner) {
+        const ref = this.col.doc(id);
+        const snap = await ref.get();
+        if (!snap.exists) return { changes: 0 };
+        await ref.update({ is_owner: !!isOwner, updated_at: serverTs() });
+        return { changes: 1 };
+    }
+
+    // --- Easter egg ハイスコア --------------------------------------------
+
     async getGameHighScore(id) {
         if (!id) return 0;
         const snap = await this.col.doc(id).get();
