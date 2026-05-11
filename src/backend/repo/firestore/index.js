@@ -9,7 +9,6 @@ const { DictionaryRepo } = require('./dictionary-repo');
 const { UserAccountRepository } = require('./user-account-repo');
 const { SessionRepository } = require('./session-repo');
 const { ChunkRepository } = require('./chunk-repo');
-const { HostAllowlistRepository } = require('./host-allowlist-repo');
 
 async function createRepos() {
     return {
@@ -23,8 +22,7 @@ async function createRepos() {
         dictionaryRepo: new DictionaryRepo(),
         accountRepo: new UserAccountRepository(),
         sessionRepo: new SessionRepository(),
-        chunkRepo: new ChunkRepository(),
-        hostAllowlistRepo: new HostAllowlistRepository()
+        chunkRepo: new ChunkRepository()
     };
 }
 

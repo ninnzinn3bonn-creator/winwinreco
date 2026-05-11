@@ -10,7 +10,6 @@ const { DictionaryRepo } = require('./dictionary-repo');
 const { UserAccountRepository } = require('./user-account-repo');
 const { SessionRepository } = require('./session-repo');
 const { ChunkRepository } = require('./chunk-repo');
-const { HostAllowlistRepository } = require('./host-allowlist-repo');
 
 async function createRepos() {
     const dbPath = process.env.DB_PATH || './db/meeting.db';
@@ -27,7 +26,6 @@ async function createRepos() {
         accountRepo: new UserAccountRepository(db),
         sessionRepo: new SessionRepository(db),
         chunkRepo: new ChunkRepository(db),
-        hostAllowlistRepo: new HostAllowlistRepository(db),
         _raw: db   // shutdown 時の db.close() 用
     };
 }

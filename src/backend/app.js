@@ -108,7 +108,7 @@ function createApp(repositories = {}) {
     const {
         roomRepo, participantRepo, utteranceRepo, analysisRepo, actionRepo,
         userRepo, userContextRepo, dictionaryRepo, aiService,
-        accountRepo, sessionRepo, chunkRepo, hostAllowlistRepo
+        accountRepo, sessionRepo, chunkRepo
     } = repositories;
 
     const auth = createAuth({ participantRepo, roomRepo, accountRepo, sessionRepo });
