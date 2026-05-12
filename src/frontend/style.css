@@ -4719,3 +4719,115 @@ body.easter-flash-time   { animation: easter-flash-time 0.28s; }
     color: #ffb0b0;
     opacity: 0.85;
 }
+
+/* -----------------------------------------------------------------------
+ * Toast 通知 (AppToast) — U-4 エラー表示統一
+ * --------------------------------------------------------------------- */
+#app-toast-container {
+    position: fixed;
+    bottom: 16px;
+    right: 16px;
+    display: flex;
+    flex-direction: column-reverse;
+    gap: 8px;
+    z-index: 9999;
+    pointer-events: none;
+}
+
+.app-toast {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    min-width: 240px;
+    max-width: 360px;
+    padding: 12px 14px 12px 16px;
+    border-radius: 8px;
+    border-left: 4px solid transparent;
+    background: var(--color-surface, #fff);
+    box-shadow: 0 4px 16px rgba(0,0,0,0.12), 0 1px 4px rgba(0,0,0,0.08);
+    pointer-events: all;
+    animation: toast-in 0.2s ease-out;
+    position: relative;
+}
+
+.app-toast--leaving {
+    animation: toast-out 0.3s ease-in forwards;
+}
+
+@keyframes toast-in {
+    from { transform: translateX(32px); opacity: 0; }
+    to   { transform: translateX(0);    opacity: 1; }
+}
+
+@keyframes toast-out {
+    from { transform: translateX(0);    opacity: 1; }
+    to   { transform: translateX(40px); opacity: 0; }
+}
+
+/* 種類別の左ボーダー色 */
+.app-toast--info    { border-left-color: var(--color-info,    #4a86d4); }
+.app-toast--success { border-left-color: var(--color-success, #3eac68); }
+.app-toast--warn    { border-left-color: var(--color-warning, #e89a3a); }
+.app-toast--error   { border-left-color: var(--color-danger,  #dc5561); }
+
+.app-toast__msg {
+    font-size: 14px;
+    line-height: 1.45;
+    color: var(--color-text, #1b2621);
+    padding-right: 20px;  /* × ボタン分のスペース */
+}
+
+.app-toast__close {
+    position: absolute;
+    top: 8px;
+    right: 8px;
+    background: none;
+    border: none;
+    cursor: pointer;
+    font-size: 16px;
+    line-height: 1;
+    color: var(--color-text-muted, #6b7280);
+    padding: 2px 4px;
+    border-radius: 4px;
+    transition: background 0.15s, color 0.15s;
+}
+.app-toast__close:hover {
+    background: var(--color-surface-strong, #eef2ec);
+    color: var(--color-text, #1b2621);
+}
+
+.app-toast__details {
+    font-size: 12px;
+    color: var(--color-text-muted, #6b7280);
+}
+.app-toast__details summary {
+    cursor: pointer;
+    user-select: none;
+    color: var(--color-accent, #3db8af);
+    font-size: 12px;
+}
+.app-toast__detail-text {
+    margin: 4px 0 0 0;
+    padding: 6px 8px;
+    background: var(--color-surface-strong, #eef2ec);
+    border-radius: 4px;
+    font-size: 11px;
+    white-space: pre-wrap;
+    word-break: break-all;
+    color: var(--color-text, #1b2621);
+    max-height: 120px;
+    overflow-y: auto;
+}
+
+/* スマホ: 画面幅にフィット */
+@media (max-width: 480px) {
+    #app-toast-container {
+        left: 12px;
+        right: 12px;
+        bottom: 12px;
+    }
+    .app-toast {
+        max-width: calc(100vw - 24px);
+        min-width: 0;
+    }
+}

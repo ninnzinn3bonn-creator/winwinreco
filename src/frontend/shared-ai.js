@@ -284,7 +284,7 @@
             state.aiWorkspace.loading = false;
             renderAiWorkspace();
             dom.aiWorkspaceStatus.innerText = `AI解析に失敗しました: ${error.message}`;
-            alert(`AI解析に失敗しました: ${error.message}`);
+            window.AppToast.error('AI解析に失敗しました', { detail: error.message });
         }
     }
 
@@ -366,7 +366,7 @@
         } catch (error) {
             state.liveMeetingAnalysis.status = `${config.title}の解析に失敗しました: ${error.message}`;
             renderMeetingAnalysis();
-            alert(`${config.title}の解析に失敗しました: ${error.message}`);
+            window.AppToast.error(`${config.title}の解析に失敗しました`, { detail: error.message });
         } finally {
             state.liveMeetingAnalysis.loadingKey = '';
             renderMeetingAnalysis();
@@ -385,7 +385,7 @@
             const existing = String(existingMap[type] || '').trim();
             if (!existing) {
                 dom.aiWorkspaceStatus.innerText = 'まだホストが共有結果を生成していません。';
-                alert('まだホストが共有結果を生成していません。');
+                window.AppToast.info('まだホストが共有結果を生成していません。');
                 return;
             }
             setAiWorkspace(type, title, existing);
@@ -437,7 +437,7 @@
             state.aiWorkspace.loading = false;
             renderAiWorkspace();
             dom.aiWorkspaceStatus.innerText = `共有AI結果の生成に失敗しました: ${error.message}`;
-            alert(`共有AI結果の生成に失敗しました: ${error.message}`);
+            window.AppToast.error('共有AI結果の生成に失敗しました', { detail: error.message });
         }
     }
 
@@ -455,7 +455,7 @@
             const existing = String(state.meetingInsights.minutes || state.minutesWorkspace.result || '').trim();
             if (!existing) {
                 dom.minutesWorkspaceStatus.innerText = 'まだホストが議事録を生成していません。';
-                alert('まだホストが議事録を生成していません。');
+                window.AppToast.info('まだホストが議事録を生成していません。');
                 return;
             }
             state.minutesWorkspace.result = existing;
@@ -495,7 +495,7 @@
             dom.minutesOutputEditor.scrollIntoView({ behavior: 'smooth', block: 'center' });
         } catch (error) {
             dom.minutesWorkspaceStatus.innerText = `議事録生成に失敗しました: ${error.message}`;
-            alert(`議事録生成に失敗しました: ${error.message}`);
+            window.AppToast.error('議事録生成に失敗しました', { detail: error.message });
         } finally {
             state.minutesWorkspace.loading = false;
             renderMinutesWorkspace();
@@ -529,11 +529,11 @@
     async function generateCustomAiResult() {
         if (!state.roomId) return;
         const instruction = state.aiWorkspace.instruction.trim();
-        if (!instruction) return alert('自由解析の指示を入力してください。');
+        if (!instruction) return window.AppToast.warn('自由解析の指示を入力してください。');
 
         try {
             if (!String(state.meetingInsights.minutes || '').trim()) {
-                alert('先にホストが議事録を生成してください。');
+                window.AppToast.warn('先にホストが議事録を生成してください。');
                 return;
             }
             state.aiWorkspace.loading = true;
@@ -563,7 +563,7 @@
         } catch (error) {
             state.aiWorkspace.loading = false;
             renderAiWorkspace();
-            alert(`自由解析に失敗しました: ${error.message}`);
+            window.AppToast.error('自由解析に失敗しました', { detail: error.message });
         }
     }
 
@@ -579,34 +579,34 @@
     }
 
     async function copyAiWorkspaceResult() {
-        if (!state.aiWorkspace.result.trim()) return alert('コピーできる解析結果がまだありません。');
+        if (!state.aiWorkspace.result.trim()) return window.AppToast.info('コピーできる解析結果がまだありません。');
         try {
             await navigator.clipboard.writeText(getFormattedAiWorkspaceText());
             dom.aiWorkspaceStatus.innerText = '解析結果をコピーしました。';
         } catch (error) {
-            alert(`コピーに失敗しました: ${error.message}`);
+            window.AppToast.error('コピーに失敗しました', { detail: error.message });
         }
     }
 
     function downloadAiWorkspaceResult() {
-        if (!state.aiWorkspace.result.trim()) return alert('ダウンロードできる解析結果がまだありません。');
+        if (!state.aiWorkspace.result.trim()) return window.AppToast.info('ダウンロードできる解析結果がまだありません。');
         downloadTextFile(`ai-workspace-${state.roomId || 'session'}.txt`, getFormattedAiWorkspaceText());
     }
 
     async function copyMinutesResult() {
         const result = getFormattedMinutesText().trim();
-        if (!result) return alert('コピーできる議事録がまだありません。');
+        if (!result) return window.AppToast.info('コピーできる議事録がまだありません。');
         try {
             await navigator.clipboard.writeText(result);
             dom.minutesWorkspaceStatus.innerText = '議事録をコピーしました。';
         } catch (error) {
-            alert(`コピーに失敗しました: ${error.message}`);
+            window.AppToast.error('コピーに失敗しました', { detail: error.message });
         }
     }
 
     function downloadMinutesResult() {
         const result = getFormattedMinutesText().trim();
-        if (!result) return alert('ダウンロードできる議事録がまだありません。');
+        if (!result) return window.AppToast.info('ダウンロードできる議事録がまだありません。');
         downloadTextFile(`minutes-${state.roomId || 'session'}.txt`, result);
     }
 
@@ -709,7 +709,7 @@
             await loadChunks();
         } catch (error) {
             dom.minutesWorkspaceStatus.innerText = `再生成に失敗しました: ${error.message}`;
-            alert(`チャンク ${chunkIndex + 1} の再生成に失敗しました: ${error.message}`);
+            window.AppToast.error(`チャンク ${chunkIndex + 1} の再生成に失敗しました`, { detail: error.message });
         } finally {
             allBtns.forEach((b) => { b.disabled = false; });
             if (triggerBtn) triggerBtn.textContent = '再生成';

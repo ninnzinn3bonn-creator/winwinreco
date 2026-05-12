@@ -158,7 +158,7 @@
         if (!state.roomId) return;
         const joinUrl = getJoinUrl(state.roomId);
         navigator.clipboard.writeText(joinUrl).then(() => {
-            alert('参加URLをコピーしました');
+            window.AppToast.success('参加URLをコピーしました');
         });
     }
 
@@ -166,7 +166,7 @@
         const displayName = document.getElementById('display-name').value.trim();
         const profileText = document.getElementById('profile-text').value.trim();
         const roomId = document.getElementById('room-id').value.trim().toUpperCase();
-        if (!displayName || !roomId) return alert('表示名とルームIDを入力してください');
+        if (!displayName || !roomId) return window.AppToast.warn('表示名とルームIDを入力してください');
         if (!await window.AppAudio.prepareAudio()) return;
         await joinRoomProcess(roomId, displayName, profileText);
     }
@@ -197,7 +197,7 @@
             const room = await readApiResponse(res);
             await joinRoomProcess(room.id, displayName, profileText);
         } catch (error) {
-            alert(`ルーム作成に失敗しました: ${error?.message || ''}`);
+            window.AppToast.error('ルーム作成に失敗しました', { detail: error?.message || '' });
         }
     }
 
@@ -241,7 +241,7 @@
             showMeetingScreen();
             initWebSocket();
         } catch (_) {
-            alert('ルーム参加に失敗しました');
+            window.AppToast.error('ルーム参加に失敗しました');
         }
     }
 
@@ -421,7 +421,7 @@
             window.AppAudio.stopRecording();
             showSummaryScreen({ justEnded: true });
         } catch (error) {
-            alert(`終了処理に失敗しました: ${error.message}`);
+            window.AppToast.error('終了処理に失敗しました', { detail: error.message });
         }
     }
 

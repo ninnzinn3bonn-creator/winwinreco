@@ -209,7 +209,7 @@
             renderAllLogs();
         } catch (error) {
             window.AppMain?.AppDebug?.log('error', 'Failed to update log', error.message);
-            alert(`ログ更新に失敗しました: ${error.message}`);
+            window.AppToast.error('ログ更新に失敗しました', { detail: error.message });
         }
     }
 
@@ -326,7 +326,7 @@
             try {
                 await updateUtteranceMemory(utterance.id, { transcript: next, transcript_source: 'user' });
             } catch (err) {
-                alert(`保存に失敗しました: ${err && err.message}`);
+                window.AppToast.error('保存に失敗しました', { detail: err && err.message });
             }
         };
         const cancel = () => {

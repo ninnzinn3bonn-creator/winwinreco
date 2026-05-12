@@ -1274,3 +1274,37 @@ iOS Safari でメールアドレスを `#room-id` フィールドへ補完して
 ### テスト結果
 
 7 ケース全 pass。全テストスイート: 155 passed / 19 suites (1 skipped はもともとスキップ扱いのスイート)。
+
+---
+
+## 56. エラー表示を Toast に統一 (U-4) (2026-05-13)
+
+`docs/PRODUCTION_READINESS.md` §3.4 の仕様を完全実装した。
+
+### 変更内容
+
+- `src/frontend/toast.js` 新規追加。`window.AppToast` として `info / success / warn / error` の 4 API を提供。
+  - 右下に固定表示 (`position: fixed; bottom: 16px; right: 16px`)
+  - 新しいトーストが下から積み上がる (`column-reverse`)
+  - 種類別の左ボーダー色 (info=青、success=緑、warn=橙、error=赤)
+  - `detail` オプションで折りたたみ `<details>` による詳細表示
+  - ホバー中は自動消滅タイマーを一時停止
+  - `sticky: true` オプションで手動 × クリック必須モード
+  - `dismissAll()` API
+- `src/frontend/index.html`: `<div id="app-toast-container">` を `</body>` 直前に追加、`<script src="toast.js">` を `state.js` 直後に挿入
+- `src/frontend/style.css`: Toast 用 CSS を末尾に追加 (スマホ対応込み)
+- 既存 `alert()` を 64 箇所置換 (6 ファイル):
+  - `src/frontend/audio.js` 2 箇所
+  - `src/frontend/debug.js` 2 箇所
+  - `src/frontend/dictionary.js` 7 箇所
+  - `src/frontend/log-ui.js` 2 箇所
+  - `src/frontend/main.js` 24 箇所
+  - `src/frontend/meeting-ui.js` 4 箇所
+  - `src/frontend/profile.js` 3 箇所
+  - `src/frontend/shared-ai.js` 16 箇所 (chunk 再生成含む)
+
+スコープ外: `admin.js` (独自 `showError` 使用)、`reset.html` (独立ページ)、`easter-game.js` (イースターエッグ)。
+
+### テスト結果
+
+146 ケース全 pass。フロントエンド構文チェック (`npm run check:frontend`) も全ファイル通過。`grep -rn "alert(" src/frontend --include="*.js"` の結果が 0 件。

@@ -15,6 +15,8 @@ The frontend is split into browser globals with a clearer responsibility boundar
 
 - `src/frontend/state.js`
   - shared mutable app state
+- `src/frontend/toast.js`
+  - `window.AppToast`: right-bottom toast notifications (info / success / warn / error). Loaded immediately after state.js so all subsequent modules can call it.
 - `src/frontend/dom.js`
   - cached DOM references
 - `src/frontend/bindings.js`

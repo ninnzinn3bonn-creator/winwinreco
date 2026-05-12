@@ -114,7 +114,7 @@
 
 - **Node.js + Express + SQLite3 / Firestore + WebSocket** が backend (`DB_DRIVER` で切替)。
 - **Vanilla JS + CSS** が frontend。バンドラー無し。`<script src="...">` で順次読み込み。
-- **主要グローバル**: `window.AppState.state` / `window.AppDom` / `window.AppAuth` / `window.AppProfile` / `window.AppMicPresets` / `window.AppEasterGame`
+- **主要グローバル**: `window.AppState.state` / `window.AppDom` / `window.AppAuth` / `window.AppProfile` / `window.AppMicPresets` / `window.AppEasterGame` / `window.AppToast`
 - `src/frontend/main.js` は **2900 行超** あるので、頭から読まず **関数名 grep** で目的箇所を特定するのが速い。
 - **WSL / Linux サンドボックスで日本語パス (`gpt - コピー`) を扱うとファイル切り捨て** が起きるケースあり (PROGRESS.md §43 の前後参照)。**Windows ネイティブの Read/Edit ツールを優先**。
 - **既定の AI プロバイダ / モデル**: 本番 (`cloudbuild.yaml`) は `AI_PROVIDER=gemini` (`gemini-2.5-flash`)、`STT_PROVIDER=google`。プロバイダ切替は環境変数または `aiConfig` 経由。

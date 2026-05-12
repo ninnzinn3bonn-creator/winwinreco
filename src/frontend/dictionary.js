@@ -39,7 +39,7 @@
         const readingInput = window.AppDom.dictReading;
         const term = termInput.value.trim();
         const reading = readingInput.value.trim();
-        if (!term) return alert('用語を入力してください');
+        if (!term) return window.AppToast.warn('用語を入力してください');
 
         try {
             const res = await fetch('/api/dictionary', {
@@ -53,7 +53,7 @@
             readingInput.value = '';
             await loadDictionary();
         } catch (error) {
-            alert(`追加に失敗しました: ${error.message}`);
+            window.AppToast.error('追加に失敗しました', { detail: error.message });
         }
     }
 
@@ -64,13 +64,13 @@
             if (!res.ok) throw new Error('削除に失敗しました');
             await loadDictionary();
         } catch (error) {
-            alert(`削除に失敗しました: ${error.message}`);
+            window.AppToast.error('削除に失敗しました', { detail: error.message });
         }
     }
 
     async function extractTermsFromText() {
         const text = window.AppDom.dictBulkText.value.trim();
-        if (!text) return alert('解析するテキストを入力してください');
+        if (!text) return window.AppToast.warn('解析するテキストを入力してください');
 
         const btn = window.AppDom.btnDictExtract;
         const resultsArea = window.AppDom.extractResultsArea;
@@ -96,13 +96,13 @@
             state.extractedTerms = (data.terms || []).filter((item) => !existingTerms.includes(item.term));
 
             if (state.extractedTerms.length === 0) {
-                alert('新しい専門用語は見つかりませんでした（すべて登録済みか、適切な単語が検出されませんでした）。');
+                window.AppToast.info('新しい専門用語は見つかりませんでした（すべて登録済みか、適切な単語が検出されませんでした）。');
             } else {
                 renderExtractResults();
             }
         } catch (error) {
             window.AppMain?.AppDebug?.log('error', 'Extraction failed', error.message);
-            alert(`解析に失敗しました:\n${error.message}`);
+            window.AppToast.error('解析に失敗しました', { detail: error.message });
         } finally {
             btn.disabled = false;
             btn.innerText = originalText;
@@ -133,7 +133,7 @@
 
     async function addSelectedTerms() {
         const checkboxes = window.AppDom.extractList.querySelectorAll('input[type="checkbox"]:checked');
-        if (checkboxes.length === 0) return alert('追加する用語を選択してください');
+        if (checkboxes.length === 0) return window.AppToast.warn('追加する用語を選択してください');
 
         const selectedIndices = Array.from(checkboxes).map((cb) => parseInt(cb.dataset.index, 10));
         const toAdd = selectedIndices.map((index) => state.extractedTerms[index]);
@@ -152,7 +152,7 @@
             }
         }
 
-        alert(`${successCount}件の用語を辞書に追加しました。`);
+        window.AppToast.success(`${successCount}件の用語を辞書に追加しました。`);
         window.AppDom.extractResultsArea.classList.add('hidden');
         window.AppDom.dictBulkText.value = '';
         await loadDictionary();

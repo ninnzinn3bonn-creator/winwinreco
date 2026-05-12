@@ -379,7 +379,7 @@
                 }
                 renderHistoryList();
             } catch (err) {
-                alert(`削除に失敗しました: ${err.message}`);
+                window.AppToast.error('削除に失敗しました', { detail: err.message });
             }
             return;
         }
@@ -407,7 +407,7 @@
                 // Server-side failure → put it back and tell the user.
                 state.rooms = [removed, ...state.rooms];
                 renderHistoryList();
-                alert(`削除に失敗しました: ${err.message}`);
+                window.AppToast.error('削除に失敗しました', { detail: err.message });
             }
         }, 5000);
     }
@@ -528,7 +528,7 @@
                 renderHistoryList();
                 showRoomDetail(full.id);
             } catch (err) {
-                alert(`保存に失敗しました: ${err.message}`);
+                window.AppToast.error('保存に失敗しました', { detail: err.message });
             } finally {
                 saveBtn.disabled = false;
             }

@@ -325,7 +325,7 @@
         } catch (error) {
             window.AppMain?.AppDebug?.log('error', 'prepareAudio failed', error.message);
             if (options.updateStatus) updateMicStatus(`マイク確認に失敗しました: ${error.message}`);
-            alert(`マイクの許可に失敗しました: ${error.message}`);
+            window.AppToast.error('マイクの許可に失敗しました', { detail: error.message });
             return false;
         }
     }
@@ -472,7 +472,7 @@
             updateMicStatus('マイクを再接続しました。メーターとログで入力を確認してください。');
             syncMuteUi();
         } catch (error) {
-            alert(`マイクの再接続に失敗しました: ${error.message}`);
+            window.AppToast.error('マイクの再接続に失敗しました', { detail: error.message });
         }
     }
 

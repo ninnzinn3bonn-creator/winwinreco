@@ -208,7 +208,7 @@ async function addDictionaryTerm() {
     const readingInput = window.AppDom.dictReading;
     const term = termInput.value.trim();
     const reading = readingInput.value.trim();
-    if (!term) return alert('用語を入力してください');
+    if (!term) return window.AppToast.warn('用語を入力してください');
 
     try {
         const res = await fetch('/api/dictionary', {
@@ -222,7 +222,7 @@ async function addDictionaryTerm() {
         readingInput.value = '';
         await loadDictionary();
     } catch (error) {
-        alert(`追加に失敗しました: ${error.message}`);
+        window.AppToast.error('追加に失敗しました', { detail: error.message });
     }
 }
 
@@ -235,13 +235,13 @@ async function deleteDictionaryTerm(id) {
         if (!res.ok) throw new Error('削除に失敗しました');
         await loadDictionary();
     } catch (error) {
-        alert(`削除に失敗しました: ${error.message}`);
+        window.AppToast.error('削除に失敗しました', { detail: error.message });
     }
 }
 
 async function extractTermsFromText() {
     const text = window.AppDom.dictBulkText.value.trim();
-    if (!text) return alert('解析するテキストを入力してください');
+    if (!text) return window.AppToast.warn('解析するテキストを入力してください');
 
     const btn = window.AppDom.btnDictExtract;
     const resultsArea = window.AppDom.extractResultsArea;
@@ -268,13 +268,13 @@ async function extractTermsFromText() {
         state.extractedTerms = (data.terms || []).filter(t => !existingTerms.includes(t.term));
 
         if (state.extractedTerms.length === 0) {
-            alert('新しい専門用語は見つかりませんでした（すべて登録済みか、適切な単語が検出されませんでした）。');
+            window.AppToast.info('新しい専門用語は見つかりませんでした（すべて登録済みか、適切な単語が検出されませんでした）。');
         } else {
             renderExtractResults();
         }
     } catch (error) {
         AppDebug.log('error', 'Extraction failed', error.message);
-        alert(`解析に失敗しました:\n${error.message}`);
+        window.AppToast.error('解析に失敗しました', { detail: error.message });
     } finally {
         btn.disabled = false;
         btn.innerText = originalText;
@@ -306,7 +306,7 @@ function renderExtractResults() {
 
 async function addSelectedTerms() {
     const checkboxes = window.AppDom.extractList.querySelectorAll('input[type="checkbox"]:checked');
-    if (checkboxes.length === 0) return alert('追加する用語を選択してください');
+    if (checkboxes.length === 0) return window.AppToast.warn('追加する用語を選択してください');
 
     const selectedIndices = Array.from(checkboxes).map(cb => parseInt(cb.dataset.index, 10));
     const toAdd = selectedIndices.map(i => state.extractedTerms[i]);
@@ -325,7 +325,7 @@ async function addSelectedTerms() {
         }
     }
 
-    alert(`${successCount}件の用語を辞書に追加しました。`);
+    window.AppToast.success(`${successCount}件の用語を辞書に追加しました。`);
     window.AppDom.extractResultsArea.classList.add('hidden');
     window.AppDom.dictBulkText.value = '';
     await loadDictionary();
@@ -784,7 +784,7 @@ async function reconnectMic() {
         updateMicStatus('\u30de\u30a4\u30af\u3092\u518d\u63a5\u7d9a\u3057\u307e\u3057\u305f\u3002\u30e1\u30fc\u30bf\u30fc\u3068\u30ed\u30b0\u3067\u5165\u529b\u3092\u78ba\u8a8d\u3057\u3066\u304f\u3060\u3055\u3044\u3002');
         syncMuteUi();
     } catch (error) {
-        alert(`\u30de\u30a4\u30af\u306e\u518d\u63a5\u7d9a\u306b\u5931\u6557\u3057\u307e\u3057\u305f: ${error.message}`);
+        window.AppToast.error('\u30de\u30a4\u30af\u306e\u518d\u63a5\u7d9a\u306b\u5931\u6557\u3057\u307e\u3057\u305f', { detail: error.message });
     }
 }
 
@@ -1118,7 +1118,7 @@ async function runDirectAnalysis(type, title, instruction = '') {
         state.aiWorkspace.loading = false;
         renderAiWorkspace();
         aiWorkspaceStatus.innerText = `AI解析に失敗しました: ${error.message}`;
-        alert(`AI解析に失敗しました: ${error.message}`);
+        window.AppToast.error('AI解析に失敗しました', { detail: error.message });
     }
 }
 
@@ -1210,7 +1210,7 @@ async function runMeetingAnalysis(key) {
     } catch (error) {
         state.liveMeetingAnalysis.status = `${config.title}の解析に失敗しました: ${error.message}`;
         renderMeetingAnalysis();
-        alert(`${config.title}の解析に失敗しました: ${error.message}`);
+        window.AppToast.error(`${config.title}の解析に失敗しました`, { detail: error.message });
     } finally {
         state.liveMeetingAnalysis.loadingKey = '';
         renderMeetingAnalysis();
@@ -1230,7 +1230,7 @@ async function runSharedResult(type, title) {
         const existing = String(existingMap[type] || '').trim();
         if (!existing) {
             aiWorkspaceStatus.innerText = 'まだホストが共有結果を生成していません。';
-            alert('まだホストが共有結果を生成していません。');
+            window.AppToast.info('まだホストが共有結果を生成していません。');
             return;
         }
         setAiWorkspace(type, title, existing); // B5: instruction は維持
@@ -1291,7 +1291,7 @@ async function runSharedResult(type, title) {
         state.aiWorkspace.loading = false;
         renderAiWorkspace();
         aiWorkspaceStatus.innerText = `共有AI結果の生成に失敗しました: ${error.message}`;
-        alert(`共有AI結果の生成に失敗しました: ${error.message}`);
+        window.AppToast.error('共有AI結果の生成に失敗しました', { detail: error.message });
     }
 }
 
@@ -1310,7 +1310,7 @@ async function runMinutesGeneration() {
         const existing = String(state.meetingInsights.minutes || state.minutesWorkspace.result || '').trim();
         if (!existing) {
             minutesWorkspaceStatus.innerText = 'まだホストが議事録を生成していません。';
-            alert('まだホストが議事録を生成していません。');
+            window.AppToast.info('まだホストが議事録を生成していません。');
             return;
         }
         state.minutesWorkspace.result = existing;
@@ -1354,7 +1354,7 @@ async function runMinutesGeneration() {
         minutesOutputEditor.scrollIntoView({ behavior: 'smooth', block: 'center' });
     } catch (error) {
         minutesWorkspaceStatus.innerText = `議事録生成に失敗しました: ${error.message}`;
-        alert(`議事録生成に失敗しました: ${error.message}`);
+        window.AppToast.error('議事録生成に失敗しました', { detail: error.message });
     } finally {
         state.minutesWorkspace.loading = false;
         renderMinutesWorkspace();
@@ -1390,13 +1390,13 @@ async function generateCustomAiResult() {
     if (!state.roomId) return;
     const instruction = state.aiWorkspace.instruction.trim();
     if (!instruction) {
-        alert('自由解析の指示を入力してください。');
+        window.AppToast.warn('自由解析の指示を入力してください。');
         return;
     }
 
     try {
         if (!String(state.meetingInsights.minutes || '').trim()) {
-            alert('先にホストが議事録を生成してください。');
+            window.AppToast.warn('先にホストが議事録を生成してください。');
             return;
         }
         state.aiWorkspace.loading = true;
@@ -1428,7 +1428,7 @@ async function generateCustomAiResult() {
     } catch (error) {
         state.aiWorkspace.loading = false;
         renderAiWorkspace();
-        alert(`自由解析に失敗しました: ${error.message}`);
+        window.AppToast.error('自由解析に失敗しました', { detail: error.message });
     }
 }
 function scrollToPageEdge(direction) {
@@ -1635,7 +1635,7 @@ function startInlineUtteranceEdit(article, utterance) {
         try {
             await updateUtteranceMemory(utterance.id, { transcript: next, transcript_source: 'user' });
         } catch (err) {
-            alert(`保存に失敗しました: ${err && err.message}`);
+            window.AppToast.error('保存に失敗しました', { detail: err && err.message });
         }
     };
 
@@ -1917,20 +1917,20 @@ function getFormattedMinutesText() {
 
 async function copyAiWorkspaceResult() {
     if (!state.aiWorkspace.result.trim()) {
-        alert('コピーできる解析結果がまだありません。');
+        window.AppToast.info('コピーできる解析結果がまだありません。');
         return;
     }
     try {
         await navigator.clipboard.writeText(getFormattedAiWorkspaceText());
         aiWorkspaceStatus.innerText = '解析結果をコピーしました。';
     } catch (error) {
-        alert(`コピーに失敗しました: ${error.message}`);
+        window.AppToast.error('コピーに失敗しました', { detail: error.message });
     }
 }
 
 function downloadAiWorkspaceResult() {
     if (!state.aiWorkspace.result.trim()) {
-        alert('ダウンロードできる解析結果がまだありません。');
+        window.AppToast.info('ダウンロードできる解析結果がまだありません。');
         return;
     }
     downloadTextFile(`ai-workspace-${state.roomId || 'session'}.txt`, getFormattedAiWorkspaceText());
@@ -1939,21 +1939,21 @@ function downloadAiWorkspaceResult() {
 async function copyMinutesResult() {
     const result = getFormattedMinutesText().trim();
     if (!result) {
-        alert('コピーできる議事録がまだありません。');
+        window.AppToast.info('コピーできる議事録がまだありません。');
         return;
     }
     try {
         await navigator.clipboard.writeText(result);
         minutesWorkspaceStatus.innerText = '議事録をコピーしました。';
     } catch (error) {
-        alert(`コピーに失敗しました: ${error.message}`);
+        window.AppToast.error('コピーに失敗しました', { detail: error.message });
     }
 }
 
 function downloadMinutesResult() {
     const result = getFormattedMinutesText().trim();
     if (!result) {
-        alert('ダウンロードできる議事録がまだありません。');
+        window.AppToast.info('ダウンロードできる議事録がまだありません。');
         return;
     }
     downloadTextFile(`minutes-${state.roomId || 'session'}.txt`, result);
@@ -2000,7 +2000,7 @@ async function updateUtteranceMemory(id, updates, options = {}) {
         renderAllLogs();
     } catch (error) {
         AppDebug.log('error', 'Failed to update log', error.message);
-        alert(`ログ更新に失敗しました: ${error.message}`);
+        window.AppToast.error('ログ更新に失敗しました', { detail: error.message });
     }
 }
 
@@ -2027,7 +2027,7 @@ function copyRoomId() {
     if (!state.roomId) return;
     const joinUrl = getJoinUrl(state.roomId);
     navigator.clipboard.writeText(joinUrl).then(() => {
-        alert('参加URLをコピーしました');
+        window.AppToast.success('参加URLをコピーしました');
     });
 }
 
@@ -2075,7 +2075,7 @@ async function prepareAudio(options = {}) {
     } catch (error) {
         AppDebug.log('error', 'prepareAudio failed', error.message);
         if (options.updateStatus) updateMicStatus(`マイク確認に失敗しました: ${error.message}`);
-        alert(`マイクの許可に失敗しました: ${error.message}`);
+        window.AppToast.error('マイクの許可に失敗しました', { detail: error.message });
         return false;
     }
 }
@@ -2084,7 +2084,7 @@ async function joinRoom() {
     const displayName = document.getElementById('display-name').value.trim();
     const profileText = document.getElementById('profile-text').value.trim();
     const roomId = document.getElementById('room-id').value.trim().toUpperCase();
-    if (!displayName || !roomId) return alert('表示名とルームIDを入力してください');
+    if (!displayName || !roomId) return window.AppToast.warn('表示名とルームIDを入力してください');
     if (!await prepareAudio()) return;
     await joinRoomProcess(roomId, displayName, profileText);
 }
@@ -2119,7 +2119,7 @@ async function createRoom() {
         const room = await readApiResponse(res);
         await joinRoomProcess(room.id, displayName, profileText);
     } catch (error) {
-        alert('ルーム作成に失敗しました: ' + (error?.message || ''));
+        window.AppToast.error('ルーム作成に失敗しました', { detail: error?.message || '' });
     }
 }
 
@@ -2167,7 +2167,7 @@ async function joinRoomProcess(roomId, displayName, profileText = '') {
         showMeetingScreen();
         initWebSocket();
     } catch (error) {
-        alert('ルーム参加に失敗しました');
+        window.AppToast.error('ルーム参加に失敗しました');
     }
 }
 
@@ -2803,7 +2803,7 @@ async function endRoom() {
         // are front-and-center while the user wraps up.
         showSummaryScreen({ justEnded: true });
     } catch (error) {
-        alert(`終了処理に失敗しました: ${error.message}`);
+        window.AppToast.error('終了処理に失敗しました', { detail: error.message });
     }
 }
 

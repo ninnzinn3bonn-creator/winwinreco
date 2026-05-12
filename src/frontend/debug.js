@@ -141,8 +141,8 @@ const DebugMonitor = {
     copyLogs() {
         const data = JSON.stringify(this.logs, null, 2);
         navigator.clipboard.writeText(data)
-            .then(() => alert('コピーしました'))
-            .catch(err => alert('コピー失敗: ' + err));
+            .then(() => window.AppToast?.success('コピーしました'))
+            .catch(err => window.AppToast?.error('コピー失敗', { detail: String(err) }));
     },
 
     downloadLogs() {
