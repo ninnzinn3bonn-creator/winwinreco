@@ -371,6 +371,61 @@ Node 18 以下は非対応 (API Surface の差異が大きい)。
 
 ---
 
+## Logging convention
+
+### logger API
+
+`src/backend/lib/logger.js` が backend 全体の唯一のログ出力点。
+
+```js
+const { logger } = require('./lib/logger'); // パスは呼び出し元から相対で調整
+
+logger.info('メッセージ', { roomId, accountId, requestId });   // 通常ログ
+logger.warn('警告メッセージ', { error: err.message });           // 注意が必要な状況
+logger.error(err, { route: '/rooms/:id/end', requestId, roomId }); // Error オブジェクト + context
+```
+
+`logger.error` の第 1 引数は Error オブジェクト推奨。文字列でも可。`stack` フィールドは Cloud Error Reporting が自動検知する。
+
+### severity の意味
+
+| severity | 用途 |
+|---|---|
+| `INFO` | 正常な動作ログ (起動・リクエスト・処理完了など) |
+| `WARNING` | 想定内の軽微な異常 (past-context build 失敗、chunk upsert 失敗など) |
+| `ERROR` | 想定外のエラー。Cloud Error Reporting に集約される |
+| `CRITICAL` | 将来の拡張用 (現状未使用) |
+
+### ctx に含めるべき項目
+
+ルートハンドラでは以下を ctx に含めること (入手できる範囲で):
+
+- `requestId` — `req.requestId` (x-request-id ミドルウェアで付与)
+- `route` — Express ルートパターン (例: `'POST /rooms/:id/end'`)
+- `roomId` — 対象ルームID
+- `accountId` — ログイン中のアカウントID
+- `error` — エラーメッセージ (logger.warn の場合)
+
+### Cloud Run での挙動
+
+Cloud Run 上では stdout の JSON ログが Cloud Logging に自動取り込まれ、以下が可能になる:
+
+- Cloud Logging クエリ: `jsonPayload.requestId="<id>"` で 1 リクエストの全ログを追跡
+- Cloud Logging クエリ: `severity=ERROR` + `jsonPayload.message:"..."` でエラー検索
+- Cloud Error Reporting が `severity=ERROR` かつ `jsonPayload.stack` を含むログを自動集約
+
+### リクエストログ
+
+`app.js` のリクエストログミドルウェア (`REQUEST_LOG != '0'` で有効) が全リクエスト (静的ファイルと `/api/status` を除く) を `logger.info('request', { method, path, status, latency_ms, requestId })` で出力する。テスト時は `tests/setup.js` で `REQUEST_LOG=0` が設定されているため OFF。
+
+### 禁止事項
+
+- **`console.*` を backend コードで直接呼ぶことを禁止。`logger.*` 経由とする。**
+- `lib/logger.js` 自体の `console.*` はそのまま維持する (logger の実装本体)。
+- `tests/**` のテストコードは対象外 (テスト用 console は維持してよい)。
+
+---
+
 ## Current technical debt
 
 - `src/frontend/main.js` still contains orchestration that can be split further.

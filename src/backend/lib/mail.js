@@ -14,6 +14,8 @@
 
 const provider = process.env.MAIL_PROVIDER || 'console';
 
+const { logger } = require('./logger');
+
 /**
  * Low-level send. All helpers funnel through here.
  *
@@ -22,7 +24,7 @@ const provider = process.env.MAIL_PROVIDER || 'console';
  */
 async function send({ to, subject, html, text }) {
     if (provider === 'console') {
-        console.log('[mail:console]', JSON.stringify({ to, subject, text }, null, 2));
+        logger.info('[mail:console] Email sent (dev mode)', { to, subject, text });
         return { ok: true };
     }
 

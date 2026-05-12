@@ -364,6 +364,8 @@ README.txt           内容の説明
 
 ### 3.7 [D-1] 構造化ログ + Cloud Error Reporting 連携
 
+✅ 完了 (2026-05-13) — PROGRESS.md §58 参照
+
 #### 現状
 - `console.log(...)` / `console.error(...)` が散在
 - 構造化されていない (検索性ゼロ)

@@ -1,6 +1,7 @@
 const speech = require('@google-cloud/speech');
 const { PassThrough } = require('stream');
 const WebSocket = require('ws');
+const { logger } = require('../lib/logger');
 
 function pcm16ToWav(audioBuffer, {
     sampleRate = 16000,
@@ -97,7 +98,7 @@ class STTService {
         });
         const wsUrl = `wss://api.elevenlabs.io/v1/speech-to-text/realtime?${params}`;
 
-        console.log(`[ElevenLabs STT] Connecting to ${wsUrl}`);
+        logger.info('[ElevenLabs STT] Connecting');
 
         const ws = new WebSocket(wsUrl, {
             headers: { 'xi-api-key': this.elevenLabsApiKey }
@@ -121,18 +122,18 @@ class STTService {
         };
 
         ws.on('open', () => {
-            console.log('[ElevenLabs STT] WebSocket connected, waiting for session_started...');
+            logger.info('[ElevenLabs STT] WebSocket connected, waiting for session_started');
         });
 
         ws.on('message', (raw) => {
             let msg;
             try { msg = JSON.parse(raw); } catch { return; }
 
-            console.log('[ElevenLabs STT] msg:', JSON.stringify(msg).slice(0, 200));
+            logger.info('[ElevenLabs STT] msg', { msgSnippet: JSON.stringify(msg).slice(0, 200) });
 
             switch (msg.message_type) {
                 case 'session_started':
-                    console.log('[ElevenLabs STT] session_started — flushing', pending.length, 'pending chunks');
+                    logger.info('[ElevenLabs STT] session_started, flushing pending chunks', { pendingCount: pending.length });
                     sessionReady = true;
                     for (const buf of pending) {
                         sendChunk(buf);
@@ -142,14 +143,14 @@ class STTService {
 
                 case 'partial_transcript':
                     if (msg.text) {
-                        console.log('[ElevenLabs STT] partial:', msg.text);
+                        logger.info('[ElevenLabs STT] partial', { text: msg.text });
                         if (onPartial) onPartial(msg.text);
                     }
                     break;
 
                 case 'committed_transcript':
                     if (msg.text) {
-                        console.log('[ElevenLabs STT] committed transcript:', msg.text);
+                        logger.info('[ElevenLabs STT] committed transcript', { text: msg.text });
                         onData(msg.text);
                     }
                     break;
@@ -157,7 +158,7 @@ class STTService {
                 default:
                     if (msg.error || msg.message_type === 'error') {
                         const errMsg = `ElevenLabs STT error: ${msg.error || msg.message || JSON.stringify(msg)}`;
-                        console.error('[ElevenLabs STT]', errMsg);
+                        logger.error(new Error(errMsg), { tag: '[ElevenLabs STT]' });
                         onError(new Error(errMsg));
                     }
                     break;
@@ -165,12 +166,12 @@ class STTService {
         });
 
         ws.on('error', (err) => {
-            console.error('[ElevenLabs STT Error]:', err.message);
+            logger.error(err, { tag: '[ElevenLabs STT Error]' });
             onError(err);
         });
 
         ws.on('close', (code, reason) => {
-            console.log(`[ElevenLabs STT] WebSocket closed: code=${code} reason=${reason}`);
+            logger.info('[ElevenLabs STT] WebSocket closed', { code, reason: String(reason) });
             // WS が閉じたら PassThrough も破棄する。
             // app.js の sttStream.on('close') が sttStream = null するので、
             // 次の音声チャンク到着時に startSTTStream() が新しい接続を作り直す。
@@ -198,7 +199,7 @@ class STTService {
         passThrough.commit = () => {
             if (!audioSentSinceLastCommit) return;
             if (sessionReady && ws.readyState === WebSocket.OPEN) {
-                console.log('[ElevenLabs STT] mid-session commit sent');
+                logger.info('[ElevenLabs STT] mid-session commit sent');
                 audioSentSinceLastCommit = false;
                 sendChunk(null, true);
             }
@@ -264,7 +265,7 @@ class STTService {
             return this.client
                 .streamingRecognize(request)
                 .on('error', (err) => {
-                    console.error('[STT Stream Error]:', err.message);
+                    logger.error(err, { tag: '[STT Stream Error]' });
                     onError(err);
                 })
                 .on('data', (data) => {

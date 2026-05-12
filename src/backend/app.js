@@ -18,6 +18,7 @@ const {
     sanitizeInstruction
 } = require('./lib/ai-sanitize');
 const { sendPasswordReset } = require('./lib/mail');
+const { logger } = require('./lib/logger');
 
 // RFC-5322-lite email shape check. Server-side defense; final authority is the
 // DB UNIQUE constraint + login flow.
@@ -105,6 +106,35 @@ function createApp(repositories = {}) {
     app.use(express.json({ limit: '1mb' }));
     app.use(securityHeaders());
     app.use(express.static('src/frontend'));
+
+    // リクエスト ID ミドルウェア: 全リクエストに UUID を付与し、ログの追跡に使う。
+    // フロントエンドまたはロードバランサーが x-request-id を渡した場合はそれを優先する。
+    app.use((req, res, next) => {
+        req.requestId = req.headers['x-request-id'] || crypto.randomUUID();
+        res.setHeader('x-request-id', req.requestId);
+        next();
+    });
+
+    // リクエストログミドルウェア: 静的ファイルと heartbeat を除く全リクエストをログする。
+    // REQUEST_LOG=0 で無効化できる (テスト時など)。
+    if (process.env.REQUEST_LOG !== '0') {
+        app.use((req, res, next) => {
+            const start = Date.now();
+            res.on('finish', () => {
+                const latency = Date.now() - start;
+                // 静的ファイル (拡張子付き) と heartbeat は省く
+                if (/\.\w+$/.test(req.path) || req.path === '/api/status') return;
+                logger.info('request', {
+                    requestId: req.requestId,
+                    method: req.method,
+                    path: req.path,
+                    status: res.statusCode,
+                    latency_ms: latency
+                });
+            });
+            next();
+        });
+    }
 
     const {
         roomRepo, participantRepo, utteranceRepo, analysisRepo, actionRepo,
@@ -215,7 +245,7 @@ function createApp(repositories = {}) {
                 });
                 if (block) aiConfig.pastContextBlock = block;
             } catch (err) {
-                console.warn('[pastContext] build failed; continuing without it:', err.message);
+                logger.warn('[pastContext] build failed; continuing without it', { error: err.message, roomId });
             }
         }
 
@@ -243,7 +273,7 @@ function createApp(repositories = {}) {
             if (shouldChunk(utterances)) {
                 // ── Map-Reduce パス (長時間会議) ──────────────────────────
                 const chunks = chunkUtterances(utterances);
-                console.log(`[SharedAI] minutes: chunking ${utterances.length} utterances into ${chunks.length} chunks`);
+                logger.info('[SharedAI] minutes: chunking utterances', { utteranceCount: utterances.length, chunkCount: chunks.length, roomId });
                 broadcastToRoom(roomId, { type: 'chunk_progress', analysis_type: 'minutes', completed: 0, total: chunks.length });
 
                 let completedMinutes = 0;
@@ -282,7 +312,7 @@ function createApp(repositories = {}) {
                                         end_ts: result.endTs || '',
                                         result_text: result.result || '',
                                         status: result.provider === 'error' ? 'error' : 'done'
-                                    }).catch(e => console.warn('[L9] chunk upsert failed:', e.message));
+                                    }).catch(e => logger.warn('[L9] chunk upsert failed', { error: e.message, roomId }));
                                 }
                                 return result;
                             })
@@ -321,7 +351,7 @@ function createApp(repositories = {}) {
             if (shouldChunkText(minutesText)) {
                 // ── [L5] Map-Reduce パス (議事録が長い場合) ──────────────
                 const textChunks = chunkText(minutesText);
-                console.log(`[SharedAI] summary: chunking minutes into ${textChunks.length} text chunks`);
+                logger.info('[SharedAI] summary: chunking minutes', { chunkCount: textChunks.length, roomId });
                 broadcastToRoom(roomId, { type: 'chunk_progress', analysis_type: 'summary', completed: 0, total: textChunks.length });
 
                 let completedSummary = 0;
@@ -374,7 +404,7 @@ function createApp(repositories = {}) {
             if (shouldChunkText(minutesText)) {
                 // ── [L5] Map-Reduce パス ──────────────────────────────────
                 const textChunks = chunkText(minutesText);
-                console.log(`[SharedAI] todo: chunking minutes into ${textChunks.length} text chunks`);
+                logger.info('[SharedAI] todo: chunking minutes', { chunkCount: textChunks.length, roomId });
                 broadcastToRoom(roomId, { type: 'chunk_progress', analysis_type: 'todo', completed: 0, total: textChunks.length });
 
                 let completedTodo = 0;
@@ -452,7 +482,7 @@ function createApp(repositories = {}) {
                 insights_dirty: false
             });
         } catch (error) {
-            console.error('[Shared AI] Automatic generation failed', error);
+            logger.error(error, { route: 'triggerAutomaticMeetingOutputs', roomId });
             await roomRepo.updateInsights(roomId, {
                 insights_status: 'error',
                 insights_dirty: true
@@ -649,7 +679,7 @@ function createApp(repositories = {}) {
             const terms = await dictionaryRepo.findAll();
             res.status(200).json(terms);
         } catch (error) {
-            console.error(error);
+            logger.error(error, { route: 'GET /api/dictionary', requestId: req.requestId });
             res.status(500).json({ error: 'Failed to fetch dictionary' });
         }
     });
@@ -665,7 +695,7 @@ function createApp(repositories = {}) {
             const terms = await aiService.extractDictionaryTerms(text, config);
             res.status(200).json({ terms });
         } catch (error) {
-            console.error('[API] Dictionary extraction error:', error);
+            logger.error(error, { route: 'POST /api/dictionary/extract', requestId: req.requestId });
             res.status(500).json({ error: error.message || 'Failed to extract terms' });
         }
     });
@@ -678,7 +708,7 @@ function createApp(repositories = {}) {
             const added = await dictionaryRepo.add({ id: newId('d'), label: label || '', term, reading: reading || '' });
             res.status(201).json(added);
         } catch (error) {
-            console.error(error);
+            logger.error(error, { route: 'POST /api/dictionary', requestId: req.requestId });
             res.status(500).json({ error: 'Failed to add term' });
         }
     });
@@ -689,7 +719,7 @@ function createApp(repositories = {}) {
             await dictionaryRepo.delete(req.params.id);
             res.status(200).json({ success: true });
         } catch (error) {
-            console.error(error);
+            logger.error(error, { route: 'DELETE /api/dictionary/:id', requestId: req.requestId });
             res.status(500).json({ error: 'Failed to delete term' });
         }
     });
@@ -756,7 +786,7 @@ function createApp(repositories = {}) {
                 message: 'ご登録ありがとうございます。管理者の承認をお待ちください。'
             });
         } catch (error) {
-            console.error('[auth/signup]', error);
+            logger.error(error, { route: '/auth/signup', requestId: req.requestId });
             res.status(500).json({ error: 'Failed to sign up' });
         }
     });
@@ -807,7 +837,7 @@ function createApp(repositories = {}) {
             }
             res.status(200).json({ account: serializeAccount(account) });
         } catch (error) {
-            console.error('[auth/login]', error);
+            logger.error(error, { route: '/auth/login', requestId: req.requestId });
             res.status(500).json({ error: 'Failed to log in' });
         }
     });
@@ -824,7 +854,7 @@ function createApp(repositories = {}) {
             res.setHeader('Set-Cookie', buildClearCookie({ secure: COOKIE_SECURE }));
             res.status(200).json({ ok: true });
         } catch (error) {
-            console.error('[auth/logout]', error);
+            logger.error(error, { route: '/auth/logout', requestId: req.requestId });
             res.status(500).json({ error: 'Failed to log out' });
         }
     });
@@ -835,7 +865,7 @@ function createApp(repositories = {}) {
             if (!req.account) return res.status(401).json({ error: 'Not authenticated' });
             res.status(200).json({ account: serializeAccount(req.account) });
         } catch (error) {
-            console.error('[auth/me]', error);
+            logger.error(error, { route: '/auth/me', requestId: req.requestId });
             res.status(500).json({ error: 'Failed to load session' });
         }
     });
@@ -876,13 +906,13 @@ function createApp(repositories = {}) {
                     const resetUrl = `${host}/auth/reset?token=${token}`;
                     // Fire-and-forget: mail errors must not change the 200 response.
                     sendPasswordReset(account, resetUrl).catch((err) => {
-                        console.error('[auth/forgot-password] mail error:', err.message);
+                        logger.warn('[auth/forgot-password] mail error', { error: err.message, requestId: req.requestId });
                     });
                 }
             }
             res.status(200).json({ ok: true });
         } catch (error) {
-            console.error('[auth/forgot-password]', error);
+            logger.error(error, { route: '/auth/forgot-password', requestId: req.requestId });
             // Still 200 to avoid leaking information.
             res.status(200).json({ ok: true });
         }
@@ -922,7 +952,7 @@ function createApp(repositories = {}) {
 
             res.status(200).json({ ok: true });
         } catch (error) {
-            console.error('[auth/reset-password]', error);
+            logger.error(error, { route: '/auth/reset-password', requestId: req.requestId });
             res.status(500).json({ error: 'Failed to reset password' });
         }
     });
@@ -960,7 +990,7 @@ function createApp(repositories = {}) {
                 can_bootstrap: !hasOwner
             });
         } catch (error) {
-            console.error('[admin/owner-status]', error);
+            logger.error(error, { route: '/admin/owner-status', requestId: req.requestId });
             res.status(500).json({ error: 'Failed to fetch owner status' });
         }
     });
@@ -991,7 +1021,7 @@ function createApp(repositories = {}) {
             const updated = await accountRepo.findById(req.account.id);
             res.json({ ok: true, account: serializeAccount(updated) });
         } catch (error) {
-            console.error('[admin/bootstrap-owner]', error);
+            logger.error(error, { route: '/admin/bootstrap-owner', requestId: req.requestId });
             res.status(500).json({ error: 'Failed to bootstrap owner' });
         }
     });
@@ -1002,7 +1032,7 @@ function createApp(repositories = {}) {
             const count = accountRepo ? await accountRepo.countPending() : 0;
             res.json({ count });
         } catch (error) {
-            console.error('[admin/users/pending/count]', error);
+            logger.error(error, { route: '/admin/users/pending/count', requestId: req.requestId });
             res.status(500).json({ error: 'Failed to count pending users' });
         }
     });
@@ -1013,7 +1043,7 @@ function createApp(repositories = {}) {
             const users = accountRepo ? await accountRepo.findPending() : [];
             res.json({ users });
         } catch (error) {
-            console.error('[admin/users/pending]', error);
+            logger.error(error, { route: '/admin/users/pending', requestId: req.requestId });
             res.status(500).json({ error: 'Failed to list pending users' });
         }
     });
@@ -1049,7 +1079,7 @@ function createApp(repositories = {}) {
             }
             res.json({ users });
         } catch (error) {
-            console.error('[admin/users:get]', error);
+            logger.error(error, { route: 'GET /admin/users', requestId: req.requestId });
             res.status(500).json({ error: 'Failed to list users' });
         }
     });
@@ -1079,7 +1109,7 @@ function createApp(repositories = {}) {
             });
             res.json({ meetings });
         } catch (error) {
-            console.error('[admin/users/:id/meetings]', error);
+            logger.error(error, { route: '/admin/users/:id/meetings', requestId: req.requestId });
             res.status(500).json({ error: 'Failed to list meetings' });
         }
     });
@@ -1135,7 +1165,7 @@ function createApp(repositories = {}) {
                 }
             });
         } catch (error) {
-            console.error('[admin/stats]', error);
+            logger.error(error, { route: '/admin/stats', requestId: req.requestId });
             res.status(500).json({ error: 'Failed to fetch stats' });
         }
     });
@@ -1148,7 +1178,7 @@ function createApp(repositories = {}) {
             if (!result.changes) return res.status(404).json({ error: 'user not found' });
             res.json({ ok: true });
         } catch (error) {
-            console.error('[admin/users/approve]', error);
+            logger.error(error, { route: '/admin/users/:id/approve', requestId: req.requestId });
             res.status(500).json({ error: 'Failed to approve user' });
         }
     });
@@ -1166,7 +1196,7 @@ function createApp(repositories = {}) {
             if (!result.changes) return res.status(404).json({ error: 'user not found' });
             res.json({ ok: true });
         } catch (error) {
-            console.error('[admin/users/reject]', error);
+            logger.error(error, { route: '/admin/users/:id/reject', requestId: req.requestId });
             res.status(500).json({ error: 'Failed to reject user' });
         }
     });
@@ -1179,7 +1209,7 @@ function createApp(repositories = {}) {
                 profile_text: user?.profile_text || ''
             });
         } catch (error) {
-            console.error('[me/profile:get]', error);
+            logger.error(error, { route: 'GET /me/profile', requestId: req.requestId, accountId: req.account?.id });
             res.status(500).json({ error: 'Failed to load profile' });
         }
     });
@@ -1206,7 +1236,7 @@ function createApp(repositories = {}) {
                 profile_text: profileText
             });
         } catch (error) {
-            console.error('[me/profile:patch]', error);
+            logger.error(error, { route: 'PATCH /me/profile', requestId: req.requestId, accountId: req.account?.id });
             res.status(500).json({ error: 'Failed to update profile' });
         }
     });
@@ -1222,7 +1252,7 @@ function createApp(repositories = {}) {
             const result = await accountRepo.updateGameHighScore(accountId, score);
             res.status(200).json(result);
         } catch (error) {
-            console.error('[me/easter-score]', error);
+            logger.error(error, { route: 'POST /me/easter-score', requestId: req.requestId });
             res.status(500).json({ error: 'Failed to save score' });
         }
     });
@@ -1236,7 +1266,7 @@ function createApp(repositories = {}) {
             const high = await accountRepo.getGameHighScore(accountId);
             res.status(200).json({ high_score: high });
         } catch (error) {
-            console.error('[me/easter-score:get]', error);
+            logger.error(error, { route: 'GET /me/easter-score', requestId: req.requestId });
             res.status(500).json({ error: 'Failed to load score' });
         }
     });
@@ -1260,7 +1290,7 @@ function createApp(repositories = {}) {
             await accountRepo.updatePasswordHash(req.account.id, newHash);
             res.status(200).json({ ok: true });
         } catch (error) {
-            console.error('[me/password]', error);
+            logger.error(error, { route: 'POST /me/password', requestId: req.requestId, accountId: req.account?.id });
             res.status(500).json({ error: 'Failed to change password' });
         }
     });
@@ -1287,7 +1317,7 @@ function createApp(repositories = {}) {
             const linked = await participantRepo.backfillAccountByUserId(localUserId, req.account.id);
             res.status(200).json({ linked });
         } catch (error) {
-            console.error('[me/backfill]', error);
+            logger.error(error, { route: 'POST /me/backfill', requestId: req.requestId, accountId: req.account?.id });
             res.status(500).json({ error: 'Backfill failed' });
         }
     });
@@ -1312,7 +1342,7 @@ function createApp(repositories = {}) {
             }));
             res.status(200).json({ rooms: history });
         } catch (error) {
-            console.error('[me/rooms]', error);
+            logger.error(error, { route: 'GET /me/rooms', requestId: req.requestId, accountId: req.account?.id });
             res.status(500).json({ error: 'Failed to load room history' });
         }
     });
@@ -1377,7 +1407,7 @@ function createApp(repositories = {}) {
                 ai_workspace_updated_at: room.ai_workspace_updated_at
             });
         } catch (error) {
-            console.error('[me/rooms/:id]', error);
+            logger.error(error, { route: 'GET /me/rooms/:id', requestId: req.requestId, accountId: req.account?.id });
             res.status(500).json({ error: 'Failed to load room' });
         }
     });
@@ -1404,7 +1434,7 @@ function createApp(repositories = {}) {
             const unlinked = await participantRepo.unlinkAccountFromRoom(auth.room.id, req.account.id);
             res.status(200).json({ deleted: true, scope: 'participant', unlinked });
         } catch (error) {
-            console.error('[me/rooms/:id:delete]', error);
+            logger.error(error, { route: 'DELETE /me/rooms/:id', requestId: req.requestId, accountId: req.account?.id });
             res.status(500).json({ error: 'Failed to delete room' });
         }
     });
@@ -1446,7 +1476,7 @@ function createApp(repositories = {}) {
                 todo: updated.todo_text || ''
             });
         } catch (error) {
-            console.error('[me/rooms/:id:patch]', error);
+            logger.error(error, { route: 'PATCH /me/rooms/:id', requestId: req.requestId, accountId: req.account?.id });
             res.status(500).json({ error: 'Failed to update room' });
         }
     });
@@ -1484,7 +1514,7 @@ function createApp(repositories = {}) {
 
             res.status(201).json({ id: roomId });
         } catch (error) {
-            console.error(error);
+            logger.error(error, { route: 'POST /rooms', requestId: req.requestId });
             res.status(500).json({ error: 'Failed to create room' });
         }
     });
@@ -1561,7 +1591,7 @@ function createApp(repositories = {}) {
                 is_host: isHost
             });
         } catch (error) {
-            console.error(error);
+            logger.error(error, { route: 'POST /rooms/:id/join', requestId: req.requestId });
             res.status(500).json({ error: 'Failed to join room' });
         }
     });
@@ -1572,7 +1602,7 @@ function createApp(repositories = {}) {
             const logs = await utteranceRepo.findByRoomIdWithParticipants(roomId);
             res.status(200).json(logs);
         } catch (error) {
-            console.error(error);
+            logger.error(error, { route: 'GET /rooms/:id/logs', requestId: req.requestId, roomId: req.roomId });
             res.status(500).json({ error: 'Failed to fetch logs' });
         }
     });
@@ -1583,7 +1613,7 @@ function createApp(repositories = {}) {
             const logs = await utteranceRepo.findStarredByRoomId(roomId);
             res.status(200).json(logs);
         } catch (error) {
-            console.error(error);
+            logger.error(error, { route: 'GET /rooms/:id/memory', requestId: req.requestId, roomId: req.roomId });
             res.status(500).json({ error: 'Failed to fetch starred logs' });
         }
     });
@@ -1593,7 +1623,7 @@ function createApp(repositories = {}) {
             const roomId = req.roomId;
             res.status(200).json(await buildInsightsResponse(roomId));
         } catch (error) {
-            console.error(error);
+            logger.error(error, { route: 'GET /rooms/:id/insights', requestId: req.requestId, roomId: req.roomId });
             res.status(500).json({ error: 'Failed to fetch insights' });
         }
     });
@@ -1613,7 +1643,7 @@ function createApp(repositories = {}) {
                 context: contextMap.get(participant.user_id) || null
             })));
         } catch (error) {
-            console.error(error);
+            logger.error(error, { route: 'GET /rooms/:id/user-contexts', requestId: req.requestId, roomId: req.roomId });
             res.status(500).json({ error: 'Failed to fetch user contexts' });
         }
     });
@@ -1635,7 +1665,7 @@ function createApp(repositories = {}) {
 
             res.status(200).json(updated);
         } catch (error) {
-            console.error(error);
+            logger.error(error, { route: 'PATCH /users/:id/context', requestId: req.requestId });
             res.status(500).json({ error: 'Failed to update user context' });
         }
     });
@@ -1670,7 +1700,7 @@ function createApp(repositories = {}) {
                 saved_at: latest.created_at || null
             });
         } catch (error) {
-            console.error(error);
+            logger.error(error, { route: 'GET /rooms/:id/custom-output', requestId: req.requestId, roomId: req.roomId });
             res.status(500).json({ error: 'Failed to fetch custom output' });
         }
     });
@@ -1705,7 +1735,7 @@ function createApp(repositories = {}) {
                 saved_at: new Date().toISOString()
             });
         } catch (error) {
-            console.error(error);
+            logger.error(error, { route: 'POST /rooms/:id/custom-output', requestId: req.requestId, roomId: req.roomId });
             res.status(500).json({ error: 'Failed to save custom output' });
         }
     });
@@ -1719,13 +1749,13 @@ function createApp(repositories = {}) {
             });
 
             generateInsightsForRoom(roomId, req.body?.ai_config || null)
-                .catch((generationError) => console.error('[Insights] Regeneration failed', generationError));
+                .catch((generationError) => logger.error(generationError, { route: '/rooms/:id/insights/regenerate', roomId }));
 
             res.status(202).json({
                 status: 'processing'
             });
         } catch (error) {
-            console.error(error);
+            logger.error(error, { route: 'POST /rooms/:id/insights/regenerate', requestId: req.requestId, roomId: req.roomId });
             res.status(500).json({ error: 'Failed to start insight regeneration' });
         }
     });
@@ -1768,7 +1798,7 @@ function createApp(repositories = {}) {
 
             res.status(200).json(enriched);
         } catch (error) {
-            console.error(error);
+            logger.error(error, { route: 'PATCH /rooms/:roomId/logs/:utteranceId', requestId: req.requestId });
             res.status(500).json({ error: 'Failed to update log memory' });
         }
     });
@@ -1811,7 +1841,7 @@ function createApp(repositories = {}) {
 
             res.status(200).json({ ...enriched, correction_provider: correction.provider });
         } catch (error) {
-            console.error(error);
+            logger.error(error, { route: 'POST /rooms/:roomId/logs/:utteranceId/correct', requestId: req.requestId });
             res.status(500).json({ error: 'Failed to correct transcript' });
         }
     });
@@ -1867,7 +1897,7 @@ function createApp(repositories = {}) {
                 logs
             });
         } catch (error) {
-            console.error(error);
+            logger.error(error, { route: 'POST /rooms/:roomId/logs/correct-bulk', requestId: req.requestId });
             res.status(500).json({ error: 'Failed to correct transcripts' });
         }
     });
@@ -1907,7 +1937,7 @@ function createApp(repositories = {}) {
                     });
                     if (block) aiConfig.pastContextBlock = block;
                 } catch (err) {
-                    console.warn('[pastContext] build failed; continuing without it:', err.message);
+                    logger.warn('[pastContext] build failed; continuing without it', { error: err.message, roomId });
                 }
             }
 
@@ -1925,7 +1955,7 @@ function createApp(repositories = {}) {
             if (shouldChunkText(minutesText)) {
                 // [L5] 議事録が長い場合は Map-Reduce で各チャンクに適用
                 const textChunks = chunkText(minutesText);
-                console.log(`[CustomAI] chunking minutes into ${textChunks.length} text chunks`);
+                logger.info('[CustomAI] chunking minutes', { chunkCount: textChunks.length, roomId });
                 broadcastToRoom(roomId, { type: 'chunk_progress', analysis_type: 'custom', completed: 0, total: textChunks.length });
 
                 let completedCustom = 0;
@@ -1970,7 +2000,7 @@ function createApp(repositories = {}) {
                 provider: customResult.provider
             });
         } catch (error) {
-            console.error(error);
+            logger.error(error, { route: 'POST /rooms/:id/custom-ai', requestId: req.requestId, roomId: req.roomId });
             res.status(500).json({ error: 'Failed to generate custom AI result' });
         }
     });
@@ -1999,7 +2029,7 @@ function createApp(repositories = {}) {
             if (error.message === 'Unsupported shared AI type') {
                 return res.status(400).json({ error: error.message });
             }
-            console.error(error);
+            logger.error(error, { route: 'POST /rooms/:id/shared-ai/:type', requestId: req.requestId, roomId: req.roomId });
             res.status(500).json({ error: 'Failed to generate shared AI result' });
         }
     });
@@ -2012,7 +2042,7 @@ function createApp(repositories = {}) {
             const chunks = await chunkRepo.findByRoom(req.roomId, 'minutes');
             res.status(200).json({ chunks });
         } catch (error) {
-            console.error('[L9] GET chunks error:', error);
+            logger.error(error, { route: 'GET /rooms/:id/chunks', requestId: req.requestId, roomId: req.roomId });
             res.status(500).json({ error: 'Failed to load chunks' });
         }
     });
@@ -2102,7 +2132,7 @@ function createApp(repositories = {}) {
                 updated_at: updatedRoom?.minutes_updated_at || null
             });
         } catch (error) {
-            console.error('[L9] regenerate-chunk error:', error);
+            logger.error(error, { route: 'POST /rooms/:id/regenerate-chunk/:index', requestId: req.requestId, roomId: req.roomId });
             res.status(500).json({ error: `チャンク再生成に失敗しました: ${error.message}` });
         }
     });
@@ -2131,7 +2161,7 @@ function createApp(repositories = {}) {
                 ai_workspace_updated_at: updated.ai_workspace_updated_at
             });
         } catch (error) {
-            console.error('[rooms/:id/ai-workspace]', error);
+            logger.error(error, { route: 'PATCH /rooms/:id/ai-workspace', requestId: req.requestId, roomId: req.roomId });
             res.status(500).json({ error: 'Failed to save AI workspace' });
         }
     });
@@ -2146,7 +2176,7 @@ function createApp(repositories = {}) {
             const updated = await roomRepo.updateInsights(req.roomId, { title });
             res.status(200).json({ id: updated.id, title: updated.title || '', title_updated_at: updated.title_updated_at });
         } catch (error) {
-            console.error('[rooms/:id/title]', error);
+            logger.error(error, { route: 'PATCH /rooms/:id/title', requestId: req.requestId, roomId: req.roomId });
             res.status(500).json({ error: 'Failed to update title' });
         }
     });
@@ -2172,16 +2202,16 @@ function createApp(repositories = {}) {
                     }
                 }
             }
-            console.log(`[Room End] Room ${roomId} ended. Notified ${notifiedCount} clients.`);
+            logger.info('[Room End] Room ended', { roomId, notifiedCount });
 
             setTimeout(() => {
                 triggerAutomaticMeetingOutputs(roomId)
-                    .catch((generationError) => console.error('[Shared AI] Auto generation scheduling failed', generationError));
+                    .catch((generationError) => logger.error(generationError, { route: 'POST /rooms/:id/end', roomId, tag: 'AutoGeneration' }));
             }, 0);
 
             res.status(200).json({ ...endedRoom, notified: notifiedCount });
         } catch (error) {
-            console.error(error);
+            logger.error(error, { route: 'POST /rooms/:id/end', requestId: req.requestId, roomId: req.roomId });
             res.status(500).json({ error: 'Failed to end room' });
         }
     });
@@ -2242,7 +2272,7 @@ function createApp(repositories = {}) {
             res.setHeader('Content-Disposition', `attachment; filename="minutes-${roomId}.md"`);
             res.send(markdown);
         } catch (error) {
-            console.error(error);
+            logger.error(error, { route: 'GET /rooms/:id/download', requestId: req.requestId, roomId: req.roomId });
             res.status(500).send('Failed to generate transcript');
         }
     });
@@ -2267,10 +2297,10 @@ function createApp(repositories = {}) {
             let utterances;
             if (last_timestamp) {
                 utterances = await utteranceRepo.findNewerThan(roomId, last_timestamp);
-                console.log(`[AI-Incremental] Analyzing ${utterances.length} NEW utterances for room ${roomId}. (Since: ${last_timestamp})`);
+                logger.info('[AI-Incremental] Analyzing NEW utterances', { utteranceCount: utterances.length, roomId, since: last_timestamp });
             } else {
                 utterances = await utteranceRepo.findByRoomIdWithParticipants(roomId);
-                console.log(`[AI-Full] Analyzing ALL ${utterances.length} utterances for room ${roomId}.`);
+                logger.info('[AI-Full] Analyzing ALL utterances', { utteranceCount: utterances.length, roomId });
             }
 
             if (utterances.length === 0) {
@@ -2321,7 +2351,7 @@ function createApp(repositories = {}) {
 
             res.status(200).json({ result, provider: resultProvider, latest_timestamp: latestTimestamp });
         } catch (error) {
-            console.error('[API] Analysis error:', error);
+            logger.error(error, { route: 'POST /rooms/:id/analyze', requestId: req.requestId, roomId: req.roomId });
             res.status(500).json({ error: error.message || 'Failed to perform AI analysis' });
         }
     });
@@ -2330,7 +2360,7 @@ function createApp(repositories = {}) {
 }
 
 function setupWebSocket(server, repositories = {}, options = {}) {
-    const { participantRepo, utteranceRepo, audioProcessor, sttService, userRepo, dictionaryRepo } = repositories;
+    const { participantRepo, utteranceRepo, roomRepo, audioProcessor, sttService, userRepo, dictionaryRepo } = repositories;
     const { allowedOrigins = [], expectedHost = '' } = options;
     // Use noServer so we can run credential + Origin checks before the HTTP
     // upgrade hands off to the protocol. A rejected socket never enters
@@ -2461,7 +2491,7 @@ function setupWebSocket(server, repositories = {}, options = {}) {
                 ]);
                 ws.speechHints = collectSpeechHints(roomParticipants, dictionaryTerms);
                 if (ws.speechHints.length > 0) {
-                    console.log(`[WS] Collected ${ws.speechHints.length} speech hints for participant ${participantId}: ${ws.speechHints.slice(0, 5).join(', ')}${ws.speechHints.length > 5 ? '...' : ''}`);
+                    logger.info('[WS] Collected speech hints', { hintCount: ws.speechHints.length, participantId, preview: ws.speechHints.slice(0, 5).join(', ') });
                 }
 
                 if (!wss.rooms.has(ws.roomId)) {
@@ -2478,13 +2508,23 @@ function setupWebSocket(server, repositories = {}, options = {}) {
         };
         ws.ensureValidated = ensureValidated;
 
-        const sendReady = async () => {
+        const sendReady = async (lastSeenUtteranceId) => {
             if (ws.readySent || ws.readyState !== WebSocket.OPEN) return;
 
-            const [history, room] = await Promise.all([
+            const [allHistory, room] = await Promise.all([
                 utteranceRepo ? utteranceRepo.findByRoomIdWithParticipants(ws.roomId) : [],
                 roomRepo ? roomRepo.findById(ws.roomId) : null
             ]);
+
+            // [U-3] 差分復元: last_seen_utterance_id が来た場合はその ID 以降だけを返す
+            let history = allHistory;
+            if (lastSeenUtteranceId) {
+                const idx = allHistory.findIndex((u) => u.id === lastSeenUtteranceId);
+                if (idx >= 0) {
+                    history = allHistory.slice(idx + 1);
+                }
+                // 見つからなければ全件返す (フォールバック: 再接続でセッション切替など)
+            }
 
             ws.readySent = true;
             ws.send(JSON.stringify({
@@ -2587,17 +2627,17 @@ function setupWebSocket(server, repositories = {}, options = {}) {
             const activeSttService = ws.sessionSttService || sttService;
             if (sttStream || !activeSttService) return;
 
-            console.log(`[STT] Starting new stream for participant ${participantId} (provider=${activeSttService.provider}) with ${ws.speechHints?.length || 0} hints`);
+            logger.info('[STT] Starting new stream', { participantId, provider: activeSttService.provider, hintCount: ws.speechHints?.length || 0 });
             sttStream = activeSttService.createStream(
                 async (transcript) => {
                     try {
                         await persistAndBroadcastTranscript(transcript);
                     } catch (err) {
-                        console.error('[STT Callback Error]', err.message);
+                        logger.error(err, { tag: 'STT Callback Error', participantId });
                     }
                 },
                 (err) => {
-                    console.error('[STT Stream Error]', err.message);
+                    logger.error(err, { tag: 'STT Stream Error', participantId });
                     if (ws.readyState === WebSocket.OPEN) {
                         ws.send(JSON.stringify({ type: 'error', message: '音声認識ストリームでエラーが発生しました' }));
                     }
@@ -2624,7 +2664,7 @@ function setupWebSocket(server, repositories = {}, options = {}) {
 
             // Important: Handle graceful closure (e.g. Google's 305s limit)
             sttStream.on('end', () => {
-                console.log('[STT Stream End] Stream closed gracefully by provider');
+                logger.info('[STT Stream End] Stream closed gracefully by provider', { participantId });
                 sttStream = null;
             });
             sttStream.on('close', () => {
@@ -2635,7 +2675,7 @@ function setupWebSocket(server, repositories = {}, options = {}) {
                 if (activeSvc?.provider === 'elevenlabs' && ws.validated && ws.readyState === WebSocket.OPEN) {
                     setTimeout(() => {
                         if (!sttStream && ws.readyState === WebSocket.OPEN) {
-                            console.log(`[ElevenLabs STT] Pre-warming next connection for participant ${participantId}`);
+                            logger.info('[ElevenLabs STT] Pre-warming next connection', { participantId });
                             startSTTStream();
                         }
                     }, 300);
@@ -2644,7 +2684,7 @@ function setupWebSocket(server, repositories = {}, options = {}) {
         };
 
         ensureValidated().catch((error) => {
-            console.error('[WS] Validation error:', error);
+            logger.error(error, { tag: 'WS Validation error' });
         });
 
         ws.on('message', async (data, isBinary) => {
@@ -2669,7 +2709,7 @@ function setupWebSocket(server, repositories = {}, options = {}) {
                             try {
                                 sttStream.write(data);
                             } catch (e) {
-                                console.error('[ElevenLabs STT Write Error]', e.message);
+                                logger.error(e, { tag: 'ElevenLabs STT Write Error', participantId });
                                 sttStream = null;
                             }
                         }
@@ -2717,7 +2757,7 @@ function setupWebSocket(server, repositories = {}, options = {}) {
                         try {
                             sttStream.write(data);
                         } catch (e) {
-                            console.error('[STT Write Error]', e.message);
+                            logger.error(e, { tag: 'STT Write Error', participantId });
                             sttStream = null;
                         }
                     }
@@ -2728,8 +2768,9 @@ function setupWebSocket(server, repositories = {}, options = {}) {
                         const msg = JSON.parse(msgStr);
 
                         // Ignore 'hello' if it was already used for validation
+                        // [U-3] last_seen_utterance_id を渡して差分のみ返す
                         if (msg.type === 'hello') {
-                            await sendReady();
+                            await sendReady(msg.last_seen_utterance_id || null);
                             return;
                         }
 
@@ -2765,7 +2806,7 @@ function setupWebSocket(server, repositories = {}, options = {}) {
                                         elevenLabsModel: process.env.ELEVENLABS_STT_MODEL || 'scribe_v2_flash',
                                         language: process.env.STT_LANGUAGE || 'ja'
                                     });
-                                    console.log(`[STT] Session provider switched to "${requestedProvider}" for participant ${participantId}`);
+                                    logger.info('[STT] Session provider switched', { provider: requestedProvider, participantId });
                                 }
                             }
 
@@ -2804,7 +2845,7 @@ function setupWebSocket(server, repositories = {}, options = {}) {
                     }
                 }
             } catch (error) {
-                console.error('[WS] Error handling message:', error);
+                logger.error(error, { tag: 'WS Error handling message' });
             }
         });
 

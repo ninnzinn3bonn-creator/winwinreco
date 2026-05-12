@@ -1309,6 +1309,35 @@ iOS Safari でメールアドレスを `#room-id` フィールドへ補完して
 
 146 ケース全 pass。フロントエンド構文チェック (`npm run check:frontend`) も全ファイル通過。`grep -rn "alert(" src/frontend --include="*.js"` の結果が 0 件。
 
+## 58. 構造化ログ + Cloud Error Reporting 連携 (D-1) (2026-05-13)
+
+`docs/PRODUCTION_READINESS.md` §3.7 の仕様に基づき、backend 全体の構造化ログを実装。
+
+### 実装内容
+
+- **`src/backend/lib/logger.js` 新規作成**: `info` / `warn` / `error` を JSON 構造化出力する軽量 logger。
+  - `severity` フィールドが大文字 (Cloud Logging 仕様)。`message` + `stack` を Cloud Error Reporting が自動検知。
+  - 依存 npm パッケージなし。Cloud Run 上では stdout の JSON が Cloud Logging に自動取り込まれる。
+- **`src/backend/app.js`**:
+  - `x-request-id` ミドルウェア追加 (全リクエストに UUID 付与、ヘッダー伝播)。
+  - `REQUEST_LOG != '0'` で有効になるリクエストログミドルウェア追加 (静的ファイルと `/api/status` を除外)。
+  - `console.*` 約 75 箇所を `logger.*` に置換。ルートハンドラの catch では `requestId` / `roomId` を context に含める。
+- **`src/backend/services/ai-service.js`**: `console.*` 8 箇所を `logger.*` に置換。
+- **`src/backend/services/stt-service.js`**: `console.*` 11 箇所を `logger.*` に置換。
+- **`src/backend/server.js`**: `console.*` 11 箇所を `logger.*` に置換 (startup / shutdown ログ)。
+- **`src/backend/lib/mail.js`**: console プロバイダーの `console.log` を `logger.info` に置換。
+- **`tests/setup.js`**: `REQUEST_LOG=0` を設定し、テスト実行時のリクエストログノイズを抑制。
+
+### 置換件数
+
+backend 全体で約 106 箇所の `console.*` を `logger.*` に置換。5 ファイル対象。
+`lib/logger.js` 自体の `console.*` はそのまま維持 (logger の実装本体)。
+
+### テスト結果
+
+149 ケース全 pass (9 スキップ含む)。`node --check src/backend/app.js` OK。
+`grep -rn "console\." src/backend --include="*.js" | grep -v "lib/logger.js"` の結果が 0 件。
+
 ---
 
 ## 59. CI + Dependabot 設定 (D-2 + D-3) (2026-05-13)

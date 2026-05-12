@@ -1,5 +1,6 @@
 const { GoogleGenerativeAI } = require('@google/generative-ai');
 const Groq = require('groq-sdk');
+const { logger } = require('../lib/logger');
 
 /**
  * Japanese text wrapper for character encoding consistency
@@ -42,10 +43,10 @@ function safeJsonParse(text) {
             try {
                 return JSON.parse(candidate);
             } catch (e2) {
-                console.error('[AIService] Failed to parse JSON even after brace extraction', e2.message);
+                logger.error(e2, { tag: '[AIService] Failed to parse JSON even after brace extraction' });
             }
         }
-        console.error('[AIService] JSON parse error:', e.message, 'Input snippet:', stripped.slice(0, 100));
+        logger.error(e, { tag: '[AIService] JSON parse error', snippet: stripped.slice(0, 100) });
         throw e; // Rethrow to be caught by the caller with context
     }
 }
@@ -251,9 +252,9 @@ class AIService {
                 this.provider = new OllamaProvider();
                 this.enabled = true;
             }
-            console.log(`[AIService] Initialized with provider: ${this.provider.name}`);
+            logger.info('[AIService] Initialized', { provider: this.provider.name });
         } catch (error) {
-            console.warn(`[AIService] Failed to initialize AI provider:`, error.message);
+            logger.warn('[AIService] Failed to initialize AI provider', { error: error.message });
             this.enabled = false;
         }
     }
@@ -985,7 +986,7 @@ class AIService {
                 provider = this.provider;
             }
         } catch (e) {
-            console.warn(`[AIService] Provider selection failed, using default: ${e.message}`);
+            logger.warn('[AIService] Provider selection failed, using default', { error: e.message });
             provider = this.provider;
         }
 
@@ -1019,11 +1020,11 @@ class AIService {
             const terms = (parsed.terms || []).filter(t => t.term && t.reading);
             if (terms.length === 0) {
                 // If it returned something but not in format, try to extract manually or just fail gracefully
-                console.warn('[AIService] No terms found in AI response:', raw);
+                logger.warn('[AIService] No terms found in AI response', { rawSnippet: String(raw).slice(0, 200) });
             }
             return terms;
         } catch (error) {
-            console.error('[AIService] AI Generation or Parsing failed:', error);
+            logger.error(error, { tag: '[AIService] AI Generation or Parsing failed' });
             throw new Error(jp('AIの応答取得に失敗しました: ') + error.message);
         }
     }
@@ -1076,7 +1077,7 @@ class AIService {
             const parsed = safeJsonParse(raw);
             return parsed.reconstructed || [];
         } catch (e) {
-            console.warn('[AIService] Failed to parse reconstructed sentences, falling back to merged messages', e);
+            logger.warn('[AIService] Failed to parse reconstructed sentences, falling back to merged messages', { error: e.message });
             return messages;
         }
     }

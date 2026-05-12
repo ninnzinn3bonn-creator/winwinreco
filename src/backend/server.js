@@ -5,24 +5,25 @@ const { createRepos } = require('./repo');
 const { AudioProcessor } = require('./services/audio-processor');
 const { STTService } = require('./services/stt-service');
 const { AIService } = require('./services/ai-service');
+const { logger } = require('./lib/logger');
 
 async function start() {
     const repos = await createRepos();
 
     try {
         const pruned = await repos.sessionRepo.pruneExpired();
-        if (pruned > 0) console.log(`[startup] Pruned ${pruned} expired session(s).`);
+        if (pruned > 0) logger.info('[startup] Pruned expired sessions', { count: pruned });
     } catch (error) {
-        console.error('[startup] Session prune failed:', error);
+        logger.error(error, { tag: '[startup] Session prune failed' });
     }
 
     try {
         const swept = await repos.roomRepo.resetStuckProcessing();
         if (swept > 0) {
-            console.log(`[startup] Reset ${swept} room(s) from 'processing' to 'error'.`);
+            logger.info('[startup] Reset stuck rooms from processing to error', { count: swept });
         }
     } catch (error) {
-        console.error('[startup] Failed to reset stuck insights_status:', error);
+        logger.error(error, { tag: '[startup] Failed to reset stuck insights_status' });
     }
 
     const audioProcessor = new AudioProcessor({ chunkLimit: 10 });
@@ -33,15 +34,18 @@ async function start() {
         googleApiKey: process.env.GOOGLE_API_KEY,
         language: process.env.STT_LANGUAGE || 'ja'
     });
-    console.log(`[startup] STT provider=${sttService.provider} language=${sttService.language}`
-        + (sttService.provider === 'groq' ? ` model=${sttService.groqModel}` : ' model=latest_long(google)'));
+    logger.info('[startup] STT configured', {
+        provider: sttService.provider,
+        language: sttService.language,
+        model: sttService.provider === 'groq' ? sttService.groqModel : 'latest_long(google)'
+    });
 
     const aiService = new AIService({
         provider: process.env.AI_PROVIDER || (process.env.GROQ_API_KEY ? 'groq' : 'gemini'),
         apiKey: process.env.GEMINI_API_KEY,
         groqApiKey: process.env.GROQ_API_KEY
     });
-    console.log(`[startup] AI provider=${aiService.provider || (process.env.AI_PROVIDER || 'auto')}`);
+    logger.info('[startup] AI configured', { provider: aiService.provider || (process.env.AI_PROVIDER || 'auto') });
 
     repos.aiService = aiService;
 
@@ -59,17 +63,17 @@ async function start() {
     const PORT = process.env.PORT || 3000;
     const driver = process.env.DB_DRIVER || 'sqlite';
     server.listen(PORT, () => {
-        console.log(`Server is running on http://localhost:${PORT} (driver=${driver})`);
+        logger.info('Server started', { port: PORT, driver });
     });
 
     let shuttingDown = false;
     const shutdown = async (signal) => {
         if (shuttingDown) return;
         shuttingDown = true;
-        console.log(`[shutdown] Received ${signal}, draining...`);
+        logger.info('[shutdown] Received signal, draining', { signal });
 
         const hardKill = setTimeout(() => {
-            console.error('[shutdown] Drain timeout exceeded; forcing exit.');
+            logger.error(new Error('[shutdown] Drain timeout exceeded; forcing exit.'), { tag: 'shutdown' });
             process.exit(1);
         }, 10_000);
         if (typeof hardKill.unref === 'function') hardKill.unref();
@@ -82,7 +86,7 @@ async function start() {
                 });
                 await new Promise((resolve) => wss.close(() => resolve()));
             } catch (wsErr) {
-                console.error('[shutdown] WebSocket close error:', wsErr);
+                logger.error(wsErr, { tag: '[shutdown] WebSocket close error' });
             }
 
             // SQLite のみ db.close() が必要。Firestore は不要。
@@ -90,11 +94,11 @@ async function start() {
                 await new Promise((resolve) => repos._raw.close(() => resolve()));
             }
 
-            console.log('[shutdown] Clean exit.');
+            logger.info('[shutdown] Clean exit');
             clearTimeout(hardKill);
             process.exit(0);
         } catch (error) {
-            console.error('[shutdown] Error during shutdown:', error);
+            logger.error(error, { tag: '[shutdown] Error during shutdown' });
             clearTimeout(hardKill);
             process.exit(1);
         }
@@ -105,6 +109,6 @@ async function start() {
 }
 
 start().catch((error) => {
-    console.error('[startup] Fatal error:', error);
+    logger.error(error, { tag: '[startup] Fatal error' });
     process.exit(1);
 });
