@@ -75,6 +75,7 @@ function renderPending(users) {
 function statusLabel(status) {
     if (status === 'approved') return '<span class="status-approved">承認済み</span>';
     if (status === 'pending') return '<span class="status-pending">承認待ち</span>';
+    if (status === 'pending_email') return '<span class="status-pending-email">メール確認待ち</span>';
     if (status === 'rejected') return '<span class="status-rejected">拒否</span>';
     return escapeHtml(status);
 }

@@ -57,11 +57,14 @@ beforeAll(async () => {
     otherCookie = await signupApproveLogin(OTHER_EMAIL, 'Other');
 
     // pending 状態の被験者を 1 人作っておく (approve 用)
+    // U-6: signup now creates status='pending_email'; advance to 'pending' (email verified)
+    // so the account appears in the admin pending list.
     await request(app)
         .post('/auth/signup')
         .send({ email: PENDING_EMAIL, password: PASSWORD, display_name: 'PendingUser' });
     const pendingAcc = await repos.accountRepo.findByEmail(PENDING_EMAIL);
     pendingUserId = pendingAcc.id;
+    await repos.accountRepo.setStatus(pendingUserId, 'pending');
 
     const ownerAcc = await repos.accountRepo.findByEmail(OWNER_EMAIL);
     ownerAccountId = ownerAcc.id;

@@ -57,7 +57,9 @@ describe('Account auth endpoints', () => {
             .send({ email: 'alice@example.test', password: 'correcthorse', display_name: 'Alice' });
         expect(res.status).toBe(201);
         expect(res.body.pending).toBe(true);
-        expect(res.body.message).toMatch(/承認/);
+        // U-6: message now mentions email verification (not just admin approval)
+        expect(typeof res.body.message).toBe('string');
+        expect(res.body.message.length).toBeGreaterThan(0);
         // No session cookie should be issued for pending users
         const setCookie = res.headers['set-cookie'] || [];
         expect(setCookie.join(';')).not.toMatch(/session_token=/);
@@ -91,6 +93,10 @@ describe('Account auth endpoints', () => {
         await request(app)
             .post('/auth/signup')
             .send({ email: 'pending@example.test', password: 'correcthorse' });
+        // U-6: signup now creates status='pending_email'; advance to 'pending' (email verified)
+        // to test the admin-approval-pending flow.
+        const acc = await accountRepo.findByEmail('pending@example.test');
+        await accountRepo.setStatus(acc.id, 'pending');
         const res = await request(app)
             .post('/auth/login')
             .send({ email: 'pending@example.test', password: 'correcthorse' });

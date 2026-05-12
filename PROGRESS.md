@@ -1362,6 +1362,41 @@ backend 全体で約 106 箇所の `console.*` を `logger.*` に置換。5 フ�
 
 ---
 
+## 61. メール認証 (U-6) (2026-05-13)
+
+`docs/PRODUCTION_READINESS.md` §3.6 の仕様に基づき、メール確認リンクフローを実装。
+
+### 実装内容
+
+- **`user_accounts.status` に `'pending_email'` 追加**: サインアップ直後のアカウントは `pending_email` 状態 (メール確認前)。両 driver の `setStatus()` 許可リストに追加。
+- **`src/backend/repo/sqlite/email-verification-repo.js` 新規**: TTL 24h の確認トークン管理。`create / findByToken / markUsed / pruneExpired` を実装。U-1 の `password-reset-repo` と同パターン。
+- **`src/backend/repo/firestore/email-verification-repo.js` 新規**: Firestore 版。コレクション名 `email_verification_tokens`。
+- **`src/backend/repo/{sqlite,firestore}/index.js`**: `emailVerificationRepo` を `createRepos()` の返却値に追加。
+- **`src/backend/repo/sqlite/db.js`**: `email_verification_tokens` テーブル作成を追加 (U-1 の password_reset_tokens と同じ場所)。
+- **`src/backend/lib/mail.js`**: `sendVerification(account, verifyUrl)` を追加。`module.exports` に追記。
+- **`src/backend/app.js`**:
+  - `/auth/signup`: `status='pending_email'` で作成し確認メール送信。メール失敗はログのみ、アカウント作成は維持。
+  - `GET /auth/verify`: `verify.html` を返す。
+  - `POST /auth/verify`: トークン検証 → `status='pending_email'` → `'pending'` 昇格 → `markUsed`。
+  - `/auth/login`: `status='pending_email'` は 403 `email_not_verified` を返す。
+- **`src/frontend/verify.html` 新規**: URL クエリの `?token=` を自動で POST し、結果を日本語で表示。
+- **`src/frontend/auth.js`**: ログインエラーで `error_code === 'email_not_verified'` の場合に `AppToast.warn` + errorBox にメッセージ表示。
+- **`src/frontend/admin.js`**: `statusLabel()` に `pending_email → 「メール確認待ち」` 分岐を追加。
+- **`src/frontend/admin.html`**: `.status-pending-email` (青色) の CSS クラスを追加。
+- **`tests/auth-verify.test.js` 新規**: 6 ケース全 pass。
+- **既存テスト修正**: `auth-account.test.js` (メッセージ match を緩和 + pending_approval テストで手動で status 昇格)、`admin-routes.test.js` (setupで pending ユーザーを `pending` に手動昇格)。
+
+### 既知の制限
+
+- 確認メール再送 UI は未実装 (Phase 2)。
+- 期限切れアカウントの自動削除 (Cloud Scheduler 日次 pruneExpired) は未実装。
+
+### テスト結果
+
+157 ケース pass (9 スキップは Firestore emulator テスト / +6 が今回追加の auth-verify.test.js)。`node --check src/backend/app.js` OK。`npm run check:frontend` OK。
+
+---
+
 ## 60. 利用規約 / プライバシー / 録音同意 (U-5) (2026-05-13)
 
 `docs/PRODUCTION_READINESS.md` §3.5 の仕様に基づき、法的必須要件を実装。

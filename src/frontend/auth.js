@@ -396,9 +396,14 @@
                         closeLoginModal(account);
                     }
                 } catch (err) {
-                    // login 時の pending_approval / account_rejected を専用メッセージで表示
+                    // login 時の各エラーコードを専用メッセージで表示
                     const code = err.data?.error_code;
-                    if (code === 'pending_approval') {
+                    if (code === 'email_not_verified') {
+                        if (window.AppToast) {
+                            AppToast.warn('メールアドレスの確認が完了していません。受信箱を確認してください。');
+                        }
+                        errorBox.textContent = 'メールアドレスの確認が完了していません。受信箱を確認してください。';
+                    } else if (code === 'pending_approval') {
                         errorBox.textContent = err.message || 'アカウントは管理者の承認待ちです。';
                     } else if (code === 'account_rejected') {
                         errorBox.textContent = err.message || 'このアカウントは承認されませんでした。';

@@ -102,6 +102,28 @@ Routes protected by `requireOwner` (オーナー専用):
 - Mail: `src/backend/lib/mail.js` abstracts the provider. `MAIL_PROVIDER=console` (default/test) writes to stdout; `MAIL_PROVIDER=sendgrid` calls SendGrid REST v3 via built-in `fetch` (no npm dep).
 - U-6 reuse: `mail.send()` is the low-level primitive. Add `sendVerification()` to `mail.js` when implementing U-6.
 
+### Email verification flow (U-6)
+
+**Status transitions:**
+
+```
+pending_email  →  pending  →  approved
+  (signup)      (email confirmed,   (owner approval)
+                 owner approval pending)
+```
+
+- サインアップ時: `status='pending_email'` で作成 + 確認メール送信。
+- `/auth/verify?token=<TOKEN>` をクリック (verify.html が自動で `POST /auth/verify` を呼ぶ):
+  - `emailVerificationRepo.findByToken()` が未使用+未期限 (TTL 24h) のトークンを返す → `accountRepo.setStatus(id, 'pending')` → `emailVerificationRepo.markUsed()`.
+  - トークンが無効/期限切れなら 400 `invalid_or_expired_token`。
+- `/auth/login` で `status='pending_email'` なら 403 `email_not_verified`。
+- `findPending()` (admin 承認待ちリスト) は `status='pending'` のみ返す。`pending_email` はリストに混ぜない。
+- Token: opaque 32-byte hex, SHA-256 ハッシュのみ DB 保存。ID prefix `emv`。
+
+**既知の制限 (Phase 2):**
+- 確認メール再送 UI は未実装。
+- 期限切れアカウントの自動削除は Cloud Scheduler 日次 pruneExpired() で対応予定。
+
 ### Consent & legal (U-5)
 
 **Signup consent (規約同意):**

@@ -222,6 +222,27 @@ async function initDB(dbPath) {
                                 );
                             });
                         }))
+                        // [U-6] メール認証トークン。token_hash のみ保存し平文は残さない。TTL 24h。
+                        .then(() => new Promise((resolveEmv, rejectEmv) => {
+                            db.run(`CREATE TABLE IF NOT EXISTS email_verification_tokens (
+                                id TEXT PRIMARY KEY,
+                                account_id TEXT NOT NULL,
+                                token_hash TEXT NOT NULL UNIQUE,
+                                expires_at DATETIME NOT NULL,
+                                used_at DATETIME,
+                                created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                                FOREIGN KEY(account_id) REFERENCES user_accounts(id)
+                            )`, (emvErr) => {
+                                if (emvErr) return rejectEmv(emvErr);
+                                db.run(
+                                    'CREATE INDEX IF NOT EXISTS idx_emv_account ON email_verification_tokens(account_id)',
+                                    (idxErr) => {
+                                        if (idxErr) return rejectEmv(idxErr);
+                                        resolveEmv();
+                                    }
+                                );
+                            });
+                        }))
                         // [L9] チャンク単位の中間結果テーブル。部分再生成に使用。
                         .then(() => new Promise((resolveChunks, rejectChunks) => {
                             db.run(`CREATE TABLE IF NOT EXISTS room_chunks (

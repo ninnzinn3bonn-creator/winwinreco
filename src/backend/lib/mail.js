@@ -90,4 +90,29 @@ async function sendPasswordReset(account, resetUrl) {
     });
 }
 
-module.exports = { send, sendPasswordReset };
+/**
+ * メール認証リンクメール。
+ * U-6 (email verification) から呼ばれる。
+ *
+ * @param {{ email: string }} account
+ * @param {string} verifyUrl  完全な https://<HOST>/auth/verify?token=<TOKEN>
+ */
+async function sendVerification(account, verifyUrl) {
+    return send({
+        to: account.email,
+        subject: 'GIJIRO メールアドレスの確認',
+        text: [
+            '以下のリンクからメールアドレスを確認してください (24 時間有効):',
+            verifyUrl,
+            '',
+            '心当たりがない場合はこのメールを破棄してください。'
+        ].join('\n'),
+        html: [
+            '<p>以下のリンクからメールアドレスを確認してください (24 時間有効):</p>',
+            `<p><a href="${verifyUrl}">${verifyUrl}</a></p>`,
+            '<p>心当たりがない場合はこのメールを破棄してください。</p>'
+        ].join('')
+    });
+}
+
+module.exports = { send, sendPasswordReset, sendVerification };

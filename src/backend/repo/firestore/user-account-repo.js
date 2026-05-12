@@ -116,7 +116,7 @@ class UserAccountRepository {
      * status を更新。'pending' | 'approved' | 'rejected'。
      */
     async setStatus(id, status) {
-        const allowed = new Set(['pending', 'approved', 'rejected']);
+        const allowed = new Set(['pending_email', 'pending', 'approved', 'rejected']);
         if (!allowed.has(status)) throw new Error(`invalid status: ${status}`);
         const ref = this.col.doc(id);
         const snap = await ref.get();

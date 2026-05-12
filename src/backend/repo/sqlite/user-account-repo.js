@@ -80,7 +80,7 @@ class UserAccountRepository {
      * status を更新。'pending' | 'approved' | 'rejected' のみ許可。
      */
     async setStatus(id, status) {
-        const allowed = new Set(['pending', 'approved', 'rejected']);
+        const allowed = new Set(['pending_email', 'pending', 'approved', 'rejected']);
         if (!allowed.has(status)) throw new Error(`invalid status: ${status}`);
         return new Promise((resolve, reject) => {
             this.db.run(

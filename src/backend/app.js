@@ -17,7 +17,7 @@ const {
     sanitizeTranscript,
     sanitizeInstruction
 } = require('./lib/ai-sanitize');
-const { sendPasswordReset } = require('./lib/mail');
+const { sendPasswordReset, sendVerification } = require('./lib/mail');
 const { logger } = require('./lib/logger');
 
 // RFC-5322-lite email shape check. Server-side defense; final authority is the
@@ -149,7 +149,7 @@ function createApp(repositories = {}) {
     const {
         roomRepo, participantRepo, utteranceRepo, analysisRepo, actionRepo,
         userRepo, userContextRepo, dictionaryRepo, aiService,
-        accountRepo, sessionRepo, chunkRepo, passwordResetRepo
+        accountRepo, sessionRepo, chunkRepo, passwordResetRepo, emailVerificationRepo
     } = repositories;
 
     const auth = createAuth({ participantRepo, roomRepo, accountRepo, sessionRepo });
@@ -766,7 +766,8 @@ function createApp(repositories = {}) {
             // (/admin/bootstrap-owner) で初回ログインユーザーが自分自身を昇格させる。
             const ownerEmail = (process.env.OWNER_EMAIL || '').toLowerCase();
             const isOwnerEmail = ownerEmail && parsed.email === ownerEmail;
-            const initialStatus = isOwnerEmail ? 'approved' : 'pending';
+            // オーナーメールは直接 approved。通常ユーザーはメール認証後に pending へ進む。
+            const initialStatus = isOwnerEmail ? 'approved' : 'pending_email';
 
             const account = await accountRepo.create({
                 email: parsed.email,
@@ -781,7 +782,7 @@ function createApp(repositories = {}) {
                 await userRepo.upsert({ id: account.id, name: parsed.displayName, profile_text: '' });
             }
 
-            // approved (=オーナー) のみセッション発行。pending は承認待ちなのでセッション無し。
+            // approved (=オーナー) のみセッション発行。pending_email は確認前なのでセッション無し。
             if (initialStatus === 'approved') {
                 const { token } = await sessionRepo.create(account.id);
                 res.setHeader('Set-Cookie', buildSessionCookie(token, {
@@ -791,9 +792,24 @@ function createApp(repositories = {}) {
                 return res.status(201).json({ account: serializeAccount(account) });
             }
 
+            // 確認トークンを生成してメール送信 (fire-and-forget: メール失敗でもアカウントは作成済み)
+            if (emailVerificationRepo) {
+                try {
+                    const verifyToken = crypto.randomBytes(32).toString('hex');
+                    await emailVerificationRepo.create({ accountId: account.id, token: verifyToken });
+                    const host = process.env.APP_HOST || `${req.protocol}://${req.get('host')}`;
+                    const verifyUrl = `${host}/auth/verify?token=${verifyToken}`;
+                    sendVerification(account, verifyUrl).catch((err) => {
+                        logger.warn('[auth/signup] verification mail error', { error: err.message, requestId: req.requestId });
+                    });
+                } catch (mailErr) {
+                    logger.error(mailErr, { route: '/auth/signup', detail: 'emailVerificationRepo.create failed', requestId: req.requestId });
+                }
+            }
+
             return res.status(201).json({
                 pending: true,
-                message: 'ご登録ありがとうございます。管理者の承認をお待ちください。'
+                message: 'ご登録ありがとうございます。確認メールをお送りしました。メール内のリンクをクリックして登録を完了してください。'
             });
         } catch (error) {
             logger.error(error, { route: '/auth/signup', requestId: req.requestId });
@@ -823,6 +839,12 @@ function createApp(repositories = {}) {
             // 事後承認フロー: 'approved' 以外は機能解放しない。
             // フロントは error_code を見て承認待ち / 拒否のメッセージを出し分ける。
             const status = account.status || 'approved';
+            if (status === 'pending_email') {
+                return res.status(403).json({
+                    error_code: 'email_not_verified',
+                    error: 'メールアドレスの確認が完了していません。受信箱を確認してください。'
+                });
+            }
             if (status === 'pending') {
                 return res.status(403).json({
                     error_code: 'pending_approval',
@@ -964,6 +986,46 @@ function createApp(repositories = {}) {
         } catch (error) {
             logger.error(error, { route: '/auth/reset-password', requestId: req.requestId });
             res.status(500).json({ error: 'Failed to reset password' });
+        }
+    });
+
+    // --- Email Verification (U-6) -------------------------------------------
+
+    /**
+     * GET /auth/verify
+     * Serves the email-verification HTML page (verify.html).
+     * The token query-param is consumed client-side by the page JS.
+     */
+    app.get('/auth/verify', (req, res) => {
+        const path = require('path');
+        res.sendFile(path.join(__dirname, '../frontend/verify.html'));
+    });
+
+    /**
+     * POST /auth/verify
+     * Accepts { token }. Validates token and advances account status from
+     * 'pending_email' to 'pending' (awaiting owner approval).
+     */
+    app.post('/auth/verify', authLimiter, async (req, res) => {
+        try {
+            const { token } = req.body || {};
+            if (!token) return res.status(400).json({ error: 'token required' });
+            if (!emailVerificationRepo || !accountRepo) {
+                return res.status(503).json({ error: 'Unavailable' });
+            }
+            const row = await emailVerificationRepo.findByToken(token);
+            if (!row) return res.status(400).json({ error: 'invalid_or_expired_token' });
+            // account を取得して status を pending に昇格
+            const account = await accountRepo.findById(row.account_id);
+            if (!account) return res.status(400).json({ error: 'invalid_or_expired_token' });
+            if (account.status === 'pending_email') {
+                await accountRepo.setStatus(account.id, 'pending');
+            }
+            await emailVerificationRepo.markUsed(row.id);
+            res.status(200).json({ ok: true });
+        } catch (error) {
+            logger.error(error, { route: '/auth/verify', requestId: req.requestId });
+            res.status(500).json({ error: 'failed_to_verify' });
         }
     });
 

@@ -1,0 +1,109 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>メールアドレス確認 — GIJIRO</title>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            min-height: 100vh;
+            margin: 0;
+            background: #f5f5f5;
+            color: #333;
+        }
+        .card {
+            background: #fff;
+            border-radius: 12px;
+            padding: 40px 32px;
+            max-width: 440px;
+            width: 100%;
+            box-shadow: 0 4px 24px rgba(0,0,0,0.10);
+            text-align: center;
+        }
+        .card h1 {
+            font-size: 1.4rem;
+            margin: 0 0 16px;
+        }
+        .card p {
+            color: #555;
+            line-height: 1.7;
+            margin: 0 0 24px;
+        }
+        .icon {
+            font-size: 3rem;
+            margin-bottom: 16px;
+        }
+        .icon.success { color: #2e7d32; }
+        .icon.error   { color: #c62828; }
+        .icon.loading { color: #999; animation: spin 1s linear infinite; display: inline-block; }
+        @keyframes spin { to { transform: rotate(360deg); } }
+        a.home-link {
+            display: inline-block;
+            margin-top: 8px;
+            padding: 10px 24px;
+            background: #1565c0;
+            color: #fff;
+            border-radius: 6px;
+            text-decoration: none;
+            font-weight: 600;
+        }
+        a.home-link:hover { background: #0d47a1; }
+    </style>
+</head>
+<body>
+    <div class="card" id="card">
+        <div class="icon loading" id="icon">&#9696;</div>
+        <h1 id="title">メールアドレスを確認中...</h1>
+        <p id="message">しばらくお待ちください。</p>
+    </div>
+    <script>
+        (async function () {
+            const params = new URLSearchParams(window.location.search);
+            const token = params.get('token');
+            const icon = document.getElementById('icon');
+            const title = document.getElementById('title');
+            const message = document.getElementById('message');
+
+            function showResult(ok) {
+                if (ok) {
+                    icon.className = 'icon success';
+                    icon.textContent = '✔';
+                    title.textContent = 'メールアドレスを確認しました';
+                    message.textContent = '登録が完了しました。管理者の承認をお待ちください。承認後にログインできます。';
+                } else {
+                    icon.className = 'icon error';
+                    icon.textContent = '✖';
+                    title.textContent = 'リンクが無効または期限切れです';
+                    message.textContent = '確認リンクが無効か、有効期限 (24 時間) が切れています。再度サインアップするか、サポートにお問い合わせください。';
+                }
+                const link = document.createElement('a');
+                link.href = '/';
+                link.className = 'home-link';
+                link.textContent = 'ログイン画面へ';
+                document.getElementById('card').appendChild(link);
+            }
+
+            if (!token) {
+                showResult(false);
+                return;
+            }
+
+            try {
+                const res = await fetch('/auth/verify', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ token })
+                });
+                const data = await res.json();
+                showResult(res.ok && data.ok);
+            } catch (_) {
+                showResult(false);
+            }
+        })();
+    </script>
+</body>
+</html>
