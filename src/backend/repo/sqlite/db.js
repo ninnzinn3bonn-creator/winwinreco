@@ -182,7 +182,9 @@ async function initDB(dbPath) {
                         // DB-based ownership. 1 = owner. 旧 OWNER_EMAIL 環境変数を
                         // 置き換える。最初のユーザーが /admin/bootstrap-owner で
                         // 自分自身をオーナーに昇格させてセットアップを始められる。
-                        ensureColumn(db, 'user_accounts', 'is_owner', 'INTEGER DEFAULT 0')
+                        ensureColumn(db, 'user_accounts', 'is_owner', 'INTEGER DEFAULT 0'),
+                        // §54 利用状況ダッシュボード: ログイン時刻追跡
+                        ensureColumn(db, 'user_accounts', 'last_login_at', 'DATETIME')
                     ])
                         .then(() => new Promise((resolveActions, rejectActions) => {
                             db.run(`CREATE TABLE IF NOT EXISTS actions (

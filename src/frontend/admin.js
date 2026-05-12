@@ -111,6 +111,7 @@ function renderAllUsers(users) {
     }
 }
 
+// --- 承認管理タブ専用リロード ---
 async function reloadAll() {
     const [pending, all, countResp] = await Promise.all([
         api('GET', '/admin/users/pending'),
@@ -122,7 +123,137 @@ async function reloadAll() {
     renderPendingBadge(countResp.count || 0);
 }
 
+// --- タブ制御 ---
+function switchAdminTab(tabName) {
+    document.querySelectorAll('.admin-tab-btn').forEach((btn) => {
+        btn.classList.toggle('active', btn.dataset.tab === tabName);
+    });
+    document.querySelectorAll('.admin-tab-pane').forEach((pane) => {
+        pane.classList.toggle('active', pane.id === `tab-${tabName}`);
+    });
+    if (tabName === 'usage') {
+        loadStats().catch((e) => showError(e.message));
+        loadUsageList().catch((e) => showError(e.message));
+    }
+}
+
+// --- 利用状況タブ ---
+async function loadStats() {
+    let stats;
+    try {
+        stats = await api('GET', '/admin/stats');
+    } catch (e) {
+        return;
+    }
+    const set = (id, val) => {
+        const el = document.getElementById(id);
+        if (el) el.textContent = val != null ? String(val) : '-';
+    };
+    set('stat-users-total', stats.users?.total);
+    set('stat-users-approved', stats.users?.approved);
+    set('stat-users-pending', stats.users?.pending);
+    set('stat-users-active7d', stats.users?.active_7d);
+    set('stat-users-active30d', stats.users?.active_30d);
+    set('stat-rooms-total', stats.rooms?.total);
+    set('stat-rooms-week', stats.rooms?.this_week);
+    set('stat-rooms-ongoing', stats.rooms?.ongoing);
+}
+
+async function loadUsageList() {
+    const tbody = document.getElementById('usage-tbody');
+    if (!tbody) return;
+    tbody.innerHTML = '<tr><td colspan="7" class="empty-row">読み込み中...</td></tr>';
+    let data;
+    try {
+        data = await api('GET', '/admin/users');
+    } catch (e) {
+        tbody.innerHTML = `<tr><td colspan="7" class="empty-row">取得失敗: ${escapeHtml(e.message)}</td></tr>`;
+        return;
+    }
+    const users = data.users || [];
+    if (!users.length) {
+        tbody.innerHTML = '<tr><td colspan="7" class="empty-row">ユーザーがいません</td></tr>';
+        return;
+    }
+    tbody.innerHTML = '';
+    for (const u of users) {
+        const tr = document.createElement('tr');
+        tr.dataset.userId = u.id;
+        tr.dataset.userEmail = u.email;
+        const duration = typeof u.total_duration_minutes === 'number'
+            ? Math.round(u.total_duration_minutes)
+            : '-';
+        tr.innerHTML = `
+            <td>${escapeHtml(u.email)}</td>
+            <td>${escapeHtml(u.display_name) || '<span style="color:#999">(未設定)</span>'}</td>
+            <td>${statusLabel(u.status)}</td>
+            <td>${typeof u.meeting_count === 'number' ? u.meeting_count : '-'}</td>
+            <td>${duration}</td>
+            <td>${formatDateTime(u.last_meeting_at)}</td>
+            <td>${formatDateTime(u.last_login_at)}</td>`;
+        tbody.appendChild(tr);
+    }
+}
+
+async function openUserDetail(userId, userEmail) {
+    const modal = document.getElementById('meeting-modal');
+    const title = document.getElementById('modal-title');
+    const tbody = document.getElementById('modal-meetings-tbody');
+    if (!modal || !tbody) return;
+    title.textContent = `会議履歴: ${userEmail}`;
+    tbody.innerHTML = '<tr><td colspan="7" class="empty-row">読み込み中...</td></tr>';
+    modal.classList.add('open');
+
+    try {
+        const data = await api('GET', `/admin/users/${encodeURIComponent(userId)}/meetings`);
+        const meetings = data.meetings || [];
+        if (!meetings.length) {
+            tbody.innerHTML = '<tr><td colspan="7" class="empty-row">会議がありません</td></tr>';
+            return;
+        }
+        tbody.innerHTML = '';
+        for (const m of meetings) {
+            const tr = document.createElement('tr');
+            tr.innerHTML = `
+                <td>${escapeHtml(m.title || '(無題)')}</td>
+                <td>${escapeHtml(m.status || '')}</td>
+                <td>${formatDateTime(m.created_at)}</td>
+                <td>${m.duration_minutes != null ? m.duration_minutes : '-'}</td>
+                <td>${m.has_minutes ? '✓' : '-'}</td>
+                <td>${m.has_summary ? '✓' : '-'}</td>
+                <td>${m.has_todo ? '✓' : '-'}</td>`;
+            tbody.appendChild(tr);
+        }
+    } catch (e) {
+        tbody.innerHTML = `<tr><td colspan="7" class="empty-row">取得失敗: ${escapeHtml(e.message)}</td></tr>`;
+    }
+}
+
 document.addEventListener('click', async (ev) => {
+    // タブ切替
+    const tabBtn = ev.target.closest('.admin-tab-btn');
+    if (tabBtn && tabBtn.dataset.tab) {
+        clearError();
+        switchAdminTab(tabBtn.dataset.tab);
+        return;
+    }
+
+    // モーダル閉じる
+    if (ev.target.id === 'modal-close-btn' || ev.target.id === 'meeting-modal') {
+        const modal = document.getElementById('meeting-modal');
+        if (modal) modal.classList.remove('open');
+        return;
+    }
+
+    // 利用状況テーブルの行クリック → 会議履歴モーダル
+    const usageRow = ev.target.closest('#usage-tbody tr[data-user-id]');
+    if (usageRow) {
+        clearError();
+        await openUserDetail(usageRow.dataset.userId, usageRow.dataset.userEmail);
+        return;
+    }
+
+    // 承認 / 拒否ボタン
     const btn = ev.target.closest('button[data-action]');
     if (!btn) return;
     clearError();

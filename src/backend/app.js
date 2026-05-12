@@ -800,6 +800,10 @@ function createApp(repositories = {}) {
                 maxAgeSeconds: SESSION_TTL_SECONDS,
                 secure: COOKIE_SECURE
             }));
+            // §54: last_login_at を非同期で更新。失敗してもログインは通す。
+            if (accountRepo && accountRepo.touchLastLogin) {
+                accountRepo.touchLastLogin(account.id).catch(() => {});
+            }
             res.status(200).json({ account: serializeAccount(account) });
         } catch (error) {
             console.error('[auth/login]', error);
@@ -926,14 +930,125 @@ function createApp(repositories = {}) {
         }
     });
 
-    // 全ユーザー一覧 (status 別の管理用)。
+    // 全ユーザー一覧 (status 別の管理用)。§54: 会議統計も付加。
     app.get('/admin/users', requireOwner, async (req, res) => {
         try {
             const users = accountRepo ? await accountRepo.findAll() : [];
+            // 会議統計を各ユーザーに付加 (N+1 だが admin のみ & 100 ユーザー以下を想定)
+            if (roomRepo) {
+                await Promise.all(users.map(async (u) => {
+                    try {
+                        const rooms = await roomRepo.findRoomsForAccount(u.id, { limit: 200 });
+                        u.meeting_count = rooms.length;
+                        u.last_meeting_at = rooms.length > 0 ? (rooms[0].created_at || null) : null;
+                        u.total_duration_minutes = rooms.reduce((sum, r) => {
+                            if (!r.ended_at || !r.created_at) return sum;
+                            const ms = new Date(r.ended_at) - new Date(r.created_at);
+                            return sum + (ms > 0 ? ms / 60000 : 0);
+                        }, 0);
+                    } catch (_) {
+                        u.meeting_count = 0;
+                        u.last_meeting_at = null;
+                        u.total_duration_minutes = 0;
+                    }
+                }));
+            } else {
+                for (const u of users) {
+                    u.meeting_count = 0;
+                    u.last_meeting_at = null;
+                    u.total_duration_minutes = 0;
+                }
+            }
             res.json({ users });
         } catch (error) {
             console.error('[admin/users:get]', error);
             res.status(500).json({ error: 'Failed to list users' });
+        }
+    });
+
+    // §54: 特定ユーザーの会議履歴 (最大 100 件)。
+    app.get('/admin/users/:id/meetings', requireOwner, async (req, res) => {
+        try {
+            if (!roomRepo) return res.json({ meetings: [] });
+            const rooms = await roomRepo.findRoomsForAccount(req.params.id, { limit: 100 });
+            const meetings = rooms.map((r) => {
+                let duration_minutes = null;
+                if (r.ended_at && r.created_at) {
+                    const ms = new Date(r.ended_at) - new Date(r.created_at);
+                    duration_minutes = ms > 0 ? Math.round(ms / 60000) : 0;
+                }
+                return {
+                    id: r.id,
+                    title: r.title || '',
+                    status: r.status,
+                    created_at: r.created_at || null,
+                    ended_at: r.ended_at || null,
+                    duration_minutes,
+                    has_minutes: !!(r.minutes_text && r.minutes_text.trim()),
+                    has_summary: !!(r.summary_text && r.summary_text.trim()),
+                    has_todo: !!(r.todo_text && r.todo_text.trim())
+                };
+            });
+            res.json({ meetings });
+        } catch (error) {
+            console.error('[admin/users/:id/meetings]', error);
+            res.status(500).json({ error: 'Failed to list meetings' });
+        }
+    });
+
+    // §54: 全体サマリ統計。
+    app.get('/admin/stats', requireOwner, async (req, res) => {
+        try {
+            const now = new Date();
+            // 直近 7 日
+            const date7d = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
+            // 直近 30 日
+            const date30d = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
+            // 今週月曜 00:00
+            const dayOfWeek = now.getDay(); // 0=Sun
+            const daysToMonday = dayOfWeek === 0 ? 6 : dayOfWeek - 1;
+            const monday = new Date(now);
+            monday.setHours(0, 0, 0, 0);
+            monday.setDate(monday.getDate() - daysToMonday);
+            // 今月 1 日 00:00
+            const firstOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
+
+            const [
+                totalUsers, approvedUsers, pendingUsers, rejectedUsers,
+                active7d, active30d,
+                totalRooms, thisWeekRooms, thisMonthRooms, ongoingRooms
+            ] = await Promise.all([
+                accountRepo ? accountRepo.findAll().then((a) => a.length) : 0,
+                accountRepo && accountRepo.countByStatus ? accountRepo.countByStatus('approved') : 0,
+                accountRepo ? accountRepo.countPending() : 0,
+                accountRepo && accountRepo.countByStatus ? accountRepo.countByStatus('rejected') : 0,
+                accountRepo && accountRepo.countActiveSince ? accountRepo.countActiveSince(date7d) : 0,
+                accountRepo && accountRepo.countActiveSince ? accountRepo.countActiveSince(date30d) : 0,
+                roomRepo && roomRepo.countAll ? roomRepo.countAll() : 0,
+                roomRepo && roomRepo.countCreatedSince ? roomRepo.countCreatedSince(monday) : 0,
+                roomRepo && roomRepo.countCreatedSince ? roomRepo.countCreatedSince(firstOfMonth) : 0,
+                roomRepo && roomRepo.countOngoing ? roomRepo.countOngoing() : 0
+            ]);
+
+            res.json({
+                users: {
+                    total: totalUsers,
+                    approved: approvedUsers,
+                    pending: pendingUsers,
+                    rejected: rejectedUsers,
+                    active_7d: active7d,
+                    active_30d: active30d
+                },
+                rooms: {
+                    total: totalRooms,
+                    this_week: thisWeekRooms,
+                    this_month: thisMonthRooms,
+                    ongoing: ongoingRooms
+                }
+            });
+        } catch (error) {
+            console.error('[admin/stats]', error);
+            res.status(500).json({ error: 'Failed to fetch stats' });
         }
     });
 

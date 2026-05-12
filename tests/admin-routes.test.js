@@ -14,6 +14,7 @@ const { createApp } = require('../src/backend/app');
 const { UserAccountRepository } = require('../src/backend/repo/sqlite/user-account-repo');
 const { SessionRepository } = require('../src/backend/repo/sqlite/session-repo');
 const { UserRepository } = require('../src/backend/repo/sqlite/user-repo');
+const { RoomRepository } = require('../src/backend/repo/sqlite/room-repo');
 
 const DB_PATH = path.join(__dirname, '../db/test-admin.db');
 
@@ -25,6 +26,7 @@ const PASSWORD = 'password123';
 let db, app, repos;
 let ownerCookie, otherCookie;
 let pendingUserId;
+let ownerAccountId;
 
 /** signup → repo で approved → login してセッション cookie を返す。 */
 async function signupApproveLogin(email, displayName) {
@@ -46,7 +48,8 @@ beforeAll(async () => {
     repos = {
         accountRepo: new UserAccountRepository(db),
         sessionRepo: new SessionRepository(db),
-        userRepo: new UserRepository(db)
+        userRepo: new UserRepository(db),
+        roomRepo: new RoomRepository(db)
     };
     app = createApp(repos);
 
@@ -59,6 +62,9 @@ beforeAll(async () => {
         .send({ email: PENDING_EMAIL, password: PASSWORD, display_name: 'PendingUser' });
     const pendingAcc = await repos.accountRepo.findByEmail(PENDING_EMAIL);
     pendingUserId = pendingAcc.id;
+
+    const ownerAcc = await repos.accountRepo.findByEmail(OWNER_EMAIL);
+    ownerAccountId = ownerAcc.id;
 });
 
 afterAll(async () => {
@@ -271,5 +277,86 @@ describe('/admin/owner-status & /admin/bootstrap-owner', () => {
         const res = await agent.get('/admin/users');
         expect(res.status).toBe(200);
         expect(Array.isArray(res.body.users)).toBe(true);
+    });
+});
+
+// §54 利用状況ダッシュボード
+describe('GET /admin/users (§54 拡張)', () => {
+    test('meeting_count / last_login_at / total_duration_minutes を返す', async () => {
+        const res = await request(app)
+            .get('/admin/users')
+            .set('Cookie', ownerCookie);
+        expect(res.status).toBe(200);
+        const users = res.body.users;
+        expect(Array.isArray(users)).toBe(true);
+        const owner = users.find((u) => u.email === OWNER_EMAIL);
+        expect(owner).toBeTruthy();
+        expect(typeof owner.meeting_count).toBe('number');
+        expect(typeof owner.total_duration_minutes).toBe('number');
+        expect('last_meeting_at' in owner).toBe(true);
+        // last_login_at は login 成功後に設定される (非同期なので存在チェックのみ)
+        expect('last_login_at' in owner).toBe(true);
+    });
+
+    test('非オーナーで 403', async () => {
+        const res = await request(app)
+            .get('/admin/users')
+            .set('Cookie', otherCookie);
+        expect(res.status).toBe(403);
+    });
+});
+
+describe('GET /admin/users/:id/meetings', () => {
+    test('オーナーで会議一覧を返す (空でも配列)', async () => {
+        const res = await request(app)
+            .get(`/admin/users/${ownerAccountId}/meetings`)
+            .set('Cookie', ownerCookie);
+        expect(res.status).toBe(200);
+        expect(Array.isArray(res.body.meetings)).toBe(true);
+    });
+
+    test('非オーナーで 403', async () => {
+        const res = await request(app)
+            .get(`/admin/users/${ownerAccountId}/meetings`)
+            .set('Cookie', otherCookie);
+        expect(res.status).toBe(403);
+    });
+
+    test('未ログインで 401', async () => {
+        const res = await request(app)
+            .get(`/admin/users/${ownerAccountId}/meetings`);
+        expect(res.status).toBe(401);
+    });
+});
+
+describe('GET /admin/stats', () => {
+    test('users と rooms の各カウントを返す', async () => {
+        const res = await request(app)
+            .get('/admin/stats')
+            .set('Cookie', ownerCookie);
+        expect(res.status).toBe(200);
+        const { users, rooms } = res.body;
+        expect(typeof users.total).toBe('number');
+        expect(typeof users.approved).toBe('number');
+        expect(typeof users.pending).toBe('number');
+        expect(typeof users.active_7d).toBe('number');
+        expect(typeof users.active_30d).toBe('number');
+        expect(typeof rooms.total).toBe('number');
+        expect(typeof rooms.this_week).toBe('number');
+        expect(typeof rooms.ongoing).toBe('number');
+        // 最低でも owner + other の 2 ユーザーがいる
+        expect(users.total).toBeGreaterThanOrEqual(2);
+    });
+
+    test('非オーナーで 403', async () => {
+        const res = await request(app)
+            .get('/admin/stats')
+            .set('Cookie', otherCookie);
+        expect(res.status).toBe(403);
+    });
+
+    test('未ログインで 401', async () => {
+        const res = await request(app).get('/admin/stats');
+        expect(res.status).toBe(401);
     });
 });

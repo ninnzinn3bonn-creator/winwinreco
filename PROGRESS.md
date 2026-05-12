@@ -1179,3 +1179,52 @@ iOS Safari でメールアドレスを `#room-id` フィールドへ補完して
 - `src/backend/repo/sqlite/user-account-repo.js` — 同上
 - `src/backend/repo/sqlite/db.js` — `ensureColumn('user_accounts', 'game_high_score', 'INTEGER DEFAULT 0')`
 - `src/backend/app.js` — `/me/easter-score` ルート追加
+
+---
+
+## 54. Admin 利用状況ダッシュボード追加 (2026-05-12)
+
+### 実装内容
+
+オーナー (admin) が他のホストの利用状況を確認できる画面を追加した。
+
+### 新規エンドポイント
+
+- `GET /admin/users` — 既存拡張。各ユーザーに `meeting_count` / `total_duration_minutes` / `last_meeting_at` / `last_login_at` を付加。
+- `GET /admin/users/:id/meetings` — 特定ユーザーの会議履歴 (最大 100 件)。`requireOwner` 保護。
+- `GET /admin/stats` — 全体サマリ: ユーザー数 (total/approved/pending/rejected/active_7d/active_30d) + 会議数 (total/this_week/this_month/ongoing)。`requireOwner` 保護。
+
+### last_login_at の追跡
+
+- `user_accounts` テーブルに `last_login_at DATETIME` を追加 (SQLite: `ensureColumn`、Firestore: スキーマレス)。
+- `/auth/login` 成功時に `accountRepo.touchLastLogin(account.id)` を fire-and-forget で呼び出す。
+
+### 集計戦略
+
+- `/admin/users` の会議統計は N+1 (ユーザーごとに `findRoomsForAccount`) だが、admin 限定 + 100 ユーザー以下の想定なので許容。
+- `/admin/stats` の集計は SQLite: COUNT SQL、Firestore: count() aggregation (フォールバック: snap.size)。
+- 単一フィールドインデックスのみ使用 (Firestore 自動生成)。複合インデックス追加なし。
+
+### フロントエンド
+
+- `admin.html` をタブ化:「承認管理」(既存) / 「利用状況」(新規)。
+- 利用状況タブ: 8 枚のサマリカード + ユーザー利用状況テーブル。
+- ユーザー行クリックで会議履歴モーダルを開く。
+
+### 既知の制限 / 後でやる改善点
+
+- utterance count (発話数) は重いため今回は含めず (Phase 2 以降で検討)。
+- `/admin/users` の N+1 問題: ユーザー数が増えた場合は Firestore `countCreatedSince` / SQLite の GROUP BY 集計に変更が必要。
+- 総会議時間の計算は ended_at が NULL のルームをスキップするため、進行中会議は含まない。
+
+### 変更ファイル
+
+- `src/backend/repo/sqlite/db.js` — `ensureColumn('user_accounts', 'last_login_at', 'DATETIME')`
+- `src/backend/repo/sqlite/user-account-repo.js` — `findAll` に `last_login_at` 追加 / `touchLastLogin` / `countByStatus` / `countActiveSince`
+- `src/backend/repo/sqlite/room-repo.js` — `countAll` / `countCreatedSince` / `countOngoing`
+- `src/backend/repo/firestore/user-account-repo.js` — `_toDomain` に `last_login_at` / `touchLastLogin` / `countByStatus` / `countActiveSince`
+- `src/backend/repo/firestore/room-repo.js` — `countAll` / `countCreatedSince` / `countOngoing`
+- `src/backend/app.js` — `/auth/login` に `touchLastLogin` / `/admin/users` 拡張 / `/admin/users/:id/meetings` / `/admin/stats`
+- `src/frontend/admin.html` — タブ + 利用状況 UI + 会議履歴モーダル
+- `src/frontend/admin.js` — `loadStats` / `loadUsageList` / `openUserDetail` / `switchAdminTab` / タブ + モーダルイベント
+- `tests/admin-routes.test.js` — 4 describe ブロック (8 テストケース) 追加

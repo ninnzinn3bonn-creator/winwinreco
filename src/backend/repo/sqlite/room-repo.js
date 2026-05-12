@@ -216,6 +216,46 @@ class RoomRepository {
         });
     }
 
+    // --- §54 利用状況ダッシュボード ----------------------------------------
+
+    /** 全ルーム数。 */
+    async countAll() {
+        return new Promise((resolve, reject) => {
+            this.db.get(`SELECT COUNT(*) AS c FROM rooms`, [], (err, row) => {
+                if (err) return reject(err);
+                resolve(Number(row?.c || 0));
+            });
+        });
+    }
+
+    /** created_at >= date (ISO 文字列) のルーム数。 */
+    async countCreatedSince(date) {
+        return new Promise((resolve, reject) => {
+            this.db.get(
+                `SELECT COUNT(*) AS c FROM rooms WHERE created_at >= ?`,
+                [date],
+                (err, row) => {
+                    if (err) return reject(err);
+                    resolve(Number(row?.c || 0));
+                }
+            );
+        });
+    }
+
+    /** 進行中ルーム数 (ended_at が NULL のもの)。 */
+    async countOngoing() {
+        return new Promise((resolve, reject) => {
+            this.db.get(
+                `SELECT COUNT(*) AS c FROM rooms WHERE ended_at IS NULL`,
+                [],
+                (err, row) => {
+                    if (err) return reject(err);
+                    resolve(Number(row?.c || 0));
+                }
+            );
+        });
+    }
+
     /**
      * Delete a room and every dependent record. Used when a host removes a
      * meeting from their profile history. Tables that don't exist in older

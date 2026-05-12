@@ -45,6 +45,55 @@
         .status-rejected { color: #cf222e; font-weight: 600; }
         .empty-row { color: #999; font-style: italic; }
         .section-help { color: #666; font-size: 0.85rem; margin-bottom: 8px; }
+
+        /* タブ */
+        .admin-tabs { display: flex; gap: 4px; margin-bottom: 24px; border-bottom: 2px solid #ddd; }
+        .admin-tab-btn {
+            padding: 10px 20px; border: none; background: none; cursor: pointer;
+            font-size: 0.95rem; font-weight: 600; color: #57606a; border-bottom: 2px solid transparent;
+            margin-bottom: -2px; transition: color 0.15s;
+        }
+        .admin-tab-btn.active { color: #0969da; border-bottom-color: #0969da; }
+        .admin-tab-btn:hover:not(.active) { color: #24292f; }
+        .admin-tab-pane { display: none; }
+        .admin-tab-pane.active { display: block; }
+
+        /* サマリカード */
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+            gap: 16px;
+            margin-bottom: 28px;
+        }
+        .stat-card {
+            background: #f6f8fa;
+            border: 1px solid #d0d7de;
+            border-radius: 8px;
+            padding: 16px 20px;
+        }
+        .stat-card .stat-label { font-size: 0.8rem; color: #57606a; margin-bottom: 4px; }
+        .stat-card .stat-value { font-size: 1.7rem; font-weight: 700; color: #24292f; }
+        .stat-card .stat-value.highlight { color: #0969da; }
+
+        /* 利用状況テーブル行クリック */
+        #usage-tbody tr { cursor: pointer; }
+        #usage-tbody tr:hover td { background: #f0f6ff; }
+
+        /* モーダル */
+        .modal-overlay {
+            display: none;
+            position: fixed; inset: 0; background: rgba(0,0,0,0.4); z-index: 100;
+            align-items: center; justify-content: center;
+        }
+        .modal-overlay.open { display: flex; }
+        .modal-box {
+            background: white; border-radius: 8px; max-width: 800px; width: 95%;
+            max-height: 85vh; overflow: auto; padding: 24px;
+        }
+        .modal-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; }
+        .modal-header h3 { font-size: 1.1rem; margin: 0; }
+        .modal-close { background: none; border: none; font-size: 1.4rem; cursor: pointer; color: #57606a; }
+        .modal-close:hover { color: #cf222e; }
     </style>
 </head>
 <body>
@@ -55,39 +104,103 @@
             <p><a href="/">← トップへ戻る</a></p>
         </div>
         <div id="admin-section" hidden>
-            <h1>ユーザー承認</h1>
+            <h1>管理画面</h1>
             <p>ログイン中: <span id="current-user-email"></span> &nbsp;|&nbsp; <a href="/">← トップへ戻る</a></p>
 
-            <h2>承認待ち <span id="pending-badge" class="pending-badge zero">0</span></h2>
-            <p class="section-help">新規登録したユーザーがここに表示されます。承認するとログインして機能を使えるようになります。拒否してもレコードは残ります (誤拒否の復帰用)。</p>
-            <table id="pending-table">
-                <thead>
-                    <tr>
-                        <th>Email</th>
-                        <th>表示名</th>
-                        <th>登録日時</th>
-                        <th>操作</th>
-                    </tr>
-                </thead>
-                <tbody id="pending-tbody"></tbody>
-            </table>
+            <div class="admin-tabs">
+                <button class="admin-tab-btn active" data-tab="approval">承認管理 <span id="pending-badge" class="pending-badge zero">0</span></button>
+                <button class="admin-tab-btn" data-tab="usage">利用状況</button>
+            </div>
 
-            <h2>すべてのユーザー</h2>
-            <p class="section-help">過去に承認・拒否したユーザーを含む全アカウント。誤って拒否した場合はここから「保留に戻す」で再度承認待ちにできます。</p>
-            <table id="users-table">
-                <thead>
-                    <tr>
-                        <th>Email</th>
-                        <th>表示名</th>
-                        <th>状態</th>
-                        <th>登録日時</th>
-                        <th>操作</th>
-                    </tr>
-                </thead>
-                <tbody id="users-tbody"></tbody>
-            </table>
+            <!-- タブ 1: 承認管理 -->
+            <div id="tab-approval" class="admin-tab-pane active">
+                <h2>承認待ち</h2>
+                <p class="section-help">新規登録したユーザーがここに表示されます。承認するとログインして機能を使えるようになります。拒否してもレコードは残ります (誤拒否の復帰用)。</p>
+                <table id="pending-table">
+                    <thead>
+                        <tr>
+                            <th>Email</th>
+                            <th>表示名</th>
+                            <th>登録日時</th>
+                            <th>操作</th>
+                        </tr>
+                    </thead>
+                    <tbody id="pending-tbody"></tbody>
+                </table>
+
+                <h2>すべてのユーザー</h2>
+                <p class="section-help">過去に承認・拒否したユーザーを含む全アカウント。誤って拒否した場合はここから「保留に戻す」で再度承認待ちにできます。</p>
+                <table id="users-table">
+                    <thead>
+                        <tr>
+                            <th>Email</th>
+                            <th>表示名</th>
+                            <th>状態</th>
+                            <th>登録日時</th>
+                            <th>操作</th>
+                        </tr>
+                    </thead>
+                    <tbody id="users-tbody"></tbody>
+                </table>
+            </div>
+
+            <!-- タブ 2: 利用状況 -->
+            <div id="tab-usage" class="admin-tab-pane">
+                <h2>全体サマリ</h2>
+                <div id="stats-grid" class="stats-grid">
+                    <div class="stat-card"><div class="stat-label">総ユーザー数</div><div id="stat-users-total" class="stat-value">-</div></div>
+                    <div class="stat-card"><div class="stat-label">承認済み</div><div id="stat-users-approved" class="stat-value">-</div></div>
+                    <div class="stat-card"><div class="stat-label">承認待ち</div><div id="stat-users-pending" class="stat-value">-</div></div>
+                    <div class="stat-card"><div class="stat-label">直近 7 日アクティブ</div><div id="stat-users-active7d" class="stat-value highlight">-</div></div>
+                    <div class="stat-card"><div class="stat-label">直近 30 日アクティブ</div><div id="stat-users-active30d" class="stat-value">-</div></div>
+                    <div class="stat-card"><div class="stat-label">総会議数</div><div id="stat-rooms-total" class="stat-value">-</div></div>
+                    <div class="stat-card"><div class="stat-label">今週の会議</div><div id="stat-rooms-week" class="stat-value highlight">-</div></div>
+                    <div class="stat-card"><div class="stat-label">進行中</div><div id="stat-rooms-ongoing" class="stat-value">-</div></div>
+                </div>
+
+                <h2>ユーザー別利用状況</h2>
+                <p class="section-help">行をクリックすると会議履歴を表示します。</p>
+                <table id="usage-table">
+                    <thead>
+                        <tr>
+                            <th>Email</th>
+                            <th>表示名</th>
+                            <th>状態</th>
+                            <th>会議数</th>
+                            <th>総時間 (分)</th>
+                            <th>直近の会議</th>
+                            <th>最終ログイン</th>
+                        </tr>
+                    </thead>
+                    <tbody id="usage-tbody"></tbody>
+                </table>
+            </div>
 
             <pre id="error-output"></pre>
+        </div>
+
+        <!-- 会議履歴モーダル -->
+        <div id="meeting-modal" class="modal-overlay">
+            <div class="modal-box">
+                <div class="modal-header">
+                    <h3 id="modal-title">会議履歴</h3>
+                    <button class="modal-close" id="modal-close-btn">&times;</button>
+                </div>
+                <table id="modal-meetings-table">
+                    <thead>
+                        <tr>
+                            <th>タイトル</th>
+                            <th>状態</th>
+                            <th>開始日時</th>
+                            <th>時間 (分)</th>
+                            <th>議事録</th>
+                            <th>要約</th>
+                            <th>ToDo</th>
+                        </tr>
+                    </thead>
+                    <tbody id="modal-meetings-tbody"></tbody>
+                </table>
+            </div>
         </div>
     </div>
     <script src="admin.js"></script>

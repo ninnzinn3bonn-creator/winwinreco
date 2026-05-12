@@ -145,6 +145,42 @@ class RoomRepository {
         return this.findById(roomId);
     }
 
+    // --- §54 利用状況ダッシュボード ----------------------------------------
+
+    /** 全ルーム数。 */
+    async countAll() {
+        try {
+            const agg = await this.col.count().get();
+            return Number(agg.data().count || 0);
+        } catch (_) {
+            const snap = await this.col.get();
+            return snap.size;
+        }
+    }
+
+    /** created_at >= date (Date オブジェクトまたは ISO 文字列) のルーム数。 */
+    async countCreatedSince(date) {
+        const d = date instanceof Date ? date : new Date(date);
+        try {
+            const agg = await this.col.where('created_at', '>=', d).count().get();
+            return Number(agg.data().count || 0);
+        } catch (_) {
+            const snap = await this.col.where('created_at', '>=', d).get();
+            return snap.size;
+        }
+    }
+
+    /** 進行中ルーム数 (ended_at が null のもの)。 */
+    async countOngoing() {
+        try {
+            const agg = await this.col.where('ended_at', '==', null).count().get();
+            return Number(agg.data().count || 0);
+        } catch (_) {
+            const snap = await this.col.where('ended_at', '==', null).get();
+            return snap.size;
+        }
+    }
+
     async deleteCascade(roomId) {
         const subs = ['participants', 'utterances', 'analyses', 'actions', 'chunks'];
         const docRef = this.col.doc(roomId);

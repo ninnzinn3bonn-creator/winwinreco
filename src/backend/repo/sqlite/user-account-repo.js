@@ -64,7 +64,7 @@ class UserAccountRepository {
     async findAll() {
         return new Promise((resolve, reject) => {
             this.db.all(
-                `SELECT id, email, display_name, status, created_at, updated_at
+                `SELECT id, email, display_name, status, is_owner, created_at, updated_at, last_login_at
                  FROM user_accounts
                  ORDER BY created_at DESC`,
                 [],
@@ -209,6 +209,48 @@ class UserAccountRepository {
                 (err) => {
                     if (err) return reject(err);
                     resolve();
+                }
+            );
+        });
+    }
+
+    // --- §54 利用状況ダッシュボード ----------------------------------------
+
+    /** ログイン成功時に last_login_at を現在時刻に更新する。 */
+    async touchLastLogin(id) {
+        if (!id) return;
+        return new Promise((resolve) => {
+            this.db.run(
+                `UPDATE user_accounts SET last_login_at = CURRENT_TIMESTAMP WHERE id = ?`,
+                [id],
+                () => resolve()
+            );
+        });
+    }
+
+    /** status 別の件数を返す。 */
+    async countByStatus(status) {
+        return new Promise((resolve, reject) => {
+            this.db.get(
+                `SELECT COUNT(*) AS c FROM user_accounts WHERE status = ?`,
+                [status],
+                (err, row) => {
+                    if (err) return reject(err);
+                    resolve(Number(row?.c || 0));
+                }
+            );
+        });
+    }
+
+    /** last_login_at >= date (ISO 文字列) のユーザー数。 */
+    async countActiveSince(date) {
+        return new Promise((resolve, reject) => {
+            this.db.get(
+                `SELECT COUNT(*) AS c FROM user_accounts WHERE last_login_at >= ?`,
+                [date],
+                (err, row) => {
+                    if (err) return reject(err);
+                    resolve(Number(row?.c || 0));
                 }
             );
         });

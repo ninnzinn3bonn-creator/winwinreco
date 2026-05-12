@@ -81,6 +81,14 @@ Routes currently protected this way:
 - `POST /rooms/:id/custom-ai`
 - `POST /rooms/:id/end`
 
+Routes protected by `requireOwner` (オーナー専用):
+
+- `GET /admin/users` — 全ユーザー一覧 (§54: 会議統計付き)
+- `GET /admin/users/:id/meetings` — 特定ユーザーの会議履歴
+- `GET /admin/stats` — 全体サマリ統計
+- `GET /admin/users/pending` — 承認待ちユーザー一覧
+- `POST /admin/users/:id/approve` / `POST /admin/users/:id/reject` — 承認 / 拒否
+
 ## Editor state ownership
 
 The post-meeting screen has three editable surfaces:

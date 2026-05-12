@@ -24,7 +24,8 @@ class UserAccountRepository {
             // Firestore は boolean だが、SQLite との互換のため数値で返す
             is_owner: d.is_owner === true || d.is_owner === 1 ? 1 : 0,
             created_at: fromTimestamp(d.created_at),
-            updated_at: fromTimestamp(d.updated_at)
+            updated_at: fromTimestamp(d.updated_at),
+            last_login_at: fromTimestamp(d.last_login_at) || null
         };
     }
 
@@ -165,6 +166,37 @@ class UserAccountRepository {
         if (!snap.exists) return { changes: 0 };
         await ref.update({ is_owner: !!isOwner, updated_at: serverTs() });
         return { changes: 1 };
+    }
+
+    // --- §54 利用状況ダッシュボード ----------------------------------------
+
+    /** ログイン成功時に last_login_at を現在時刻に更新する。 */
+    async touchLastLogin(id) {
+        if (!id) return;
+        await this.col.doc(id).update({ last_login_at: serverTs() });
+    }
+
+    /** status 別の件数を返す。 */
+    async countByStatus(status) {
+        try {
+            const agg = await this.col.where('status', '==', status).count().get();
+            return Number(agg.data().count || 0);
+        } catch (_) {
+            const snap = await this.col.where('status', '==', status).get();
+            return snap.size;
+        }
+    }
+
+    /** last_login_at >= date (Date オブジェクトまたは ISO 文字列) のユーザー数。 */
+    async countActiveSince(date) {
+        const d = date instanceof Date ? date : new Date(date);
+        try {
+            const agg = await this.col.where('last_login_at', '>=', d).count().get();
+            return Number(agg.data().count || 0);
+        } catch (_) {
+            const snap = await this.col.where('last_login_at', '>=', d).get();
+            return snap.size;
+        }
     }
 
     // --- Easter egg ハイスコア --------------------------------------------
