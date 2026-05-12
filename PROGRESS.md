@@ -1448,3 +1448,40 @@ backend 全体で約 106 箇所の `console.*` を `logger.*` に置換。5 フ�
 ### テスト結果
 
 `npm test` 全 pass (既存テスト含む)。`node --check src/backend/services/ai-service.js` OK。
+
+## 62. アカウント削除 / データエクスポート (U-2) (2026-05-13)
+
+`docs/PRODUCTION_READINESS.md` §3.2 の仕様で実装。
+
+### 実装内容
+
+- **`src/backend/lib/account-export.js` 新規作成**: CRC-32 (IEEE 802.3) 自前実装 + Stored (無圧縮) ZIP を Buffer 操作のみで生成。npm 追加依存なし。`exportAccountToZip(repos, accountId)` でホストしたルームのデータを ZIP 化して Buffer で返す。
+- **`src/backend/lib/account-delete.js` 新規作成**: `deleteAccountCascade(repos, accountId)` — ownRooms を `deleteCascade` で全削除 → `destroyAllForAccount` でセッション消去 → `userRepo.deleteById` → `accountRepo.deleteById` の順で cascade 削除。
+- **`src/backend/repo/sqlite/user-account-repo.js`**: `deleteById(id)` 追加。
+- **`src/backend/repo/firestore/user-account-repo.js`**: `deleteById(id)` 追加。
+- **`src/backend/repo/sqlite/user-repo.js`**: `deleteById(id)` 追加。
+- **`src/backend/repo/firestore/user-repo.js`**: `deleteById(id)` 追加。
+- **`src/backend/app.js`**: `GET /me/export` (requireSession + ZIP ストリーム返却) と `POST /me/delete` (requireSession + パスワード再認証 + cascade delete + cookie clear) を追加。
+- **`src/frontend/profile.js`**: 設定タブの `renderSettingsTab()` 末尾に「データ管理」セクション + `showDeleteAccountModal()` を追加。
+- **`src/frontend/style.css`**: `.profile-data-actions` / `.delete-account-overlay` / `.delete-account-modal` 等の CSS を追加。
+- **`tests/account-data.test.js` 新規作成**: 4 ケース (401 未ログイン / 200+ZIP / 401 パスワード不一致 / 204 cascade 削除確認)。
+
+### ZIP 構造
+
+```
+README.txt           エクスポート概要 (日本語)
+account.json         アカウント情報
+profile.json         profile_text
+rooms/<id>.json      ホストした各ルーム (participants / utterances 含む)
+participated.csv     ゲスト参加会議一覧 (このバージョンは空)
+```
+
+### 既知の制限
+
+- ゲストとして参加した会議は `participated.csv` に含まれない (将来実装)。Firestore の collectionGroup を避けるため現バージョンでは own ルームのみ。
+- ZIP は Stored (無圧縮)。大量ルームでもメモリ内処理のため 100 件規模まで想定。
+- オーナーが自分を削除した場合の所有権移転は別タスク (仕様通り通す)。
+
+### テスト結果
+
+168 ケース pass (9 スキップは Firestore emulator テスト)。`node --check` OK。`npm run check:frontend` OK。

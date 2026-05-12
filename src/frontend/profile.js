@@ -607,6 +607,17 @@
             try { return localStorage.getItem('user_id') || ''; } catch (_) { return ''; }
         })();
 
+        // ---- Data management section ----
+        const btnExport = el('button', { className: 'secondary', type: 'button', id: 'btn-export-data' }, '全データをエクスポート (ZIP)');
+        btnExport.addEventListener('click', () => {
+            window.location.href = '/me/export?ts=' + Date.now();
+        });
+
+        const btnDelete = el('button', { className: 'danger', type: 'button', id: 'btn-delete-account' }, 'アカウントを完全削除');
+        btnDelete.addEventListener('click', () => {
+            showDeleteAccountModal();
+        });
+
         return el('div', { className: 'profile-tab-pane profile-pane-settings' }, [
             el('p', { className: 'profile-pane-lead' }, '基本的なアプリ設定です。設定はこの端末に保存され、会議準備画面の AI / マイク選択とも同期します。'),
             el('div', { className: 'profile-settings-grid' }, [
@@ -626,8 +637,76 @@
                     el('div', {}, `アカウント ID: ${window.AppAuth?.state?.account?.id || '-'}`),
                     el('div', {}, `ローカルユーザー ID: ${localUserId || '(未設定)'}`)
                 ])
-            ])
+            ]),
+            el('h3', {}, 'データ管理'),
+            el('div', { className: 'profile-data-actions' }, [btnExport, btnDelete]),
+            el('p', { className: 'profile-pane-lead' }, 'エクスポートはホストしたルームの議事録・要約・ToDo・発話ログを ZIP で取得します。アカウント削除はホストしたすべての会議データと一緒にアカウントを完全に消去し、復元できません。')
         ]);
+    }
+
+    // ---- Delete account modal ----
+    function showDeleteAccountModal() {
+        const pwInput = el('input', { type: 'password', placeholder: 'パスワードを入力', autocomplete: 'current-password' });
+        const statusEl = el('p', { className: 'delete-account-status' });
+        const btnConfirm = el('button', { className: 'danger', type: 'button' }, '削除する');
+        const btnCancel = el('button', { className: 'secondary', type: 'button' }, 'キャンセル');
+
+        const modalContent = el('div', { className: 'delete-account-modal' }, [
+            el('h3', {}, 'アカウントを完全削除'),
+            el('p', { className: 'delete-account-warning' }, [
+                '削除すると以下が完全に消えます (復元不可):',
+                el('ul', {}, [
+                    el('li', {}, 'アカウント情報 (メールアドレス、パスワード)'),
+                    el('li', {}, 'ホストしたすべての会議の議事録・要約・ToDo・発話'),
+                    el('li', {}, 'セッション情報')
+                ])
+            ]),
+            el('label', {}, ['パスワードを入力して確定してください。', pwInput]),
+            statusEl,
+            el('div', { className: 'delete-account-actions' }, [btnConfirm, btnCancel])
+        ]);
+
+        const overlay = el('div', { className: 'delete-account-overlay' }, [modalContent]);
+        overlay.addEventListener('click', (e) => { if (e.target === overlay) overlay.remove(); });
+        document.body.appendChild(overlay);
+
+        btnCancel.addEventListener('click', () => overlay.remove());
+        btnConfirm.addEventListener('click', async () => {
+            const password = pwInput.value;
+            if (!password) { statusEl.textContent = 'パスワードを入力してください'; return; }
+            btnConfirm.disabled = true;
+            btnCancel.disabled = true;
+            statusEl.textContent = '削除中...';
+            try {
+                const res = await fetch('/me/delete', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ password }),
+                    credentials: 'same-origin'
+                });
+                if (res.status === 401) {
+                    statusEl.textContent = 'パスワードが正しくありません';
+                    btnConfirm.disabled = false;
+                    btnCancel.disabled = false;
+                    return;
+                }
+                if (!res.ok) {
+                    const data = await res.json().catch(() => ({}));
+                    throw new Error(data.error || '削除に失敗しました');
+                }
+                overlay.remove();
+                closeProfileModal();
+                if (window.AppToast) window.AppToast.success('アカウントを削除しました');
+                setTimeout(() => { window.location.href = '/'; }, 1200);
+            } catch (err) {
+                statusEl.textContent = err.message;
+                btnConfirm.disabled = false;
+                btnCancel.disabled = false;
+            }
+        });
+
+        // フォーカスをパスワード入力に当てる
+        setTimeout(() => pwInput.focus(), 50);
     }
 
     // -------- Public API ---------------------------------------------------

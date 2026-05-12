@@ -145,6 +145,33 @@ pending_email  →  pending  →  approved
 - Both pages carry a `<!-- ドラフト: 法務確認前 -->` comment. Require legal review before production use.
 - Privacy policy §8 (contact info) uses a placeholder — set `OWNER_EMAIL` before go-live.
 
+### Data export / deletion (U-2)
+
+**Export (`GET /me/export`):**
+- Requires `requireSession`; unauthenticated requests → 401.
+- Returns `Content-Type: application/zip` containing README.txt, account.json, profile.json, rooms/<roomId>.json for each owned room, and participated.csv (empty in this version).
+- ZIP is Stored (no compression) with a self-contained CRC-32 implementation in `src/backend/lib/account-export.js`. No new npm dependencies.
+- **Own rooms only**: guest participation is not included in this version (collectionGroup avoidance). README.txt states this explicitly.
+- Buffer size: buffered in memory and sent in one response. Suitable for up to ~100 rooms.
+
+**Account deletion (`POST /me/delete`):**
+- Requires `requireSession` + correct `password` in the request body.
+- Wrong password → 401 `パスワードが正しくありません`.
+- Cascade order:
+  1. All owned rooms via `roomRepo.deleteCascade()` (utterances / participants / analyses / actions / chunks / room).
+  2. All sessions via `sessionRepo.destroyAllForAccount()`.
+  3. `userRepo.deleteById()`.
+  4. `accountRepo.deleteById()`.
+- Session cookie is cleared in the response (`Max-Age=0`).
+- **Self-delete only**: a user can only delete their own account (`req.account.id`). No admin override.
+- Owner self-deletion: allowed (ownership transfer is a future task).
+
+**Implementation files:**
+- `src/backend/lib/account-export.js` — ZIP builder + export logic.
+- `src/backend/lib/account-delete.js` — cascade delete logic.
+- `src/backend/repo/{sqlite,firestore}/user-account-repo.js` — `deleteById()` added.
+- `src/backend/repo/{sqlite,firestore}/user-repo.js` — `deleteById()` added.
+
 ## Editor state ownership
 
 The post-meeting screen has three editable surfaces:

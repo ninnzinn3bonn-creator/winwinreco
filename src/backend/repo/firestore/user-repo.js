@@ -38,6 +38,14 @@ class UserRepository {
         return this._toDomain(doc.id, doc.data());
     }
 
+    async deleteById(id) {
+        const ref = this.col.doc(id);
+        const snap = await ref.get();
+        if (!snap.exists) return 0;
+        await ref.delete();
+        return 1;
+    }
+
     async upsert(user) {
         const { id, name, profile_text = '' } = user;
         await this.col.doc(id).set(

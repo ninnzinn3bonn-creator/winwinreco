@@ -1367,6 +1367,55 @@ function createApp(repositories = {}) {
         }
     });
 
+    // --- Data export (ZIP) -----------------------------------------------
+    app.get('/me/export', requireSession, async (req, res) => {
+        try {
+            const { exportAccountToZip } = require('./lib/account-export');
+            const zipBuf = await exportAccountToZip(
+                { accountRepo, userRepo, roomRepo, utteranceRepo, participantRepo },
+                req.account.id
+            );
+            const filename = `gijiro-export-${req.account.id}-${Date.now()}.zip`;
+            res.setHeader('Content-Type', 'application/zip');
+            res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+            res.setHeader('Content-Length', zipBuf.length);
+            res.status(200).end(zipBuf);
+        } catch (error) {
+            logger.error(error, { route: 'GET /me/export', requestId: req.requestId, accountId: req.account?.id });
+            res.status(500).json({ error: 'Failed to generate export' });
+        }
+    });
+
+    // --- Account deletion (cascade) --------------------------------------
+    app.post('/me/delete', requireSession, async (req, res) => {
+        try {
+            const { password } = req.body || {};
+            if (!password) {
+                return res.status(400).json({ error: 'パスワードを入力してください' });
+            }
+            if (!accountRepo) return res.status(503).json({ error: 'Unavailable' });
+
+            const account = await accountRepo.findById(req.account.id);
+            if (!account) return res.status(404).json({ error: 'Account not found' });
+
+            const ok = await verifyPassword(password, account.password_hash);
+            if (!ok) return res.status(401).json({ error: 'パスワードが正しくありません' });
+
+            const { deleteAccountCascade } = require('./lib/account-delete');
+            await deleteAccountCascade(
+                { accountRepo, userRepo, roomRepo, sessionRepo },
+                req.account.id
+            );
+
+            // セッション cookie を消去してクライアントをログアウト
+            res.setHeader('Set-Cookie', buildClearCookie({ secure: COOKIE_SECURE }));
+            res.status(204).end();
+        } catch (error) {
+            logger.error(error, { route: 'POST /me/delete', requestId: req.requestId, accountId: req.account?.id });
+            res.status(500).json({ error: 'Failed to delete account' });
+        }
+    });
+
     // --- Account history endpoints ---------------------------------------
     /**
      * Backfill: when a user signs up or logs in for the first time on a

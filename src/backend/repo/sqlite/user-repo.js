@@ -35,6 +35,19 @@ class UserRepository {
         });
     }
 
+    async deleteById(id) {
+        return new Promise((resolve, reject) => {
+            this.db.run(
+                'DELETE FROM users WHERE id = ?',
+                [id],
+                function (err) {
+                    if (err) return reject(err);
+                    resolve(this.changes || 0);
+                }
+            );
+        });
+    }
+
     async upsert(user) {
         return new Promise((resolve, reject) => {
             const { id, name, profile_text = '' } = user;

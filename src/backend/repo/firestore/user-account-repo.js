@@ -199,6 +199,14 @@ class UserAccountRepository {
         }
     }
 
+    async deleteById(id) {
+        const ref = this.col.doc(id);
+        const snap = await ref.get();
+        if (!snap.exists) return 0;
+        await ref.delete();
+        return 1;
+    }
+
     // --- Easter egg ハイスコア --------------------------------------------
 
     async getGameHighScore(id) {

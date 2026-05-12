@@ -271,6 +271,19 @@ class UserAccountRepository {
         });
     }
 
+    async deleteById(id) {
+        return new Promise((resolve, reject) => {
+            this.db.run(
+                'DELETE FROM user_accounts WHERE id = ?',
+                [id],
+                function (err) {
+                    if (err) return reject(err);
+                    resolve(this.changes || 0);
+                }
+            );
+        });
+    }
+
     async updateGameHighScore(id, score) {
         if (!id) return { is_new_high_score: false, high_score: 0, previous: 0 };
         const previous = await this.getGameHighScore(id);
