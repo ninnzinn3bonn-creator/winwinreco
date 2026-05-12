@@ -1358,3 +1358,31 @@ backend 全体で約 106 箇所の `console.*` を `logger.*` に置換。5 フ�
 ### テスト結果
 
 149 ケース全 pass (9 スキップは Firestore emulator テスト)。フロントエンド構文チェック + 重複関数チェックも通過。`npx js-yaml .github/workflows/ci.yml` による YAML 構文検証 OK。
+
+
+---
+
+## 60. 利用規約 / プライバシー / 録音同意 (U-5) (2026-05-13)
+
+`docs/PRODUCTION_READINESS.md` §3.5 の仕様に基づき、法的必須要件を実装。
+
+### 実装内容
+
+- **`src/frontend/terms.html` 新規作成**: 利用規約 (第1〜8条)。ドラフトコメント付き。法務確認前。
+- **`src/frontend/privacy.html` 新規作成**: プライバシーポリシー (第1〜8条)。ドラフトコメント付き。法務確認前。
+- **`src/backend/app.js`**: `express.static` の直後に `/terms` / `/privacy` ルートを追加 (`res.sendFile`)。
+- **`src/frontend/index.html`**: グローバルフッター (`.app-footer`) を `</body>` 直前に追加。サインアップフォームに `#welcome-consent-row` (規約同意チェックボックス) を追加。
+- **`src/frontend/main.js`**: `setWelcomeFormVisible()` で signup モード切替時に `#welcome-consent-row` を表示/非表示。フォーム submit 時に signup モードのみ同意チェックを検証し、未チェックなら `AppToast.warn` を出して return。
+- **`src/frontend/meeting-ui.js`**: `showRecordingConsentIfNeeded()` を新規追加 (localStorage で次回以降スキップ可)。`joinRoom()` と `createRoom()` の各冒頭 (`prepareAudio` の前) に呼び出しを挿入。
+- **`src/frontend/style.css`**: `.app-footer` / `.footer-sep` / `.footer-version` / `.legal-page-*` / `.legal-article` / `.welcome-consent` / `.auth-modal-wrapper` / `.consent-modal` / `.consent-remember` の CSS を追加。
+- **`tests/static-pages.test.js` 新規作成**: `/terms` / `/privacy` が 200 を返すことを確認する 2 ケース。
+
+### 法務確認待ち
+
+両ページとも `<!-- ドラフト: 法務確認前。改訂日 2026-05-13 -->` のコメントを冒頭に記載。
+第4条 (外部 API 一覧)・第8条 (問い合わせ先) は本番前に要法務レビュー。
+`privacy.html` の第8条には `<!-- placeholder: OWNER_EMAIL をここに設置予定 -->` コメントあり。
+
+### テスト結果
+
+151 ケース全 pass (9 スキップは Firestore emulator テスト / +2 が今回追加)。`node --check src/backend/app.js` OK。`npm run check:frontend` OK。

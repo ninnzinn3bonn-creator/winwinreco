@@ -162,11 +162,49 @@
         });
     }
 
+    async function showRecordingConsentIfNeeded() {
+        try {
+            if (localStorage.getItem('recording_consent') === '1') return true;
+        } catch (_) { /* ignore */ }
+        return await new Promise((resolve) => {
+            const overlay = document.createElement('div');
+            overlay.className = 'auth-modal-overlay';
+            overlay.innerHTML = `
+                <div class="auth-modal-wrapper consent-modal">
+                    <h2 class="auth-modal-title">録音とAI処理の同意</h2>
+                    <p>この会議は録音され、文字起こし・議事録・要約・ToDoが自動生成されます。</p>
+                    <p>処理には Google Cloud / Gemini / Groq / ElevenLabs などの外部 AI サービスが利用される場合があります。</p>
+                    <p><a href="/terms" target="_blank" rel="noopener">利用規約</a>・<a href="/privacy" target="_blank" rel="noopener">プライバシーポリシー</a>をご確認ください。</p>
+                    <label class="consent-remember">
+                        <input type="checkbox" id="consent-remember-checkbox" checked>
+                        <span>次回以降この確認を表示しない</span>
+                    </label>
+                    <div class="auth-modal-actions">
+                        <button type="button" id="consent-cancel" class="ghost-btn">キャンセル</button>
+                        <button type="button" id="consent-ok" class="primary">同意して参加する</button>
+                    </div>
+                </div>`;
+            document.body.appendChild(overlay);
+            const cleanup = () => overlay.remove();
+            overlay.querySelector('#consent-cancel').addEventListener('click', () => { cleanup(); resolve(false); });
+            overlay.querySelector('#consent-ok').addEventListener('click', () => {
+                try {
+                    if (overlay.querySelector('#consent-remember-checkbox').checked) {
+                        localStorage.setItem('recording_consent', '1');
+                    }
+                } catch (_) { /* ignore */ }
+                cleanup();
+                resolve(true);
+            });
+        });
+    }
+
     async function joinRoom() {
         const displayName = document.getElementById('display-name').value.trim();
         const profileText = document.getElementById('profile-text').value.trim();
         const roomId = document.getElementById('room-id').value.trim().toUpperCase();
         if (!displayName || !roomId) return window.AppToast.warn('表示名とルームIDを入力してください');
+        if (!await showRecordingConsentIfNeeded()) return;
         if (!await window.AppAudio.prepareAudio()) return;
         await joinRoomProcess(roomId, displayName, profileText);
     }
@@ -186,6 +224,7 @@
             if (displayNameInput) displayNameInput.value = displayName;
         }
 
+        if (!await showRecordingConsentIfNeeded()) return;
         if (!await window.AppAudio.prepareAudio()) return;
         try {
             const res = await fetch('/rooms', {

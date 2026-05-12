@@ -102,6 +102,27 @@ Routes protected by `requireOwner` (オーナー専用):
 - Mail: `src/backend/lib/mail.js` abstracts the provider. `MAIL_PROVIDER=console` (default/test) writes to stdout; `MAIL_PROVIDER=sendgrid` calls SendGrid REST v3 via built-in `fetch` (no npm dep).
 - U-6 reuse: `mail.send()` is the low-level primitive. Add `sendVerification()` to `mail.js` when implementing U-6.
 
+### Consent & legal (U-5)
+
+**Signup consent (規約同意):**
+- `#welcome-consent-row` checkbox is shown only in signup mode (hidden in login mode).
+- `main.js` `setWelcomeFormVisible()` toggles the `hidden` attribute based on `welcomeFormMode`.
+- On form submit, signup path checks `#welcome-consent-checkbox.checked`; if unchecked, `AppToast.warn` is shown and submission is blocked.
+- Login flow is **not** affected — checkbox remains hidden.
+- The checked/unchecked state is **not** stored in localStorage (user must re-check each signup attempt).
+
+**Recording consent (録音同意):**
+- `showRecordingConsentIfNeeded()` in `meeting-ui.js` shows a modal before audio preparation.
+- If `localStorage.getItem('recording_consent') === '1'`, the modal is skipped.
+- The "次回以降表示しない" checkbox (checked by default) stores `recording_consent=1` in localStorage on OK.
+- Both `joinRoom()` and `createRoom()` call this before `AppAudio.prepareAudio()`.
+- Cancel returns `false` → function returns early without joining.
+
+**Legal pages:**
+- `src/frontend/terms.html` and `src/frontend/privacy.html` are static files served via `GET /terms` and `GET /privacy`.
+- Both pages carry a `<!-- ドラフト: 法務確認前 -->` comment. Require legal review before production use.
+- Privacy policy §8 (contact info) uses a placeholder — set `OWNER_EMAIL` before go-live.
+
 ## Editor state ownership
 
 The post-meeting screen has three editable surfaces:

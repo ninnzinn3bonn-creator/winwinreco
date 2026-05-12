@@ -4831,3 +4831,172 @@ body.easter-flash-time   { animation: easter-flash-time 0.28s; }
         min-width: 0;
     }
 }
+
+/* ===== グローバルフッター ===== */
+.app-footer {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: var(--space-2, 8px);
+    flex-wrap: nowrap;
+    padding: var(--space-3, 12px) var(--space-4, 16px);
+    font-size: 0.78rem;
+    color: var(--color-text-muted, #6b7280);
+    border-top: 1px solid var(--color-border, #e5e7e3);
+    background: var(--color-surface, #fff);
+}
+.app-footer a {
+    color: var(--color-text-muted, #6b7280);
+    text-decoration: none;
+    white-space: nowrap;
+}
+.app-footer a:hover {
+    color: var(--color-accent, #3db8af);
+    text-decoration: underline;
+}
+.footer-sep {
+    color: var(--color-border, #d1d5db);
+    user-select: none;
+}
+.footer-version {
+    white-space: nowrap;
+    color: var(--color-text-muted, #6b7280);
+}
+
+/* ===== 利用規約・プライバシーポリシー 静的ページ共通 ===== */
+.legal-page-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: var(--space-3, 12px) var(--space-5, 20px);
+    border-bottom: 1px solid var(--color-border, #e5e7e3);
+    background: var(--color-surface, #fff);
+}
+.legal-page-brand {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2, 8px);
+    text-decoration: none;
+    color: var(--color-text, #1b2621);
+    font-weight: 700;
+    font-size: 1rem;
+}
+.legal-page-back {
+    font-size: 0.85rem;
+    color: var(--color-accent, #3db8af);
+    text-decoration: none;
+}
+.legal-page-back:hover {
+    text-decoration: underline;
+}
+.legal-page-main {
+    max-width: 780px;
+    margin: 0 auto;
+    padding: var(--space-6, 24px) var(--space-5, 20px) var(--space-8, 32px);
+}
+.legal-article h1 {
+    font-size: var(--font-size-2xl, 1.5rem);
+    font-weight: 700;
+    margin-bottom: var(--space-2, 8px);
+    color: var(--color-text, #1b2621);
+}
+.legal-meta {
+    font-size: 0.82rem;
+    color: var(--color-text-muted, #6b7280);
+    margin-bottom: var(--space-6, 24px);
+}
+.legal-article section {
+    margin-bottom: var(--space-5, 20px);
+}
+.legal-article h2 {
+    font-size: var(--font-size-lg, 1.1rem);
+    font-weight: 700;
+    margin-bottom: var(--space-2, 8px);
+    color: var(--color-text, #1b2621);
+}
+.legal-article p,
+.legal-article li {
+    font-size: var(--font-size-base, 0.95rem);
+    line-height: 1.7;
+    color: var(--color-text-secondary, #374151);
+}
+.legal-article ul {
+    margin: var(--space-2, 8px) 0 var(--space-2, 8px) var(--space-5, 20px);
+}
+.legal-article code {
+    font-size: 0.88em;
+    background: var(--color-surface-strong, #f3f4f6);
+    padding: 2px 6px;
+    border-radius: 4px;
+}
+
+/* ===== サインアップ規約同意チェック ===== */
+.welcome-consent {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+    font-size: 0.85rem;
+    color: var(--color-text-secondary, #374151);
+    cursor: pointer;
+    margin-top: var(--space-1, 4px);
+}
+.welcome-consent input[type="checkbox"] {
+    flex-shrink: 0;
+    width: 16px;
+    height: 16px;
+    cursor: pointer;
+    accent-color: var(--color-accent, #3db8af);
+}
+.welcome-consent a {
+    color: var(--color-accent, #3db8af);
+    text-decoration: underline;
+}
+.welcome-consent[hidden] {
+    display: none;
+}
+
+/* ===== 録音同意モーダル ===== */
+.auth-modal-wrapper {
+    background: var(--color-surface, #fff);
+    border-radius: var(--radius-lg, 12px);
+    padding: var(--space-7, 28px);
+    min-width: 320px;
+    max-width: 480px;
+    width: 100%;
+    box-shadow: var(--shadow-xl);
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-4, 16px);
+    max-height: 90vh;
+    overflow-y: auto;
+    border: 1px solid var(--color-border, #e5e7e3);
+    animation: auth-modal-slide-up var(--dur-slow, 0.2s) var(--ease, ease);
+}
+.auth-modal-wrapper p {
+    font-size: var(--font-size-sm, 0.875rem);
+    line-height: 1.6;
+    color: var(--color-text-secondary, #374151);
+    margin: 0;
+}
+.auth-modal-wrapper p a {
+    color: var(--color-accent, #3db8af);
+    text-decoration: underline;
+}
+.consent-modal {
+    max-width: 480px;
+}
+.consent-remember {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+    font-size: 0.85rem;
+    color: var(--color-text-secondary, #374151);
+    cursor: pointer;
+}
+.consent-remember input[type="checkbox"] {
+    flex-shrink: 0;
+    width: 16px;
+    height: 16px;
+    cursor: pointer;
+    accent-color: var(--color-accent, #3db8af);
+}

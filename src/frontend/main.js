@@ -3090,6 +3090,11 @@ function setWelcomeFormVisible(visible, mode = welcomeFormMode) {
         if (welcomeFormMode === 'signup') nameField.removeAttribute('hidden');
         else nameField.setAttribute('hidden', '');
     }
+    const consentRow = document.getElementById('welcome-consent-row');
+    if (consentRow) {
+        if (welcomeFormMode === 'signup') consentRow.removeAttribute('hidden');
+        else consentRow.setAttribute('hidden', '');
+    }
     if (pwInput) {
         pwInput.setAttribute('autocomplete', welcomeFormMode === 'signup' ? 'new-password' : 'current-password');
     }
@@ -3151,6 +3156,12 @@ function setupOnboardingScreens() {
             if (submitBtn) submitBtn.disabled = true;
             try {
                 if (welcomeFormMode === 'signup') {
+                    const consentCheckbox = document.getElementById('welcome-consent-checkbox');
+                    if (!consentCheckbox || !consentCheckbox.checked) {
+                        if (window.AppToast) window.AppToast.warn('利用規約とプライバシーポリシーに同意してください');
+                        if (submitBtn) submitBtn.disabled = false;
+                        return;
+                    }
                     await window.AppAuth.signup(email, password, displayName);
                 } else {
                     await window.AppAuth.login(email, password);

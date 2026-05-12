@@ -100,6 +100,12 @@
                         <input type="password" id="welcome-password" placeholder="8文字以上" autocomplete="current-password" minlength="8" required>
                     </label>
                     <div id="welcome-error" class="welcome-error" role="alert"></div>
+                    <label class="welcome-consent" id="welcome-consent-row" hidden>
+                        <input type="checkbox" id="welcome-consent-checkbox">
+                        <span>
+                            <a href="/terms" target="_blank" rel="noopener">利用規約</a>と<a href="/privacy" target="_blank" rel="noopener">プライバシーポリシー</a>に同意する
+                        </span>
+                    </label>
                     <div class="welcome-form-actions">
                         <button type="button" id="welcome-form-back" class="ghost-btn">← 戻る</button>
                         <button type="submit" id="welcome-form-submit" class="primary">ログイン</button>
@@ -715,6 +721,13 @@
             </div>
         </div>
     </div>
+    <footer class="app-footer">
+        <a href="/terms" target="_blank" rel="noopener">利用規約</a>
+        <span class="footer-sep">·</span>
+        <a href="/privacy" target="_blank" rel="noopener">プライバシーポリシー</a>
+        <span class="footer-sep">·</span>
+        <span class="footer-version">© 2026 GIJIRO</span>
+    </footer>
     <div id="app-toast-container" aria-live="polite"></div>
     <script src="debug.js"></script>
     <script src="mic-presets.js"></script>

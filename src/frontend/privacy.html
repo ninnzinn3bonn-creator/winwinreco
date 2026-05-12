@@ -1,0 +1,99 @@
+<!-- ドラフト: 法務確認前。改訂日 2026-05-13 -->
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>プライバシーポリシー — GIJIRO</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <header class="legal-page-header">
+        <a class="legal-page-brand" href="/" aria-label="GIJIRO ホームへ">
+            <span class="topbar-logo" aria-hidden="true">
+                <svg width="28" height="28" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                    <rect x="9" y="3" width="6" height="12" rx="3" fill="currentColor"/>
+                    <path d="M5 11a7 7 0 0 0 14 0" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+                    <path d="M12 18v3" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+                </svg>
+            </span>
+            <span class="topbar-title">GIJIRO</span>
+        </a>
+        <a class="legal-page-back" href="/">← トップへ戻る</a>
+    </header>
+
+    <main class="legal-page-main">
+        <article class="legal-article">
+            <h1>プライバシーポリシー</h1>
+            <p class="legal-meta">改訂日: 2026-05-13</p>
+
+            <section>
+                <h2>第1条 (収集する情報)</h2>
+                <p>本サービスは以下の情報を収集します。</p>
+                <ul>
+                    <li>メールアドレスおよび表示名 (アカウント登録時)</li>
+                    <li>会議の音声から生成された文字起こし・議事録・要約・ToDo</li>
+                    <li>利用ログ (アクセス日時・IPアドレス・ブラウザ情報)</li>
+                </ul>
+            </section>
+
+            <section>
+                <h2>第2条 (利用目的)</h2>
+                <p>収集した情報は以下の目的で利用します。</p>
+                <ul>
+                    <li>本サービスの提供および機能改善</li>
+                    <li>不正アクセスの検知・防止</li>
+                    <li>サービスの品質向上・統計分析</li>
+                </ul>
+            </section>
+
+            <section>
+                <h2>第3条 (第三者提供)</h2>
+                <p>運営者は、法令に基づく場合を除き、ユーザーの情報を第三者に提供しません。</p>
+            </section>
+
+            <section>
+                <h2>第4条 (外部サービスの利用)</h2>
+                <p>本サービスは以下の外部サービスを利用します。これらのサービスに音声・テキストデータが送信される場合があります。</p>
+                <ul>
+                    <li>Google Cloud (Cloud Firestore / Cloud Run / Cloud Speech-to-Text) — データの保存・処理基盤</li>
+                    <li>Google Gemini API — 議事録・要約・ToDo の AI 生成</li>
+                    <li>Groq API (任意) — AI 生成の代替プロバイダー</li>
+                    <li>ElevenLabs API (任意) — 高精度音声認識</li>
+                </ul>
+                <p>各サービスのプライバシーポリシーについては、それぞれのサービスプロバイダーのウェブサイトをご確認ください。</p>
+            </section>
+
+            <section>
+                <h2>第5条 (データの保管場所)</h2>
+                <p>本サービスのデータは Google Cloud の <code>asia-northeast1</code> (東京) リージョンに保存されます。</p>
+            </section>
+
+            <section>
+                <h2>第6条 (削除権・エクスポート権)</h2>
+                <p>ユーザーはプロフィール画面から自己のデータのエクスポートおよびアカウントの削除を実行できます (U-2 機能として実装予定)。削除を希望される場合は下記お問い合わせ先までご連絡ください。</p>
+            </section>
+
+            <section>
+                <h2>第7条 (Cookieの利用)</h2>
+                <p>本サービスはセッション維持のため httpOnly Cookie を使用します。この Cookie はサービスの提供に必要なものであり、トラッキングや広告目的には使用しません。</p>
+            </section>
+
+            <section>
+                <h2>第8条 (お問い合わせ)</h2>
+                <p>プライバシーに関するお問い合わせは運営者までご連絡ください。</p>
+                <p>お問い合わせ: 運営者まで</p>
+                <!-- placeholder: OWNER_EMAIL をここに設置予定 -->
+            </section>
+        </article>
+    </main>
+
+    <footer class="app-footer">
+        <a href="/terms" target="_blank" rel="noopener">利用規約</a>
+        <span class="footer-sep">·</span>
+        <a href="/privacy" target="_blank" rel="noopener">プライバシーポリシー</a>
+        <span class="footer-sep">·</span>
+        <span class="footer-version">© 2026 GIJIRO</span>
+    </footer>
+</body>
+</html>

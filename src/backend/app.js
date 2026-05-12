@@ -107,6 +107,16 @@ function createApp(repositories = {}) {
     app.use(securityHeaders());
     app.use(express.static('src/frontend'));
 
+    // Legal static pages
+    app.get('/terms', (req, res) => {
+        const path = require('path');
+        res.sendFile(path.join(__dirname, '../frontend/terms.html'));
+    });
+    app.get('/privacy', (req, res) => {
+        const path = require('path');
+        res.sendFile(path.join(__dirname, '../frontend/privacy.html'));
+    });
+
     // リクエスト ID ミドルウェア: 全リクエストに UUID を付与し、ログの追跡に使う。
     // フロントエンドまたはロードバランサーが x-request-id を渡した場合はそれを優先する。
     app.use((req, res, next) => {
