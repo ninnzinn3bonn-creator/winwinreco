@@ -51,6 +51,20 @@ Rules:
 - shared mutable state should go through `window.AppState.state`
 - `bindings.js` should call `window.AppMain` handlers, not file-local functions
 
+## WS reconnect (U-3)
+
+`src/frontend/meeting-ui.js` が WebSocket ライフサイクルを管理する。`initWebSocket()` → `connectWs()` を呼ぶ。
+
+- 指数バックオフ: `1s → 2s → 4s → 8s → 16s → 30s` (上限 30s)、最大 10 回
+- `state.wsIntentional = true` を立ててから `ws.close()` しないと再接続ループが起きる
+  - 設定タイミング: `endRoom()` / `terminated` メッセージ受信時
+- PCM バッファ: WS が OPEN でない間、`state.pendingAudioBuffer` に最大 30 秒分を溜める
+  - `onopen` 後 `flushPendingAudio()` で全件 flush
+- 差分復元: `hello` メッセージに `last_seen_utterance_id` を乗せ、サーバーはその ID 以降のみ返す
+  - フォールバック: ID が DB に無い場合は全件返す
+- バッジ: `#ws-status-badge` (idle 非表示 / connected 緑 / reconnecting 黄点滅 / disconnected 赤)
+- `setupWebSocket(server, repos)` の `repos` には `roomRepo` を含める必要がある (sendReady が参照)
+
 ## Shared AI flow
 
 1. Live transcript is stored as utterances.

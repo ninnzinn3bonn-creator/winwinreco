@@ -2330,7 +2330,7 @@ function createApp(repositories = {}) {
 }
 
 function setupWebSocket(server, repositories = {}, options = {}) {
-    const { participantRepo, utteranceRepo, audioProcessor, sttService, userRepo, dictionaryRepo } = repositories;
+    const { participantRepo, utteranceRepo, roomRepo, audioProcessor, sttService, userRepo, dictionaryRepo } = repositories;
     const { allowedOrigins = [], expectedHost = '' } = options;
     // Use noServer so we can run credential + Origin checks before the HTTP
     // upgrade hands off to the protocol. A rejected socket never enters
@@ -2478,13 +2478,23 @@ function setupWebSocket(server, repositories = {}, options = {}) {
         };
         ws.ensureValidated = ensureValidated;
 
-        const sendReady = async () => {
+        const sendReady = async (lastSeenUtteranceId) => {
             if (ws.readySent || ws.readyState !== WebSocket.OPEN) return;
 
-            const [history, room] = await Promise.all([
+            const [allHistory, room] = await Promise.all([
                 utteranceRepo ? utteranceRepo.findByRoomIdWithParticipants(ws.roomId) : [],
                 roomRepo ? roomRepo.findById(ws.roomId) : null
             ]);
+
+            // [U-3] 差分復元: last_seen_utterance_id が来た場合はその ID 以降だけを返す
+            let history = allHistory;
+            if (lastSeenUtteranceId) {
+                const idx = allHistory.findIndex((u) => u.id === lastSeenUtteranceId);
+                if (idx >= 0) {
+                    history = allHistory.slice(idx + 1);
+                }
+                // 見つからなければ全件返す (フォールバック: 再接続でセッション切替など)
+            }
 
             ws.readySent = true;
             ws.send(JSON.stringify({
@@ -2728,8 +2738,9 @@ function setupWebSocket(server, repositories = {}, options = {}) {
                         const msg = JSON.parse(msgStr);
 
                         // Ignore 'hello' if it was already used for validation
+                        // [U-3] last_seen_utterance_id を渡して差分のみ返す
                         if (msg.type === 'hello') {
-                            await sendReady();
+                            await sendReady(msg.last_seen_utterance_id || null);
                             return;
                         }
 

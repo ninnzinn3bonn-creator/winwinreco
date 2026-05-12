@@ -417,8 +417,9 @@
                 }
                 if (typeof onAudioChunk === 'function') {
                     onAudioChunk(pcm.buffer);
-                } else if (state.ws && state.ws.readyState === WebSocket.OPEN) {
-                    state.ws.send(pcm.buffer);
+                } else {
+                    // [U-3] フォールバック: sendAudioChunk 経由で WS open 判定 + バッファリング
+                    sendAudioChunk(pcm.buffer);
                 }
             };
             state.processor = processor;
@@ -467,12 +468,56 @@
             const ok = await prepareAudio({ updateStatus: true });
             if (!ok) return;
             if (state.ws && state.ws.readyState === WebSocket.OPEN) {
-                await startRecording({ onAudioChunk: (pcm) => state.ws.send(pcm) });
+                await startRecording({ onAudioChunk: (pcm) => sendAudioChunk(pcm) });
             }
             updateMicStatus('マイクを再接続しました。メーターとログで入力を確認してください。');
             syncMuteUi();
         } catch (error) {
             window.AppToast.error('マイクの再接続に失敗しました', { detail: error.message });
+        }
+    }
+
+    // [U-3] --- PCM 送信ラッパー + バッファリング ---
+
+    /**
+     * PCM チャンクを送信する。WS が開いていなければ最大 30 秒分をバッファする。
+     * @param {ArrayBuffer} pcm
+     */
+    function sendAudioChunk(pcm) {
+        const ws = state.ws;
+        if (ws && ws.readyState === WebSocket.OPEN) {
+            // 先に溜まっているバッファがあれば先に flush
+            flushPendingAudio();
+            ws.send(pcm);
+        } else {
+            bufferAudioChunk(pcm);
+        }
+    }
+
+    /**
+     * PCM チャンクをバッファに積む。30 秒超えの古いものは捨てる。
+     * @param {ArrayBuffer} pcm
+     */
+    function bufferAudioChunk(pcm) {
+        const now = Date.now();
+        state.pendingAudioBuffer.push({ ts: now, buffer: pcm });
+        // 30 秒以上前のものを捨てる
+        const cutoff = now - 30_000;
+        while (state.pendingAudioBuffer.length && state.pendingAudioBuffer[0].ts < cutoff) {
+            state.pendingAudioBuffer.shift();
+        }
+    }
+
+    /**
+     * バッファに溜まった PCM を全件送信してクリアする。
+     * WS が開いていない場合は何もしない。
+     */
+    function flushPendingAudio() {
+        const ws = state.ws;
+        if (!ws || ws.readyState !== WebSocket.OPEN) return;
+        while (state.pendingAudioBuffer.length) {
+            const { buffer } = state.pendingAudioBuffer.shift();
+            ws.send(buffer);
         }
     }
 
@@ -517,6 +562,10 @@
         stopRecording,
         toggleMute,
         reconnectMic,
-        syncMicrophonePermissionState
+        syncMicrophonePermissionState,
+        // [U-3]
+        sendAudioChunk,
+        bufferAudioChunk,
+        flushPendingAudio
     };
 })();

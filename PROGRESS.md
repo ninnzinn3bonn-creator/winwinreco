@@ -1308,3 +1308,63 @@ iOS Safari でメールアドレスを `#room-id` フィールドへ補完して
 ### テスト結果
 
 146 ケース全 pass。フロントエンド構文チェック (`npm run check:frontend`) も全ファイル通過。`grep -rn "alert(" src/frontend --include="*.js"` の結果が 0 件。
+
+---
+
+## 57. WebSocket 再接続堅牢化 (U-3) (2026-05-13)
+
+`docs/PRODUCTION_READINESS.md` §3.3 の仕様を完全実装した。
+
+### 変更内容
+
+#### フロントエンド
+
+- `src/frontend/state.js`
+  - `wsReconnect: { attempt, backoffMs, status }` (接続状態管理)
+  - `pendingAudioBuffer: []` (切断中 PCM チャンク最大 30s 分)
+  - `lastSeenUtteranceId: null` (差分復元用)
+  - `wsIntentional: false` (手動切断フラグ)
+
+- `src/frontend/meeting-ui.js`
+  - `initWebSocket()` を `connectWs()` / `scheduleReconnect()` / `updateWsStatus()` / `renderWsBadge()` に分離
+  - 指数バックオフ再接続: `1s → 2s → 4s → 8s → 16s → 30s`、上限 10 回
+  - `onopen`: 前回 `reconnecting` ならば `AppToast.success('再接続しました')`
+  - `onopen`: `hello` に `last_seen_utterance_id` を乗せて差分復元を要求
+  - `onopen`: `flushPendingAudio()` で切断中の PCM バッファを送信
+  - `onclose`: 初回のみ `AppToast.warn`、以降は `scheduleReconnect()` のみ
+  - 10 回全失敗: `AppToast.error(..., { sticky: true })`
+  - `endRoom()` / `terminated` メッセージ受信時に `state.wsIntentional = true` を立ててから close
+  - `#ws-status-badge` の DOM 操作 (`renderWsBadge()`)
+
+- `src/frontend/audio.js`
+  - `sendAudioChunk(pcm)` ラッパー: WS open なら送信、それ以外は `bufferAudioChunk()`
+  - `bufferAudioChunk(pcm)`: `state.pendingAudioBuffer` に push + 30s 超は廃棄
+  - `flushPendingAudio()`: バッファを全件送信してクリア
+  - `reconnectMic()` / `startRecording()` の fallback パスを `sendAudioChunk` 経由に変更
+  - `window.AppAudio` に `sendAudioChunk / bufferAudioChunk / flushPendingAudio` を露出
+
+- `src/frontend/index.html`
+  - `<div id="ws-status-badge" ...>` を `auth-badge` の隣に追加
+
+- `src/frontend/style.css`
+  - `#ws-status-badge` の 4 状態 CSS (`connected` 緑 / `reconnecting` 黄点滅 / `disconnected` 赤)
+  - モバイルではドット 8px のみ表示
+
+#### バックエンド
+
+- `src/backend/app.js`
+  - `setupWebSocket` の `repositories` 分割代入に `roomRepo` を追加 (漏れていたバグ修正)
+  - `sendReady(lastSeenUtteranceId)`: `last_seen_utterance_id` がある場合、その ID 以降の utterance だけ返す
+  - フォールバック: ID が見つからない場合は全件返す
+  - hello ハンドラで `msg.last_seen_utterance_id || null` を `sendReady` に渡す
+
+#### テスト
+
+- `tests/ws-reconnect.test.js` 新規: 3 ケース
+  1. `last_seen_utterance_id` がある → 差分のみ返す
+  2. `last_seen_utterance_id` が存在しない ID → 全件返す (フォールバック)
+  3. `last_seen_utterance_id` が null → 全件返す (既存互換)
+
+### テスト結果
+
+158 ケース全 pass (+ 9 スキップ)。フロントエンド構文チェック全通過。

@@ -340,7 +340,70 @@
         }
     }
 
-    function initWebSocket() {
+    // [U-3] --- WebSocket 再接続堅牢化 ---
+
+    // 試行回数の上限
+    const WS_MAX_ATTEMPTS = 10;
+    // バックオフ上限 ms
+    const WS_MAX_BACKOFF_MS = 30_000;
+    // バックオフ列 (ms): 1s,2s,4s,8s,16s,30s,30s...
+    function wsNextBackoff(attempt) {
+        if (attempt <= 0) return 1_000;
+        const raw = Math.pow(2, attempt - 1) * 1_000;
+        return Math.min(raw, WS_MAX_BACKOFF_MS);
+    }
+
+    function updateWsStatus(status) {
+        state.wsReconnect.status = status;
+        renderWsBadge();
+    }
+
+    function renderWsBadge() {
+        const badge = document.getElementById('ws-status-badge');
+        if (!badge) return;
+        const { status, attempt } = state.wsReconnect;
+        if (status === 'idle') {
+            badge.hidden = true;
+            badge.className = 'ws-status-badge';
+            badge.textContent = '';
+            return;
+        }
+        badge.hidden = false;
+        badge.className = `ws-status-badge ws-status-${status}`;
+        if (status === 'connected') {
+            badge.textContent = '';
+            badge.title = '接続中';
+        } else if (status === 'reconnecting') {
+            badge.textContent = `再接続中... ${attempt}回目`;
+            badge.title = `再接続試行中 (${attempt}/${WS_MAX_ATTEMPTS})`;
+        } else if (status === 'disconnected') {
+            badge.textContent = '切断';
+            badge.title = '切断。手動再接続してください';
+        }
+    }
+
+    function scheduleReconnect() {
+        const attempt = state.wsReconnect.attempt + 1;
+        state.wsReconnect.attempt = attempt;
+
+        if (attempt > WS_MAX_ATTEMPTS) {
+            updateWsStatus('disconnected');
+            window.AppToast.error('再接続に失敗しました。ページを再読み込みしてください', { sticky: true });
+            return;
+        }
+
+        const backoffMs = wsNextBackoff(attempt);
+        state.wsReconnect.backoffMs = backoffMs;
+        updateWsStatus('reconnecting');
+        setTimeout(connectWs, backoffMs);
+    }
+
+    function connectWs() {
+        // 意図的切断なら再接続しない
+        if (state.wsIntentional) return;
+        // 会議画面にいない場合は再接続しない
+        if (!dom.meetingScreen.classList.contains('active')) return;
+
         const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
         const params = new URLSearchParams({
             participantId: state.participantId || '',
@@ -349,11 +412,29 @@
         });
         const wsUrl = `${protocol}//${window.location.host}?${params.toString()}`;
         state.ws = new WebSocket(wsUrl);
+
         state.ws.onopen = () => {
-            addSystemMessage('サーバーに接続しました。');
-            state.ws.send(JSON.stringify({ type: 'hello' }));
+            const wasReconnecting = state.wsReconnect.status === 'reconnecting';
+            // リセット
+            state.wsReconnect.attempt = 0;
+            state.wsReconnect.backoffMs = 0;
+            updateWsStatus('connected');
+
+            if (wasReconnecting) {
+                window.AppToast.success('再接続しました');
+            }
+
+            // hello + 差分復元用の last_seen_utterance_id を送信
+            state.ws.send(JSON.stringify({
+                type: 'hello',
+                last_seen_utterance_id: state.lastSeenUtteranceId || null
+            }));
             window.AppAudio.sendMicPresetMetadataToServer();
+
+            // 切断中に溜まった PCM バッファを flush
+            window.AppAudio.flushPendingAudio();
         };
+
         state.ws.onmessage = (event) => {
             const msg = JSON.parse(event.data);
             if (msg.type === 'transcript_interim') {
@@ -363,6 +444,8 @@
                 window.AppLogUi.upsertUtterance(msg);
                 window.AppLogUi.renderAllLogs();
                 window.AppLogUi.scrollLogToLatest(dom.timeline);
+                // 最新 utterance ID を記録
+                if (msg.id) state.lastSeenUtteranceId = msg.id;
             } else if (msg.type === 'ready') {
                 // F4: ホスト指定の STT 設定を state に保存し、mic_preset 送信時に使用する。
                 if (msg.room_stt_provider) {
@@ -372,11 +455,18 @@
                 if (msg.room_stt_language) {
                     state.roomSttLanguage = msg.room_stt_language;
                 }
-                (msg.history || []).forEach((entry) => window.AppLogUi.upsertUtterance(entry));
+                const historyEntries = msg.history || [];
+                historyEntries.forEach((entry) => window.AppLogUi.upsertUtterance(entry));
+                // 差分履歴の最後の ID を lastSeenUtteranceId として保持
+                if (historyEntries.length > 0) {
+                    const last = historyEntries[historyEntries.length - 1];
+                    if (last.id) state.lastSeenUtteranceId = last.id;
+                }
                 window.AppLogUi.renderAllLogs();
-                window.AppAudio.startRecording({ onAudioChunk: (pcm) => state.ws.send(pcm) });
+                window.AppAudio.startRecording({ onAudioChunk: (pcm) => window.AppAudio.sendAudioChunk(pcm) });
             } else if (msg.type === 'terminated') {
-                addSystemMessage('会議が終了しました。');
+                // 会議終了は意図的なサーバー側終了
+                state.wsIntentional = true;
                 window.AppAudio.stopRecording();
                 showSummaryScreen();
             } else if (msg.type === 'chunk_progress') {
@@ -390,15 +480,32 @@
                 }
             }
         };
+
         state.ws.onclose = () => {
-            addSystemMessage('接続が切れました。再接続を試みます...');
-            if (dom.meetingScreen.classList.contains('active')) {
-                setTimeout(initWebSocket, 3000);
+            // 意図的切断なら再接続しない
+            if (state.wsIntentional) return;
+            // 会議画面にいない場合は再接続しない
+            if (!dom.meetingScreen.classList.contains('active')) return;
+
+            // 初回切断のみ warn Toast
+            if (state.wsReconnect.status !== 'reconnecting') {
+                window.AppToast.warn('接続が切れました。再接続を試みます...');
             }
+            scheduleReconnect();
         };
+
         state.ws.onerror = () => {
             window.AppMain?.AppDebug?.log('error', 'WebSocket Error occurred');
         };
+    }
+
+    // 後方互換エイリアス (既存コードが initWebSocket() を呼んでいる箇所用)
+    function initWebSocket() {
+        state.wsIntentional = false;
+        state.wsReconnect.attempt = 0;
+        state.wsReconnect.backoffMs = 0;
+        updateWsStatus('idle');
+        connectWs();
     }
 
     function scrollToPageEdge(direction) {
@@ -418,6 +525,10 @@
             });
             const data = await readApiResponse(res);
             if (!res.ok) throw new Error(data.error || '終了に失敗しました');
+            // [U-3] 意図的切断フラグを立ててから停止 (再接続ループ防止)
+            state.wsIntentional = true;
+            if (state.ws) state.ws.close();
+            updateWsStatus('idle');
             window.AppAudio.stopRecording();
             showSummaryScreen({ justEnded: true });
         } catch (error) {
@@ -450,6 +561,10 @@
         showSummaryScreen,
         loadRoomLogs,
         initWebSocket,
+        connectWs,
+        scheduleReconnect,
+        updateWsStatus,
+        renderWsBadge,
         scrollToPageEdge,
         endRoom
     };

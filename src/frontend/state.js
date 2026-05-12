@@ -93,6 +93,11 @@ window.AppState = {
         roomSttProvider: '',
         roomSttLanguage: '',
         dictionary: [],
-        extractedTerms: []
+        extractedTerms: [],
+        // [U-3] WebSocket 再接続堅牢化
+        wsReconnect: { attempt: 0, backoffMs: 0, status: 'idle' },  // 'idle' | 'connected' | 'reconnecting' | 'disconnected'
+        pendingAudioBuffer: [],  // [{ts: number, buffer: Float32Array}]
+        lastSeenUtteranceId: null,
+        wsIntentional: false  // 手動切断フラグ
     }
 };
