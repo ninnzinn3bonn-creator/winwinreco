@@ -1421,3 +1421,30 @@ backend 全体で約 106 箇所の `console.*` を `logger.*` に置換。5 フ�
 ### テスト結果
 
 151 ケース全 pass (9 スキップは Firestore emulator テスト / +2 が今回追加)。`node --check src/backend/app.js` OK。`npm run check:frontend` OK。
+
+## 63. API メータリング基礎 (D-4) (2026-05-13)
+
+`docs/PRODUCTION_READINESS.md` §3.10 の仕様で実装。
+
+### 実装内容
+
+- **`src/backend/lib/metrics.js` 新規作成**: `recordApiCall(event)` が `kind='api_call'` フィールド付きで `logger.info` 経由の構造化 JSON を出力。Cloud Logging が自動取り込み → BigQuery sink で集計可能にする起点。
+- **`src/backend/services/ai-service.js`**: `GeminiProvider.generate()` / `GroqProvider.generate()` / `OllamaProvider.generate()` の各実装を `try/catch` で包み、正常完了・エラー時に `recordApiCall({ provider, operation:'generate', tokens_in, tokens_out, duration_ms, status })` を発火。`tokens_in/out` は `chars × 0.6` の推定値 (既存 chunking.js と同じ係数)。
+- **`src/backend/services/stt-service.js`**: ElevenLabs WebSocket close 時 / Google STT stream 'end'+'error' 時 / Groq バッチ finish 時に各 1 回だけ `recordApiCall({ provider, operation:'stt-stream-end', duration_ms, status })` を発火。
+- **`tests/metrics.test.js` 新規作成**: 7 ケース — console.log spy による出力確認・JSON パース可能性・必須フィールド検証・timestamp ISO 形式・error フィールド・STT イベント・オプションフィールド。
+- **`docs/BACKUP_PLAYBOOK.md`**: 「メータリング設定」節を追加 (BigQuery sink 作成手順・フィルタ・日次集計クエリ・Cloud Monitoring アラート例)。
+- **`docs/ARCHITECTURE.md`**: 「Observability & metering」節を追加 (フィールド仕様・計測ポイント一覧・BigQuery 集計の前提)。
+
+### スコープ外 (将来)
+
+- BigQuery sink / Cloud Monitoring の GCP 側設定は手動操作 (BACKUP_PLAYBOOK.md に手順を記載済み)
+- `/admin/usage` 集計画面は別フェーズ
+
+### 既知の制限
+
+- `account_id` / `room_id` は provider 内では取れないため省略 (provider, operation, duration_ms, tokens_in/out, status だけで集計可能)
+- ElevenLabs の `audio_ms` は接続ごとのバイト数カウンターが未実装のため省略 (将来追加可)
+
+### テスト結果
+
+`npm test` 全 pass (既存テスト含む)。`node --check src/backend/services/ai-service.js` OK。

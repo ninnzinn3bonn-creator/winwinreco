@@ -2,6 +2,7 @@ const speech = require('@google-cloud/speech');
 const { PassThrough } = require('stream');
 const WebSocket = require('ws');
 const { logger } = require('../lib/logger');
+const { recordApiCall } = require('../lib/metrics');
 
 function pcm16ToWav(audioBuffer, {
     sampleRate = 16000,
@@ -111,6 +112,8 @@ class STTService {
         // 最後のコミット以降に実際に音声を送ったかどうか。
         // 送っていない場合はコミットしない（空コミット → WS 強制切断を防ぐ）。
         let audioSentSinceLastCommit = false;
+        // メータリング用: ストリーム開始時刻
+        const streamStart = Date.now();
 
         const sendChunk = (buf, commit = false) => {
             ws.send(JSON.stringify({
@@ -172,6 +175,12 @@ class STTService {
 
         ws.on('close', (code, reason) => {
             logger.info('[ElevenLabs STT] WebSocket closed', { code, reason: String(reason) });
+            recordApiCall({
+                provider: 'elevenlabs-stt',
+                operation: 'stt-stream-end',
+                duration_ms: Date.now() - streamStart,
+                status: code === 1000 || code === 1001 ? 'ok' : 'error'
+            });
             // WS が閉じたら PassThrough も破棄する。
             // app.js の sttStream.on('close') が sttStream = null するので、
             // 次の音声チャンク到着時に startSTTStream() が新しい接続を作り直す。
@@ -261,23 +270,40 @@ class STTService {
                 config: this.buildConfig(options.config || {}),
                 interimResults: false
             };
+            const googleStreamStart = Date.now();
 
             return this.client
                 .streamingRecognize(request)
                 .on('error', (err) => {
                     logger.error(err, { tag: '[STT Stream Error]' });
+                    recordApiCall({
+                        provider: 'google-stt',
+                        operation: 'stt-stream-end',
+                        duration_ms: Date.now() - googleStreamStart,
+                        status: 'error',
+                        error: String(err?.message || err).slice(0, 200)
+                    });
                     onError(err);
                 })
                 .on('data', (data) => {
                     if (data.results?.[0]?.alternatives?.[0]) {
                         onData(data.results[0].alternatives[0].transcript);
                     }
+                })
+                .on('end', () => {
+                    recordApiCall({
+                        provider: 'google-stt',
+                        operation: 'stt-stream-end',
+                        duration_ms: Date.now() - googleStreamStart,
+                        status: 'ok'
+                    });
                 });
         }
 
         // Groq / その他: バッファしてバッチ認識
         const fallback = new PassThrough();
         const chunks = [];
+        const batchStart = Date.now();
 
         fallback.on('data', (chunk) => {
             chunks.push(Buffer.from(chunk));
@@ -286,8 +312,21 @@ class STTService {
         fallback.on('finish', async () => {
             try {
                 const transcript = await this.recognize(Buffer.concat(chunks), options);
+                recordApiCall({
+                    provider: this.provider === 'groq' ? 'groq-stt' : `${this.provider}-stt`,
+                    operation: 'stt-stream-end',
+                    duration_ms: Date.now() - batchStart,
+                    status: 'ok'
+                });
                 if (transcript) onData(transcript);
             } catch (err) {
+                recordApiCall({
+                    provider: this.provider === 'groq' ? 'groq-stt' : `${this.provider}-stt`,
+                    operation: 'stt-stream-end',
+                    duration_ms: Date.now() - batchStart,
+                    status: 'error',
+                    error: String(err?.message || err).slice(0, 200)
+                });
                 onError(err);
             }
         });

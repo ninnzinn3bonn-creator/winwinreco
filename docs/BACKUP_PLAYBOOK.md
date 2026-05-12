@@ -55,6 +55,44 @@ Cloud Console > Billing > Budgets & alerts > CREATE BUDGET:
 
 ---
 
+## メータリング設定 (手動 GCP 操作、初回のみ)
+
+### BigQuery sink を作成
+
+1. Cloud Logging → ログルーター → シンクを作成
+2. シンク先: BigQuery データセット `gijiro_logs` (新規作成)
+3. 包含フィルタ:
+   ```
+   resource.type = "cloud_run_revision"
+   resource.labels.service_name = "winwinreco"
+   jsonPayload.kind = "api_call"
+   ```
+
+### 集計クエリ例
+
+日次プロバイダ別合計:
+
+```sql
+SELECT
+  DATE(timestamp, 'Asia/Tokyo') AS day,
+  jsonPayload.provider AS provider,
+  SUM(CAST(jsonPayload.tokens_in AS INT64) + COALESCE(CAST(jsonPayload.tokens_out AS INT64), 0)) AS total_tokens,
+  COUNT(*) AS calls,
+  SUM(CAST(jsonPayload.duration_ms AS INT64)) AS total_duration_ms
+FROM `<PROJECT>.gijiro_logs.run_googleapis_com_stdout`
+WHERE jsonPayload.kind = 'api_call'
+  AND DATE(timestamp) >= CURRENT_DATE() - 7
+GROUP BY day, provider
+ORDER BY day DESC, provider
+```
+
+### Cloud Monitoring アラート設定例
+
+「1 時間あたりの API 呼び出しが N を超えたらメール通知」など、BigQuery クエリベースで設定。
+詳細は GCP コンソールから設定する (このリポジトリでは Terraform 等で管理しない方針)。
+
+---
+
 ## 関連コマンドチートシート
 
 ```bash

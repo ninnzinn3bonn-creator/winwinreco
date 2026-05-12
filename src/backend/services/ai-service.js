@@ -1,6 +1,7 @@
 const { GoogleGenerativeAI } = require('@google/generative-ai');
 const Groq = require('groq-sdk');
 const { logger } = require('../lib/logger');
+const { recordApiCall } = require('../lib/metrics');
 
 /**
  * Japanese text wrapper for character encoding consistency
@@ -109,12 +110,35 @@ class GroqProvider {
     }
 
     async generate(prompt, options = {}) {
-        const chatCompletion = await this.client.chat.completions.create({
-            messages: [{ role: 'user', content: prompt }],
-            model: this.modelName,
-            response_format: options.json ? { type: 'json_object' } : undefined
-        });
-        return chatCompletion.choices[0]?.message?.content || "";
+        const start = Date.now();
+        const tokensIn = Math.ceil((prompt || '').length * 0.6);
+        try {
+            const chatCompletion = await this.client.chat.completions.create({
+                messages: [{ role: 'user', content: prompt }],
+                model: this.modelName,
+                response_format: options.json ? { type: 'json_object' } : undefined
+            });
+            const result = chatCompletion.choices[0]?.message?.content || "";
+            recordApiCall({
+                provider: this.name.split(' ')[0],
+                operation: 'generate',
+                tokens_in: tokensIn,
+                tokens_out: Math.ceil((result || '').length * 0.6),
+                duration_ms: Date.now() - start,
+                status: 'ok'
+            });
+            return result;
+        } catch (error) {
+            recordApiCall({
+                provider: this.name.split(' ')[0],
+                operation: 'generate',
+                tokens_in: tokensIn,
+                duration_ms: Date.now() - start,
+                status: 'error',
+                error: String(error?.message || error).slice(0, 200)
+            });
+            throw error;
+        }
     }
 }
 
@@ -152,37 +176,64 @@ class GeminiProvider {
     }
 
     async generate(prompt, options = {}) {
+        const start = Date.now();
+        const tokensIn = Math.ceil((prompt || '').length * 0.6);
         let lastError = null;
 
         for (const modelName of this.fallbackModelNames) {
             try {
                 this.currentModelName = modelName;
                 this.name = `gemini (${modelName})`;
-                
+
                 const generationConfig = {
                     maxOutputTokens: options.maxOutputTokens || 4096,
                 };
-                
+
                 if (options.json) {
                     generationConfig.responseMimeType = "application/json";
                 }
 
-                const model = this.genAI.getGenerativeModel({ 
+                const model = this.genAI.getGenerativeModel({
                     model: this.currentModelName,
                     generationConfig
                 });
-                
+
                 const result = await model.generateContent(prompt);
                 const response = await result.response;
-                return response.text();
+                const text = response.text();
+                recordApiCall({
+                    provider: this.name.split(' ')[0],
+                    operation: 'generate',
+                    tokens_in: tokensIn,
+                    tokens_out: Math.ceil((text || '').length * 0.6),
+                    duration_ms: Date.now() - start,
+                    status: 'ok'
+                });
+                return text;
             } catch (error) {
                 lastError = error;
                 if (!this.isRetryableModelError(error)) {
+                    recordApiCall({
+                        provider: this.name.split(' ')[0],
+                        operation: 'generate',
+                        tokens_in: tokensIn,
+                        duration_ms: Date.now() - start,
+                        status: 'error',
+                        error: String(error?.message || error).slice(0, 200)
+                    });
                     throw error;
                 }
             }
         }
 
+        recordApiCall({
+            provider: this.name.split(' ')[0],
+            operation: 'generate',
+            tokens_in: tokensIn,
+            duration_ms: Date.now() - start,
+            status: 'error',
+            error: String(lastError?.message || lastError).slice(0, 200)
+        });
         throw lastError;
     }
 }
@@ -195,6 +246,8 @@ class OllamaProvider {
     }
 
     async generate(prompt, options = {}) {
+        const start = Date.now();
+        const tokensIn = Math.ceil((prompt || '').length * 0.6);
         const body = {
             model: this.modelName,
             prompt,
@@ -204,19 +257,40 @@ class OllamaProvider {
             body.format = 'json';
         }
 
-        const response = await fetch(`${this.baseUrl}/api/generate`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(body)
-        });
+        try {
+            const response = await fetch(`${this.baseUrl}/api/generate`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(body)
+            });
 
-        if (!response.ok) {
-            const errBody = await response.text();
-            throw new Error(`Ollama API error (${response.status}): ${errBody}`);
+            if (!response.ok) {
+                const errBody = await response.text();
+                throw new Error(`Ollama API error (${response.status}): ${errBody}`);
+            }
+
+            const data = await response.json();
+            const result = data.response;
+            recordApiCall({
+                provider: this.name.split(' ')[0],
+                operation: 'generate',
+                tokens_in: tokensIn,
+                tokens_out: Math.ceil((result || '').length * 0.6),
+                duration_ms: Date.now() - start,
+                status: 'ok'
+            });
+            return result;
+        } catch (error) {
+            recordApiCall({
+                provider: this.name.split(' ')[0],
+                operation: 'generate',
+                tokens_in: tokensIn,
+                duration_ms: Date.now() - start,
+                status: 'error',
+                error: String(error?.message || error).slice(0, 200)
+            });
+            throw error;
         }
-
-        const data = await response.json();
-        return data.response;
     }
 }
 

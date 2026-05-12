@@ -514,3 +514,47 @@ On screens ≤ 1023px, `body.meeting-mode` applies the following compaction:
 Title sync between the two inputs is handled by `getMeetingTitleInputs()` + `syncMeetingTitleInputs()` in `main.js`, with a focus guard so the active input is never overwritten mid-type.
 
 PC (≥ 1024px) layout is entirely unaffected: all new rules live inside `@media (max-width: 1023px)` or `@media (max-width: 560px)` blocks.
+
+---
+
+## Observability & metering
+
+### 概要
+
+`src/backend/lib/metrics.js` の `recordApiCall(event)` が外部 API 呼び出しをすべて構造化ログとして記録する。
+`logger.info('api_call', entry)` 経由で stdout に JSON を出力し、Cloud Run が Cloud Logging に自動転送する。
+
+### フィールド仕様
+
+```
+kind:        'api_call'  ← BigQuery フィルタキー
+provider:    'gemini' | 'groq' | 'ollama' | 'google-stt' | 'elevenlabs-stt' | 'groq-stt' | ...
+operation:   'generate' | 'stt-stream-end' | 'stt-batch' | ...
+tokens_in:   number  (推定 input tokens; chars × 0.6)
+tokens_out:  number  (推定 output tokens; chars × 0.6)
+audio_ms:    number  (STT ストリームの推定発話時間 ms; 任意)
+duration_ms: number  (実測 ms)
+status:      'ok' | 'error' | 'timeout'
+error:       string  (status=error のとき最大 200 文字; スタックトレース不可)
+account_id:  string  (PII 禁止 — ユーザー ID のみ; 任意)
+room_id:     string  (任意)
+timestamp:   ISO 8601 string
+```
+
+### 計測ポイント
+
+| ファイル | 計測箇所 | 記録タイミング |
+|---|---|---|
+| `src/backend/services/ai-service.js` | `GeminiProvider.generate()` | 正常完了 / 非リトライエラー / fallback 全失敗 |
+| `src/backend/services/ai-service.js` | `GroqProvider.generate()` | 正常完了 / エラー |
+| `src/backend/services/ai-service.js` | `OllamaProvider.generate()` | 正常完了 / エラー |
+| `src/backend/services/stt-service.js` | `createElevenLabsStream` | WebSocket close 時 (1 ストリーム = 1 レコード) |
+| `src/backend/services/stt-service.js` | `createStream` (Google) | stream 'end' / 'error' 時 |
+| `src/backend/services/stt-service.js` | `createStream` (Groq/fallback) | PassThrough 'finish' 後のバッチ認識完了時 |
+
+### BigQuery 集計
+
+Cloud Logging → BigQuery sink は手動設定が必要 (初回のみ)。
+手順と集計クエリ例は `docs/BACKUP_PLAYBOOK.md` の「メータリング設定」節を参照。
+
+本番では BigQuery クエリが集計の主役。`/admin/usage` UI は将来フェーズ。

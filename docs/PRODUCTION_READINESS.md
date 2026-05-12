@@ -488,6 +488,8 @@ jobs:
 
 ### 3.10 [D-4] コスト / API 使用量モニタリング
 
+> ✅ 完了 (2026-05-13) — PROGRESS.md §63 参照 (アプリ側メータリングのみ。GCP 側設定は BACKUP_PLAYBOOK.md 参照)
+
 #### 現状
 - Cloud Billing Budget Alert ($5/$10/$20) のみ — 「使いすぎてから気付く」レベル
 - Gemini / Google STT / ElevenLabs の API 個別の使用量は不可視
