@@ -17,6 +17,7 @@ const {
     sanitizeTranscript,
     sanitizeInstruction
 } = require('./lib/ai-sanitize');
+const { sendPasswordReset } = require('./lib/mail');
 
 // RFC-5322-lite email shape check. Server-side defense; final authority is the
 // DB UNIQUE constraint + login flow.
@@ -108,7 +109,7 @@ function createApp(repositories = {}) {
     const {
         roomRepo, participantRepo, utteranceRepo, analysisRepo, actionRepo,
         userRepo, userContextRepo, dictionaryRepo, aiService,
-        accountRepo, sessionRepo, chunkRepo
+        accountRepo, sessionRepo, chunkRepo, passwordResetRepo
     } = repositories;
 
     const auth = createAuth({ participantRepo, roomRepo, accountRepo, sessionRepo });
@@ -836,6 +837,93 @@ function createApp(repositories = {}) {
         } catch (error) {
             console.error('[auth/me]', error);
             res.status(500).json({ error: 'Failed to load session' });
+        }
+    });
+
+    // --- Password reset (U-1) -------------------------------------------
+
+    /**
+     * GET /auth/reset
+     * Serves the password-reset HTML form (reset.html).
+     * The token query-param is consumed client-side by the page JS.
+     */
+    app.get('/auth/reset', (req, res) => {
+        const path = require('path');
+        res.sendFile(path.join(__dirname, '../frontend/reset.html'));
+    });
+
+    /**
+     * POST /auth/forgot-password
+     * Accepts { email }. Always returns 200 to prevent enumeration.
+     * When a matching approved/pending account exists, generates a token
+     * and sends a reset link by email.
+     */
+    app.post('/auth/forgot-password', authLimiter, async (req, res) => {
+        try {
+            if (!accountRepo || !passwordResetRepo) {
+                return res.status(503).json({ error: 'Unavailable' });
+            }
+            const email = String(req.body?.email || '').trim().toLowerCase();
+            // Always 200 — enumeration prevention. Don't short-circuit on bad email.
+            if (email) {
+                const account = await accountRepo.findByEmail(email);
+                // Only send if account exists and is not rejected.
+                if (account && account.status !== 'rejected') {
+                    const token = crypto.randomBytes(32).toString('hex');
+                    await passwordResetRepo.create({ accountId: account.id, token });
+                    const host = process.env.APP_HOST ||
+                        `${req.protocol}://${req.get('host')}`;
+                    const resetUrl = `${host}/auth/reset?token=${token}`;
+                    // Fire-and-forget: mail errors must not change the 200 response.
+                    sendPasswordReset(account, resetUrl).catch((err) => {
+                        console.error('[auth/forgot-password] mail error:', err.message);
+                    });
+                }
+            }
+            res.status(200).json({ ok: true });
+        } catch (error) {
+            console.error('[auth/forgot-password]', error);
+            // Still 200 to avoid leaking information.
+            res.status(200).json({ ok: true });
+        }
+    });
+
+    /**
+     * POST /auth/reset-password
+     * Accepts { token, new_password }.
+     * Validates token, updates password hash, destroys all existing sessions.
+     */
+    app.post('/auth/reset-password', authLimiter, async (req, res) => {
+        try {
+            if (!accountRepo || !sessionRepo || !passwordResetRepo) {
+                return res.status(503).json({ error: 'Unavailable' });
+            }
+            const token = String(req.body?.token || '');
+            const newPassword = String(req.body?.new_password || '');
+
+            if (newPassword.length < MIN_PASSWORD_LEN) {
+                return res.status(400).json({ error: `パスワードは${MIN_PASSWORD_LEN}文字以上にしてください` });
+            }
+            if (newPassword.length > MAX_PASSWORD_LEN) {
+                return res.status(400).json({ error: 'パスワードが長すぎます' });
+            }
+
+            const row = await passwordResetRepo.findByToken(token);
+            if (!row) {
+                return res.status(400).json({ error: 'invalid_or_expired_token' });
+            }
+
+            const newHash = await hashPassword(newPassword);
+            await accountRepo.updatePasswordHash(row.account_id, newHash);
+            await passwordResetRepo.markUsed(row.id);
+            // Revoke all existing sessions for this account so any stolen
+            // session cookies are invalidated immediately.
+            await sessionRepo.destroyAllForAccount(row.account_id);
+
+            res.status(200).json({ ok: true });
+        } catch (error) {
+            console.error('[auth/reset-password]', error);
+            res.status(500).json({ error: 'Failed to reset password' });
         }
     });
 

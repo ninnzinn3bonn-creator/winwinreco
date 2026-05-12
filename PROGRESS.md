@@ -1228,3 +1228,49 @@ iOS Safari でメールアドレスを `#room-id` フィールドへ補完して
 - `src/frontend/admin.html` — タブ + 利用状況 UI + 会議履歴モーダル
 - `src/frontend/admin.js` — `loadStats` / `loadUsageList` / `openUserDetail` / `switchAdminTab` / タブ + モーダルイベント
 - `tests/admin-routes.test.js` — 4 describe ブロック (8 テストケース) 追加
+
+## 55. パスワードリセット + mail 基盤 (U-1) (2026-05-13)
+
+### 実装内容
+
+`docs/PRODUCTION_READINESS.md` §3.1 の仕様に従い、パスワードリセット機能と mail 送信基盤を実装した。
+
+### 新規エンドポイント
+
+- `GET /auth/reset` — `src/frontend/reset.html` を返す (新規フォームページ)
+- `POST /auth/forgot-password` — email を受け取り常に 200 を返す (enumeration 防止)。アカウントが存在すれば `password_reset_tokens` にトークンを保存してメール送信。
+- `POST /auth/reset-password` — トークン検証 + bcrypt 更新 + 既存セッション全消去。
+
+### 新規ファイル
+
+- `src/backend/lib/mail.js` — console / sendgrid プロバイダ抽象 (新規 npm dep なし)
+- `src/backend/repo/sqlite/password-reset-repo.js` — SQLite 実装
+- `src/backend/repo/firestore/password-reset-repo.js` — Firestore 実装
+- `src/frontend/reset.html` — パスワードリセットフォーム
+- `tests/auth-reset.test.js` — 7 ケース
+
+### 変更ファイル
+
+- `src/backend/repo/sqlite/db.js` — `password_reset_tokens` テーブルと `idx_pwr_account` インデックスを追加
+- `src/backend/repo/sqlite/index.js` — `passwordResetRepo` を `createRepos()` に追加
+- `src/backend/repo/firestore/index.js` — `passwordResetRepo` を `createRepos()` に追加
+- `src/backend/app.js` — `sendPasswordReset` インポート / `passwordResetRepo` 受け取り / 新規 3 ルート追加
+- `src/frontend/auth.js` — ログインモーダルに「パスワードを忘れた方」リンクと forgot モード追加
+- `src/frontend/style.css` — `.auth-modal-link` / `.auth-modal-desc` スタイル追加
+
+### スキーマ
+
+`password_reset_tokens`: `id (pwr-)`, `account_id`, `token_hash (SHA-256)`, `expires_at (now+1h)`, `used_at`, `created_at`
+
+### mail.js 設計方針 (U-6 再利用)
+
+`MAIL_PROVIDER` 環境変数でプロバイダを切替。`console` (stdout 出力) / `sendgrid` (REST v3, fetch 使用) の 2 つ。`send()` と専用ヘルパー `sendPasswordReset()` を提供。U-6 (メール認証) は `send()` + 新ヘルパーを追加するだけで済む。
+
+### 制限事項
+
+- 期限切れトークンのクリーンアップは `pruneExpired()` を呼ぶ仕組みは用意したが、定期実行ジョブは未設定 (Cloud Scheduler / cron は今後対応)。
+- SendGrid 以外のプロバイダ (Resend 等) は未対応。追加は `mail.js` に新分岐を書くだけ。
+
+### テスト結果
+
+7 ケース全 pass。全テストスイート: 155 passed / 19 suites (1 skipped はもともとスキップ扱いのスイート)。

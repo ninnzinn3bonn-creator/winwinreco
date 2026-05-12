@@ -201,6 +201,27 @@ async function initDB(dbPath) {
                                 resolveActions();
                             });
                         }))
+                        // [U-1] パスワードリセットトークン。token_hash のみ保存し平文は残さない。
+                        .then(() => new Promise((resolvePwr, rejectPwr) => {
+                            db.run(`CREATE TABLE IF NOT EXISTS password_reset_tokens (
+                                id TEXT PRIMARY KEY,
+                                account_id TEXT NOT NULL,
+                                token_hash TEXT NOT NULL UNIQUE,
+                                expires_at DATETIME NOT NULL,
+                                used_at DATETIME,
+                                created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                                FOREIGN KEY(account_id) REFERENCES user_accounts(id)
+                            )`, (pwrErr) => {
+                                if (pwrErr) return rejectPwr(pwrErr);
+                                db.run(
+                                    'CREATE INDEX IF NOT EXISTS idx_pwr_account ON password_reset_tokens(account_id)',
+                                    (idxErr) => {
+                                        if (idxErr) return rejectPwr(idxErr);
+                                        resolvePwr();
+                                    }
+                                );
+                            });
+                        }))
                         // [L9] チャンク単位の中間結果テーブル。部分再生成に使用。
                         .then(() => new Promise((resolveChunks, rejectChunks) => {
                             db.run(`CREATE TABLE IF NOT EXISTS room_chunks (

@@ -1,0 +1,184 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>パスワードリセット — GIJIRO</title>
+  <link rel="stylesheet" href="style.css">
+  <style>
+    .reset-page {
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      background: var(--bg, #f5f5f5);
+      padding: 1rem;
+    }
+    .reset-card {
+      background: var(--surface, #fff);
+      border-radius: 12px;
+      box-shadow: 0 4px 24px rgba(0,0,0,.10);
+      padding: 2rem 2.5rem;
+      width: 100%;
+      max-width: 420px;
+    }
+    .reset-card h1 {
+      font-size: 1.4rem;
+      margin: 0 0 1.5rem;
+      color: var(--text, #222);
+    }
+    .reset-card label {
+      display: block;
+      margin-bottom: 1rem;
+      font-size: .9rem;
+      color: var(--text-secondary, #555);
+    }
+    .reset-card input[type="password"] {
+      width: 100%;
+      padding: .6rem .8rem;
+      border: 1.5px solid var(--border, #ddd);
+      border-radius: 6px;
+      font-size: 1rem;
+      box-sizing: border-box;
+      margin-top: .3rem;
+    }
+    .reset-card input[type="password"]:focus {
+      outline: none;
+      border-color: var(--accent, #3b82f6);
+    }
+    .reset-error {
+      color: var(--error, #dc2626);
+      font-size: .875rem;
+      margin-bottom: .75rem;
+      min-height: 1.2em;
+    }
+    .reset-success {
+      text-align: center;
+      padding: 1rem 0;
+    }
+    .reset-success p {
+      color: var(--text, #222);
+      margin-bottom: 1.5rem;
+    }
+    .reset-submit {
+      width: 100%;
+      padding: .7rem;
+      font-size: 1rem;
+      background: var(--accent, #3b82f6);
+      color: #fff;
+      border: none;
+      border-radius: 6px;
+      cursor: pointer;
+      font-weight: 600;
+      margin-top: .25rem;
+    }
+    .reset-submit:disabled {
+      opacity: .6;
+      cursor: not-allowed;
+    }
+    .reset-back-link {
+      display: block;
+      text-align: center;
+      margin-top: 1.25rem;
+      font-size: .875rem;
+      color: var(--accent, #3b82f6);
+      text-decoration: none;
+    }
+    .reset-back-link:hover { text-decoration: underline; }
+  </style>
+</head>
+<body class="reset-page">
+  <div class="reset-card" id="reset-card">
+    <h1>パスワードリセット</h1>
+    <form id="reset-form">
+      <label>
+        新しいパスワード (8文字以上)
+        <input type="password" id="pw1" minlength="8" required autocomplete="new-password">
+      </label>
+      <label>
+        パスワード (確認)
+        <input type="password" id="pw2" minlength="8" required autocomplete="new-password">
+      </label>
+      <div class="reset-error" id="reset-error" role="alert"></div>
+      <button type="submit" class="reset-submit primary" id="reset-btn">パスワードを変更する</button>
+    </form>
+    <a href="/" class="reset-back-link">ログイン画面へ戻る</a>
+  </div>
+
+  <script>
+    (function () {
+      const params = new URLSearchParams(location.search);
+      const token = params.get('token') || '';
+
+      const form = document.getElementById('reset-form');
+      const pw1 = document.getElementById('pw1');
+      const pw2 = document.getElementById('pw2');
+      const errorBox = document.getElementById('reset-error');
+      const btn = document.getElementById('reset-btn');
+      const card = document.getElementById('reset-card');
+
+      if (!token) {
+        showError('リセットリンクが無効です。パスワードを忘れた場合は再度お試しください。');
+        btn.disabled = true;
+      }
+
+      function showError(msg) {
+        errorBox.textContent = msg;
+      }
+
+      form.addEventListener('submit', async (ev) => {
+        ev.preventDefault();
+        showError('');
+
+        const p1 = pw1.value;
+        const p2 = pw2.value;
+
+        if (p1.length < 8) {
+          showError('パスワードは8文字以上にしてください。');
+          pw1.focus();
+          return;
+        }
+        if (p1 !== p2) {
+          showError('パスワードが一致しません。');
+          pw2.focus();
+          return;
+        }
+
+        btn.disabled = true;
+        btn.textContent = '変更中…';
+
+        try {
+          const res = await fetch('/auth/reset-password', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            credentials: 'same-origin',
+            body: JSON.stringify({ token, new_password: p1 })
+          });
+          const data = await res.json().catch(() => ({}));
+          if (!res.ok) {
+            const msg = data.error === 'invalid_or_expired_token'
+              ? 'リセットリンクが無効または期限切れです。再度パスワードをお忘れの場合はもう一度申請してください。'
+              : (data.error || 'エラーが発生しました。もう一度お試しください。');
+            showError(msg);
+            btn.disabled = false;
+            btn.textContent = 'パスワードを変更する';
+            return;
+          }
+          // Success — replace form with confirmation
+          card.innerHTML = [
+            '<div class="reset-success">',
+            '<h1>パスワードを変更しました</h1>',
+            '<p>新しいパスワードでログインできます。</p>',
+            '<a href="/" class="reset-submit primary" style="display:inline-block;text-decoration:none;padding:.7rem 2rem;">ログイン画面へ</a>',
+            '</div>'
+          ].join('');
+        } catch (err) {
+          showError('通信エラーが発生しました。もう一度お試しください。');
+          btn.disabled = false;
+          btn.textContent = 'パスワードを変更する';
+        }
+      });
+    })();
+  </script>
+</body>
+</html>

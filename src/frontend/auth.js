@@ -240,6 +240,89 @@
         ]));
     }
 
+    /**
+     * 「パスワードを忘れた方」モードを表示する。
+     * フォームを forgot モードに差し替えて POST /auth/forgot-password を呼ぶ。
+     */
+    function showForgotPasswordForm() {
+        if (!modalOverlay) return;
+        const form = modalOverlay.querySelector('.auth-modal-form');
+        if (!form) return;
+        form.innerHTML = '';
+
+        const title = el('h2', { className: 'auth-modal-title' }, 'パスワードをお忘れの方');
+        const desc = el('p', { className: 'auth-modal-desc' }, '登録済みのメールアドレスを入力してください。リセットリンクをお送りします。');
+        const emailInput = el('input', {
+            type: 'email',
+            placeholder: 'メールアドレス',
+            required: 'required',
+            autocomplete: 'email'
+        });
+        const errorBox = el('div', { className: 'auth-modal-error', role: 'alert' });
+        const submitBtn = el('button', { type: 'submit', className: 'primary' }, '送信する');
+        const backBtn = el('button', {
+            type: 'button',
+            className: 'auth-modal-toggle',
+            onClick: () => {
+                closeLoginModal(null);
+                showLoginModal('login');
+            }
+        }, 'ログイン画面に戻る');
+        const cancelBtn = el('button', {
+            type: 'button',
+            className: 'secondary',
+            onClick: () => closeLoginModal(null)
+        }, 'キャンセル');
+
+        const innerForm = el('form', {
+            onSubmit: async (ev) => {
+                ev.preventDefault();
+                errorBox.textContent = '';
+                submitBtn.disabled = true;
+                try {
+                    const email = emailInput.value.trim();
+                    await request('/auth/forgot-password', {
+                        method: 'POST',
+                        body: JSON.stringify({ email })
+                    });
+                    // Always show success regardless of whether account exists.
+                    form.innerHTML = '';
+                    form.appendChild(el('h2', { className: 'auth-modal-title' }, '送信完了'));
+                    form.appendChild(el('p', { className: 'auth-modal-pending-msg' }, 'メールを送信しました。受信箱を確認してください。'));
+                    form.appendChild(el('p', { className: 'auth-modal-pending-sub' }, '届かない場合は迷惑メールフォルダをご確認ください。'));
+                    form.appendChild(el('div', { className: 'auth-modal-actions' }, [
+                        el('button', {
+                            type: 'button',
+                            className: 'primary',
+                            onClick: () => closeLoginModal(null)
+                        }, '閉じる')
+                    ]));
+                } catch (_err) {
+                    // Even on error, show success to prevent enumeration.
+                    form.innerHTML = '';
+                    form.appendChild(el('h2', { className: 'auth-modal-title' }, '送信完了'));
+                    form.appendChild(el('p', { className: 'auth-modal-pending-msg' }, 'メールを送信しました。受信箱を確認してください。'));
+                    form.appendChild(el('div', { className: 'auth-modal-actions' }, [
+                        el('button', {
+                            type: 'button',
+                            className: 'primary',
+                            onClick: () => closeLoginModal(null)
+                        }, '閉じる')
+                    ]));
+                }
+            }
+        });
+        innerForm.appendChild(emailInput);
+
+        form.appendChild(title);
+        form.appendChild(desc);
+        form.appendChild(el('label', {}, ['メールアドレス', emailInput]));
+        form.appendChild(errorBox);
+        form.appendChild(el('div', { className: 'auth-modal-actions' }, [submitBtn, cancelBtn]));
+        form.appendChild(backBtn);
+        emailInput.focus();
+    }
+
     function showLoginModal(mode = 'login') {
         closeLoginModal(null);
 
@@ -279,6 +362,16 @@
             className: 'secondary',
             onClick: () => closeLoginModal(null)
         }, 'キャンセル');
+
+        // ログインモードのみ「パスワードを忘れた方」リンクを表示
+        const forgotLink = mode === 'login'
+            ? el('a', {
+                className: 'auth-modal-link',
+                id: 'forgot-password-link',
+                href: '#',
+                onClick: (ev) => { ev.preventDefault(); showForgotPasswordForm(); }
+            }, 'パスワードを忘れた方')
+            : null;
 
         const form = el('form', {
             className: 'auth-modal-form',
@@ -321,6 +414,7 @@
             el('label', {}, ['メールアドレス', emailInput]),
             mode === 'signup' ? el('label', {}, ['表示名', nameInput]) : null,
             el('label', {}, ['パスワード', pwInput]),
+            forgotLink,
             errorBox,
             el('div', { className: 'auth-modal-actions' }, [submitBtn, cancelBtn]),
             toggleBtn

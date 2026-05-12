@@ -89,6 +89,17 @@ Routes protected by `requireOwner` (オーナー専用):
 - `GET /admin/users/pending` — 承認待ちユーザー一覧
 - `POST /admin/users/:id/approve` / `POST /admin/users/:id/reject` — 承認 / 拒否
 
+### Password reset flow (U-1)
+
+- Token: `crypto.randomBytes(32).toString('hex')` — 256-bit opaque token, never logged.
+- Storage: only `SHA-256(token)` is persisted in `password_reset_tokens`. A DB dump cannot be used to reset passwords.
+- TTL: 1 hour (`expires_at`). Enforced at read time in `findByToken()`.
+- Single-use: `used_at` is set atomically on first use. Subsequent calls with the same token return 400.
+- Enumeration prevention: `POST /auth/forgot-password` always returns `200 { ok: true }` regardless of whether the email exists.
+- Session revocation: `POST /auth/reset-password` calls `sessionRepo.destroyAllForAccount()` to invalidate all existing sessions for the account.
+- Mail: `src/backend/lib/mail.js` abstracts the provider. `MAIL_PROVIDER=console` (default/test) writes to stdout; `MAIL_PROVIDER=sendgrid` calls SendGrid REST v3 via built-in `fetch` (no npm dep).
+- U-6 reuse: `mail.send()` is the low-level primitive. Add `sendVerification()` to `mail.js` when implementing U-6.
+
 ## Editor state ownership
 
 The post-meeting screen has three editable surfaces:

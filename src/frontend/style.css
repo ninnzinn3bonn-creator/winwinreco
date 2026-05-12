@@ -3127,6 +3127,29 @@ body.summary-mode.summary-sidebar-collapsed .review-main,
     text-decoration: underline;
 }
 
+/* Inline text link inside the auth modal (e.g. "パスワードを忘れた方") */
+.auth-modal-link {
+    display: block;
+    font-size: var(--font-size-sm);
+    color: var(--color-accent-active);
+    text-decoration: none;
+    text-align: right;
+    margin-top: -.25rem;
+    margin-bottom: .25rem;
+}
+.auth-modal-link:hover {
+    text-decoration: underline;
+    color: var(--color-accent);
+}
+
+/* auth modal description paragraph */
+.auth-modal-desc {
+    font-size: var(--font-size-sm);
+    color: var(--color-text-secondary, #666);
+    margin: 0 0 1rem;
+    line-height: 1.5;
+}
+
 /* Home button on the summary screen — when the user is logged in we surface
    a small subline reminding them the meeting is being saved to their
    account (the [hidden] attribute on the hint span gates this for guests). */
