@@ -346,6 +346,31 @@ CSS は `:root[data-theme="red"]` セレクタ配下にのみ書く。`body.east
 
 ---
 
+## Dependency policy
+
+### Dependabot 自動更新
+
+`.github/dependabot.yml` で npm パッケージと GitHub Actions の両方を週次 (毎週月曜 09:00 JST) に自動スキャン。
+
+- **minor / patch 更新**: `minor-and-patch` グループとしてまとめて 1 PR に集約 (PR 上限 5)。
+- **major 更新**: グループ対象外のため個別 PR として作成される (breaking change が含まれる可能性があるため)。
+- PR には `dependencies` / `automated` (GitHub Actions は `ci` / `automated`) ラベルが自動付与される。
+
+### npm audit
+
+CI (`.github/workflows/ci.yml` の `audit` ジョブ) で `npm audit --audit-level=high` を実行。
+high / critical の脆弱性が見つかった場合は CI fail とし、マージをブロックする。
+moderate 以下は警告扱いで CI は通過する。
+
+ローカルから手動実行する場合: `npm run audit`
+
+### Node バージョン固定
+
+`package.json` の `engines.node` で `>=20` を指定。CI も Node 20 で動かす。
+Node 18 以下は非対応 (API Surface の差異が大きい)。
+
+---
+
 ## Current technical debt
 
 - `src/frontend/main.js` still contains orchestration that can be split further.

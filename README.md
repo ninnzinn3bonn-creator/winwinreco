@@ -1,5 +1,7 @@
 # GIJIRO
 
+[![CI](https://github.com/ninnzinn3bonn-creator/winwinreco/actions/workflows/ci.yml/badge.svg)](https://github.com/ninnzinn3bonn-creator/winwinreco/actions/workflows/ci.yml)
+
 GIJIRO is a web app for real-time meeting transcription, post-meeting review,
 minutes generation, summaries, and action items.
 

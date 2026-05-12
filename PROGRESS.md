@@ -1308,3 +1308,24 @@ iOS Safari でメールアドレスを `#room-id` フィールドへ補完して
 ### テスト結果
 
 146 ケース全 pass。フロントエンド構文チェック (`npm run check:frontend`) も全ファイル通過。`grep -rn "alert(" src/frontend --include="*.js"` の結果が 0 件。
+
+---
+
+## 59. CI + Dependabot 設定 (D-2 + D-3) (2026-05-13)
+
+`docs/PRODUCTION_READINESS.md` §3.8 (D-2) および §3.9 (D-3) の仕様に基づき実装。
+
+### 追加ファイル
+
+- `.github/workflows/ci.yml`: push / PR で `check:frontend` + `check:duplicates` + `npm test` + `npm audit --audit-level=high` を実行する 2 ジョブ (test / audit)。ubuntu-latest + Node 20 + `npm ci`。
+- `.github/dependabot.yml`: npm と GitHub Actions の週次自動更新 (毎週月曜 09:00 JST)。minor/patch はグループ化 PR、major は個別 PR。各 PR には `dependencies` / `automated` ラベルを付与。
+
+### 変更ファイル
+
+- `package.json`: `"engines": { "node": ">=20" }` フィールドを追加。`scripts.audit` を追加 (`npm audit --audit-level=high` のショートカット)。既存スクリプトは一切変更なし。
+- `README.md`: タイトル直下に CI バッジを追加 (`ninnzinn3bonn-creator/winwinreco`)。
+- (既存の `package-lock.json` がすでにリポジトリに存在していたため新規生成は不要)
+
+### テスト結果
+
+149 ケース全 pass (9 スキップは Firestore emulator テスト)。フロントエンド構文チェック + 重複関数チェックも通過。`npx js-yaml .github/workflows/ci.yml` による YAML 構文検証 OK。

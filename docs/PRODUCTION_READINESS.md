@@ -404,6 +404,8 @@ README.txt           内容の説明
 
 ### 3.8 [D-2] CI (GitHub Actions): push で全テスト + lint
 
+✅ 完了 (2026-05-13) — PROGRESS.md §59 参照
+
 #### 設計
 `.github/workflows/ci.yml` を新規:
 ```yaml
@@ -456,6 +458,8 @@ jobs:
 ---
 
 ### 3.9 [D-3] 依存脆弱性自動スキャン
+
+✅ 完了 (2026-05-13) — PROGRESS.md §59 参照
 
 #### 設計
 - GitHub の **Dependabot** を有効化

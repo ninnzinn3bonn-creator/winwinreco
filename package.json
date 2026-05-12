@@ -12,7 +12,11 @@
     "test:firestore": "cross-env DB_DRIVER=firestore FIRESTORE_EMULATOR_HOST=localhost:8080 GOOGLE_CLOUD_PROJECT=demo-test NODE_ENV=test jest --runInBand",
     "emulators": "firebase emulators:start --only firestore --project demo-test",
     "test:e2e": "playwright test",
-    "start": "node src/backend/server.js"
+    "start": "node src/backend/server.js",
+    "audit": "npm audit --audit-level=high"
+  },
+  "engines": {
+    "node": ">=20"
   },
   "keywords": [],
   "author": "",
