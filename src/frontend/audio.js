@@ -420,6 +420,8 @@
                 } else if (state.ws && state.ws.readyState === WebSocket.OPEN) {
                     state.ws.send(pcm.buffer);
                 }
+                // Fix B-4: 音声送信時刻を記録
+                state.lastAudioSentAt = Date.now();
             };
             state.processor = processor;
         } catch (error) {
@@ -427,7 +429,36 @@
         }
     }
 
+    // Fix B-4: フロント空転検知 — 音声送信中で 40 秒以上 transcript が来ない場合に WS 再接続
+    function startTranscriptStallWatchdog() {
+        if (state.transcriptStallWatchdog) {
+            clearInterval(state.transcriptStallWatchdog);
+        }
+        state.transcriptStallWatchdog = setInterval(() => {
+            // 音声が直近 30 秒で来ていないなら誤検知なのでスキップ
+            const audioAge = Date.now() - (state.lastAudioSentAt || 0);
+            if (audioAge > 30000) return;
+            // ミュート中もスキップ
+            if (state.isMuted) return;
+            const transcriptAge = Date.now() - (state.lastTranscriptAt || 0);
+            if (transcriptAge > 40000) {
+                window.AppToast?.warn('文字起こしが止まっているようです。再接続を試みます...', { sticky: false });
+                try {
+                    if (state.ws) state.ws.close();
+                } catch (_) { /* ignore */ }
+            }
+        }, 30000);
+    }
+
+    function stopTranscriptStallWatchdog() {
+        if (state.transcriptStallWatchdog) {
+            clearInterval(state.transcriptStallWatchdog);
+            state.transcriptStallWatchdog = null;
+        }
+    }
+
     function stopRecording() {
+        stopTranscriptStallWatchdog();
         if (state.watchdogInterval) {
             clearInterval(state.watchdogInterval);
             state.watchdogInterval = null;
@@ -517,6 +548,8 @@
         stopRecording,
         toggleMute,
         reconnectMic,
-        syncMicrophonePermissionState
+        syncMicrophonePermissionState,
+        startTranscriptStallWatchdog,
+        stopTranscriptStallWatchdog
     };
 })();

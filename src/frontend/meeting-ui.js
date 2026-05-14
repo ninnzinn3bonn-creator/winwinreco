@@ -398,11 +398,17 @@
             if (msg.type === 'transcript_interim') {
                 window.AppLogUi.showProvisional(msg);
             } else if (msg.type === 'transcript') {
+                // Fix B-4: transcript 受信時刻を記録
+                state.lastTranscriptAt = Date.now();
                 window.AppLogUi.clearProvisional(msg.participant_id);
                 window.AppLogUi.upsertUtterance(msg);
                 window.AppLogUi.renderAllLogs();
                 window.AppLogUi.scrollLogToLatest(dom.timeline);
             } else if (msg.type === 'ready') {
+                // Fix B-4: 受信時刻を初期化して空転監視を開始
+                state.lastTranscriptAt = Date.now();
+                state.lastAudioSentAt = 0;
+                window.AppAudio.startTranscriptStallWatchdog();
                 // F4: ホスト指定の STT 設定を state に保存し、mic_preset 送信時に使用する。
                 if (msg.room_stt_provider) {
                     state.roomSttProvider = msg.room_stt_provider;

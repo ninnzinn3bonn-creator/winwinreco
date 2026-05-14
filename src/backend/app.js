@@ -245,14 +245,17 @@ function createApp(repositories = {}) {
         //   1) the host being logged in (owner_account_id present)
         //   2) the room-level toggle (room.use_past_meetings)
         //   3) the per-call override (options.usePastContext === false)
+        //   4) optional explicit roomIds list (options.pastRoomIds) for manual selection
         // The override lets the AI 解析 panel toggle past context per click
         // without mutating the room setting. Minutes always passes false.
         const overrideOff = options.usePastContext === false;
         if (!overrideOff && room.owner_account_id && room.use_past_meetings !== 0) {
             try {
-                const { block } = await buildPastMeetingContext(roomRepo, room.owner_account_id, {
-                    excludeRoomId: roomId
-                });
+                const pastOpts = { excludeRoomId: roomId };
+                if (Array.isArray(options.pastRoomIds)) {
+                    pastOpts.roomIds = options.pastRoomIds;
+                }
+                const { block } = await buildPastMeetingContext(roomRepo, room.owner_account_id, pastOpts);
                 if (block) aiConfig.pastContextBlock = block;
             } catch (err) {
                 logger.warn('[pastContext] build failed; continuing without it', { error: err.message, roomId });
@@ -500,7 +503,7 @@ function createApp(repositories = {}) {
         }
     }
 
-    async function generateInsightsForRoom(roomId, aiConfig = null) {
+    async function generateInsightsForRoom(roomId, aiConfig = null, opts = {}) {
         if (!roomRepo || !utteranceRepo || !participantRepo || !actionRepo) {
             throw new Error('Repositories required for insight generation are unavailable');
         }
@@ -515,6 +518,17 @@ function createApp(repositories = {}) {
             provider,
             model: room.ai_model || (provider === 'groq' ? 'openai/gpt-oss-120b' : 'gemini-2.5-flash')
         };
+
+        // Inject past-meeting context block if requested via manual room selection
+        if (Array.isArray(opts.pastRoomIds) && room.owner_account_id) {
+            try {
+                const pastOpts = { excludeRoomId: roomId, roomIds: opts.pastRoomIds };
+                const { block } = await buildPastMeetingContext(roomRepo, room.owner_account_id, pastOpts);
+                if (block) resolvedAiConfig.pastContextBlock = block;
+            } catch (err) {
+                logger.warn('[pastContext] build failed in generateInsightsForRoom', { error: err.message, roomId });
+            }
+        }
 
         let activeAiService = aiService;
         if (resolvedAiConfig.provider) {
@@ -1864,12 +1878,29 @@ function createApp(repositories = {}) {
     app.post('/rooms/:id/insights/regenerate', aiLimiter, requireHost, async (req, res) => {
         try {
             const roomId = req.roomId;
+            // req.room is set by requireHost
+            const ownerAccountId = req.room?.owner_account_id;
+
+            // Validate and sanitize past_room_ids (max 10, must belong to the room owner's account)
+            let pastRoomIds;
+            if (ownerAccountId && Array.isArray(req.body?.past_room_ids)) {
+                const rawIds = req.body.past_room_ids.slice(0, 10);
+                const verified = [];
+                for (const rid of rawIds) {
+                    if (typeof rid !== 'string') continue;
+                    try {
+                        const r = await roomRepo.findById(rid);
+                        if (r && r.owner_account_id === ownerAccountId) verified.push(rid);
+                    } catch (_) {}
+                }
+                pastRoomIds = verified;
+            }
 
             await roomRepo.updateInsights(roomId, {
                 insights_status: 'processing'
             });
 
-            generateInsightsForRoom(roomId, req.body?.ai_config || null)
+            generateInsightsForRoom(roomId, req.body?.ai_config || null, { pastRoomIds })
                 .catch((generationError) => logger.error(generationError, { route: '/rooms/:id/insights/regenerate', roomId }));
 
             res.status(202).json({
@@ -2026,7 +2057,7 @@ function createApp(repositories = {}) {
     app.post('/rooms/:id/custom-ai', aiLimiter, requireParticipant, async (req, res) => {
         try {
             const roomId = req.roomId;
-            const { instruction = '', use_past_context: usePastContext } = req.body || {};
+            const { instruction = '', use_past_context: usePastContext, past_room_ids: rawPastRoomIds } = req.body || {};
 
             if (!roomRepo || !aiService || !aiService.enabled) {
                 return res.status(503).json({ error: 'AI generation is unavailable' });
@@ -2052,10 +2083,26 @@ function createApp(repositories = {}) {
             const overrideOff = usePastContext === false;
             // Host-linked past-meeting context (no-op for anonymous rooms).
             if (!overrideOff && room.owner_account_id && room.use_past_meetings !== 0) {
+                // Validate and sanitize past_room_ids (max 10, must belong to the room owner's account)
+                let verifiedPastRoomIds;
+                if (Array.isArray(rawPastRoomIds)) {
+                    const rawIds = rawPastRoomIds.slice(0, 10);
+                    const verified = [];
+                    for (const rid of rawIds) {
+                        if (typeof rid !== 'string') continue;
+                        try {
+                            const r = await roomRepo.findById(rid);
+                            if (r && r.owner_account_id === room.owner_account_id) verified.push(rid);
+                        } catch (_) {}
+                    }
+                    verifiedPastRoomIds = verified;
+                }
                 try {
-                    const { block } = await buildPastMeetingContext(roomRepo, room.owner_account_id, {
-                        excludeRoomId: roomId
-                    });
+                    const pastOpts = { excludeRoomId: roomId };
+                    if (Array.isArray(verifiedPastRoomIds)) {
+                        pastOpts.roomIds = verifiedPastRoomIds;
+                    }
+                    const { block } = await buildPastMeetingContext(roomRepo, room.owner_account_id, pastOpts);
                     if (block) aiConfig.pastContextBlock = block;
                 } catch (err) {
                     logger.warn('[pastContext] build failed; continuing without it', { error: err.message, roomId });
@@ -2582,6 +2629,10 @@ function setupWebSocket(server, repositories = {}, options = {}) {
         ws.participantId = participantId;
         let sttStream = null;
 
+        // Fix B-3: STT 再起動クールダウン（無限ループ防止）
+        let sttRestartAttempts = 0;
+        let sttRestartLastFail = 0;
+
         if (!participantId || !ws._preVerifiedParticipant) {
             // Should never happen — upgrade handler above guarantees this — but
             // be defensive so we never accept an un-authed connection.
@@ -2748,40 +2799,63 @@ function setupWebSocket(server, repositories = {}, options = {}) {
             const activeSttService = ws.sessionSttService || sttService;
             if (sttStream || !activeSttService) return;
 
-            logger.info('[STT] Starting new stream', { participantId, provider: activeSttService.provider, hintCount: ws.speechHints?.length || 0 });
-            sttStream = activeSttService.createStream(
-                async (transcript) => {
-                    try {
-                        await persistAndBroadcastTranscript(transcript);
-                    } catch (err) {
-                        logger.error(err, { tag: 'STT Callback Error', participantId });
-                    }
-                },
-                (err) => {
-                    logger.error(err, { tag: 'STT Stream Error', participantId });
-                    if (ws.readyState === WebSocket.OPEN) {
-                        ws.send(JSON.stringify({ type: 'error', message: '音声認識ストリームでエラーが発生しました' }));
-                    }
-                    sttStream = null;
-                },
-                {
-                    config: (() => {
-                        const cfg = {};
-                        if (ws.speechHints && ws.speechHints.length) {
-                            cfg.speechContexts = [{ phrases: ws.speechHints, boost: 10 }];
-                        }
-                        if (ws.sttMeta && (ws.sttMeta.microphoneDistance || ws.sttMeta.recordingDeviceType)) {
-                            cfg.metadata = {};
-                            if (ws.sttMeta.microphoneDistance) cfg.metadata.microphoneDistance = ws.sttMeta.microphoneDistance;
-                            if (ws.sttMeta.recordingDeviceType) cfg.metadata.recordingDeviceType = ws.sttMeta.recordingDeviceType;
-                        }
-                        return cfg;
-                    })()
-                },
-                (partialText) => {
-                    try { broadcastInterim(partialText); } catch (_) { /* ignore */ }
+            // Fix B-3: 過去 60 秒で 5 回以上失敗していたら 30 秒クールダウン
+            if (sttRestartAttempts >= 5 && Date.now() - sttRestartLastFail < 60000) {
+                if (Date.now() - sttRestartLastFail < 30000) {
+                    logger.warn('[STT] restart cooldown active', { attempts: sttRestartAttempts, participantId });
+                    return;
                 }
-            );
+                // クールダウン明け: カウンターリセット
+                sttRestartAttempts = 0;
+            }
+
+            logger.info('[STT] Starting new stream', { participantId, provider: activeSttService.provider, hintCount: ws.speechHints?.length || 0 });
+
+            let newStream;
+            try {
+                newStream = activeSttService.createStream(
+                    async (transcript) => {
+                        try {
+                            await persistAndBroadcastTranscript(transcript);
+                        } catch (err) {
+                            logger.error(err, { tag: 'STT Callback Error', participantId });
+                        }
+                    },
+                    (err) => {
+                        logger.error(err, { tag: 'STT Stream Error', participantId });
+                        sttRestartAttempts++;
+                        sttRestartLastFail = Date.now();
+                        if (ws.readyState === WebSocket.OPEN) {
+                            ws.send(JSON.stringify({ type: 'error', message: '音声認識ストリームでエラーが発生しました' }));
+                        }
+                        sttStream = null;
+                    },
+                    {
+                        config: (() => {
+                            const cfg = {};
+                            if (ws.speechHints && ws.speechHints.length) {
+                                cfg.speechContexts = [{ phrases: ws.speechHints, boost: 10 }];
+                            }
+                            if (ws.sttMeta && (ws.sttMeta.microphoneDistance || ws.sttMeta.recordingDeviceType)) {
+                                cfg.metadata = {};
+                                if (ws.sttMeta.microphoneDistance) cfg.metadata.microphoneDistance = ws.sttMeta.microphoneDistance;
+                                if (ws.sttMeta.recordingDeviceType) cfg.metadata.recordingDeviceType = ws.sttMeta.recordingDeviceType;
+                            }
+                            return cfg;
+                        })()
+                    },
+                    (partialText) => {
+                        try { broadcastInterim(partialText); } catch (_) { /* ignore */ }
+                    }
+                );
+            } catch (err) {
+                sttRestartAttempts++;
+                sttRestartLastFail = Date.now();
+                logger.error(err, { tag: '[STT] startSTTStream failed', attempts: sttRestartAttempts, participantId });
+                return;
+            }
+
+            sttStream = newStream;
 
             // Important: Handle graceful closure (e.g. Google's 305s limit)
             sttStream.on('end', () => {
@@ -2802,6 +2876,14 @@ function setupWebSocket(server, repositories = {}, options = {}) {
                     }, 300);
                 }
             });
+            sttStream.on('error', (err) => {
+                sttRestartAttempts++;
+                sttRestartLastFail = Date.now();
+                logger.error(err, { tag: '[STT] stream error', attempts: sttRestartAttempts, participantId });
+                sttStream = null;
+            });
+            // 最初のデータが来たら成功とみなしカウンターをリセット
+            sttStream.once('data', () => { sttRestartAttempts = 0; });
         };
 
         ensureValidated().catch((error) => {

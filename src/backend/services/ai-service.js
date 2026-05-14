@@ -116,6 +116,8 @@ class GroqProvider {
             const chatCompletion = await this.client.chat.completions.create({
                 messages: [{ role: 'user', content: prompt }],
                 model: this.modelName,
+                // 出力切り詰め対策。議事録は逐語で長文になるので 16384 を既定値とする。
+                max_completion_tokens: options.maxOutputTokens || 16384,
                 response_format: options.json ? { type: 'json_object' } : undefined
             });
             const result = chatCompletion.choices[0]?.message?.content || "";
@@ -186,7 +188,8 @@ class GeminiProvider {
                 this.name = `gemini (${modelName})`;
 
                 const generationConfig = {
-                    maxOutputTokens: options.maxOutputTokens || 4096,
+                    // 議事録は逐語で長文になるので 16384 を既定値とする (Gemini 2.5 Flash は 65536 まで対応)。
+                    maxOutputTokens: options.maxOutputTokens || 16384,
                 };
 
                 if (options.json) {
@@ -638,7 +641,7 @@ class AIService {
                 ].join('\n');
             }
 
-            const resultText = await provider.generate(prompt);
+            const resultText = await provider.generate(prompt, { maxOutputTokens: 16384 });
             return {
                 result: resultText.trim(),
                 prompt,
@@ -746,7 +749,7 @@ class AIService {
             '〔セクション見出し・箇条書き・トピックまとめは出力しない。会話を上から順に並べるだけ〕',
         ].join('\n');
 
-        const result = await provider.generate(prompt);
+        const result = await provider.generate(prompt, { maxOutputTokens: 16384 });
         return {
             result: String(result || '').trim(),
             prompt,
@@ -1233,7 +1236,7 @@ class AIService {
 
         const prompt = promptLines.join('\n');
 
-        const result = await provider.generate(prompt);
+        const result = await provider.generate(prompt, { maxOutputTokens: 16384 });
         return {
             chunkIndex: chunk.index,
             startTs: chunk.startTs,

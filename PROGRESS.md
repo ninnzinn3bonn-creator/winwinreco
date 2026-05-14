@@ -1,5 +1,40 @@
 ﻿# プロジェクト進捗メモ (Meeting Minutes App)
 
+## 64. Groq max_tokens 修正 + ElevenLabs 安定性向上 (2026-05-14)
+
+実利用テスト (1-2 時間会議、ElevenLabs Scribe + Groq gpt-oss-120b) で判明した 2 件のバグを修正。
+
+### Bug A: 議事録が短い / 最終チャンクしか表示されない
+
+- `GroqProvider.generate()` に `max_completion_tokens: options.maxOutputTokens || 16384` を追加。Groq OpenAI 互換 API のデフォルト (1024-8192) で逐語議事録が途中で切れていた。
+- `GeminiProvider.generate()` の `maxOutputTokens` 既定値を 4096 → 16384 に引き上げ (Gemini 2.5 Flash は 65536 まで対応)。
+- 議事録生成系の呼び出しに `{ maxOutputTokens: 16384 }` を明示的に追加:
+  - `analyzeMeeting(type='minutes')` の `provider.generate(prompt, { maxOutputTokens: 16384 })`
+  - `generateMinutesFromTranscript` の `provider.generate(prompt, { maxOutputTokens: 16384 })`
+  - `generateMinutesPerChunk` の `provider.generate(prompt, { maxOutputTokens: 16384 })`
+- `generateStructuredInsights` / `generateSummaryFromMinutes` / `generateTodoFromMinutes` 等の要約系は既定値のまま (JSON 構造化出力で長文は来にくいため)。
+
+### Bug B: 会議中に文字起こしが止まる
+
+- **B-1: session_started タイムアウト監視** — `createElevenLabsStream()` で 8 秒以内に `session_started` が来なければ `ws.close(1001, 'session_started timeout')` を呼んで強制再接続。
+- **B-2: transcript silence watchdog** — session_started 後、音声送信中なのに 45 秒以上 `committed_transcript`/`partial_transcript` が来なければ `ws.close(1001, 'transcript silence watchdog')` で強制再接続。watchdog は 5 秒ごとに確認。
+- **B-3: startSTTStream クールダウン** — `app.js` の `startSTTStream()` で過去 60 秒以内に 5 回以上失敗していたら 30 秒クールダウン。無限ループ防止。エラーコールバック・`on('error')` の両方でカウント。最初のデータ受信で成功カウンターをリセット。
+- **B-4: フロントエンド空転検知** — `audio.js` に `startTranscriptStallWatchdog()` を追加。音声送信中 (直近 30 秒で audio が届いている) かつ 40 秒以上 `transcript` が来ていない場合に `AppToast.warn()` + `state.ws.close()` で WS 自動再接続経路へ。`meeting-ui.js` の `ready` 受信時にウォッチドッグを起動し、`transcript` 受信時に `state.lastTranscriptAt` を更新。
+
+### 修正ファイル
+
+- `src/backend/services/ai-service.js` — GroqProvider.generate / GeminiProvider.generate / analyzeMeeting(minutes) / generateMinutesFromTranscript / generateMinutesPerChunk
+- `src/backend/services/stt-service.js` — createElevenLabsStream (B-1 / B-2)
+- `src/backend/app.js` — startSTTStream クールダウン + on('error') 追加 (B-3)
+- `src/frontend/audio.js` — lastAudioSentAt 記録 + startTranscriptStallWatchdog (B-4)
+- `src/frontend/meeting-ui.js` — lastTranscriptAt 更新 + watchdog 起動 (B-4)
+- `src/frontend/state.js` — lastAudioSentAt / lastTranscriptAt / transcriptStallWatchdog フィールド追加
+- `tests/stt-watchdog.test.js` — 新規 5 ケース
+
+### テスト結果
+
+173 ケース pass (9 スキップは Firestore emulator テスト)。`node --check` OK。`npm run check:frontend` OK。
+
 ## 1. 初期実装完了 (2026-03-05)
 - **MVP機能の実装**:
     - Google Cloud Speech-to-Text を使ったリアルタイム文字起こし。

@@ -585,3 +585,34 @@ Cloud Logging → BigQuery sink は手動設定が必要 (初回のみ)。
 手順と集計クエリ例は `docs/BACKUP_PLAYBOOK.md` の「メータリング設定」節を参照。
 
 本番では BigQuery クエリが集計の主役。`/admin/usage` UI は将来フェーズ。
+
+---
+
+## AIService max_completion_tokens 規約
+
+AI 生成呼び出しは出力サイズに応じてトークン上限を明示する。
+
+| 用途 | maxOutputTokens | 備考 |
+|---|---|---|
+| 議事録系 (minutes / per-chunk) | 16384 | 逐語テキストで長文になるため。呼び出し側で `{ maxOutputTokens: 16384 }` を明示 |
+| 要約系 (summary / todo / topic_tree / custom) | 16384 (既定値) | GeminiProvider / GroqProvider の既定値が 16384 |
+| 構造化インサイト (JSON) | 16384 (既定値) | `options.json` によるフォーマット制約で長文は来にくいが既定値を上げた |
+
+**GroqProvider**: `max_completion_tokens: options.maxOutputTokens || 16384` を `chat.completions.create()` に常に渡す。Groq OpenAI 互換 API はデフォルト 1024-8192 のため省略すると議事録が途中で切れる。
+
+**GeminiProvider**: `generationConfig.maxOutputTokens: options.maxOutputTokens || 16384`。Gemini 2.5 Flash は 65536 まで対応。
+
+---
+
+## ElevenLabs STT watchdog タイムアウト値
+
+`src/backend/services/stt-service.js` の `createElevenLabsStream()` に以下の監視タイマーが実装されている。
+
+| タイマー | タイムアウト | トリガー条件 | 動作 |
+|---|---|---|---|
+| `sessionStartTimer` | 8 秒 | WS 接続後 `session_started` が届かない | `ws.close(1001, 'session_started timeout')` |
+| `transcriptWatchdog` | 45 秒 (5 秒ごと確認) | session_started 済、音声送信中なのに transcript が来ない | `ws.close(1001, 'transcript silence watchdog')` |
+
+どちらの close も `ws.on('close')` → `passThrough.destroy()` → `app.js の sttStream.on('close')` → `sttStream = null` の経路で処理される。次の音声チャンク到着時に `startSTTStream()` が新しい接続を作り直す。
+
+`app.js` の `startSTTStream()` には再起動クールダウンが実装されている。過去 60 秒で 5 回以上失敗していたら 30 秒クールダウンして無限ループを防ぐ。

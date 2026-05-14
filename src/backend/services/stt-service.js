@@ -115,6 +115,31 @@ class STTService {
         // メータリング用: ストリーム開始時刻
         const streamStart = Date.now();
 
+        // Fix B-1: session_started タイムアウト監視
+        const SESSION_START_TIMEOUT_MS = 8000;
+        const sessionStartTimer = setTimeout(() => {
+            if (!sessionReady) {
+                logger.warn('[ElevenLabs STT] session_started timeout; forcing reconnect', { pendingCount: pending.length });
+                recordApiCall({ provider: 'elevenlabs-stt', operation: 'session-start-timeout', status: 'warn' });
+                try { ws.close(1001, 'session_started timeout'); } catch (_) {}
+            }
+        }, SESSION_START_TIMEOUT_MS);
+
+        // Fix B-2: committed_transcript 沈黙監視
+        const TRANSCRIPT_SILENCE_MS = 45000; // 45 秒
+        let lastTranscriptAt = Date.now();
+        const transcriptWatchdog = setInterval(() => {
+            if (!sessionReady) return;
+            if (!audioSentSinceLastCommit) return; // 音声が来ていないなら正常
+            if (Date.now() - lastTranscriptAt > TRANSCRIPT_SILENCE_MS) {
+                logger.warn('[ElevenLabs STT] transcript silence too long; forcing reconnect', {
+                    silentMs: Date.now() - lastTranscriptAt
+                });
+                recordApiCall({ provider: 'elevenlabs-stt', operation: 'silence-restart', status: 'warn' });
+                try { ws.close(1001, 'transcript silence watchdog'); } catch (_) {}
+            }
+        }, 5000);
+
         const sendChunk = (buf, commit = false) => {
             ws.send(JSON.stringify({
                 message_type: 'input_audio_chunk',
@@ -136,8 +161,10 @@ class STTService {
 
             switch (msg.message_type) {
                 case 'session_started':
+                    clearTimeout(sessionStartTimer);
                     logger.info('[ElevenLabs STT] session_started, flushing pending chunks', { pendingCount: pending.length });
                     sessionReady = true;
+                    lastTranscriptAt = Date.now();
                     for (const buf of pending) {
                         sendChunk(buf);
                     }
@@ -145,6 +172,7 @@ class STTService {
                     break;
 
                 case 'partial_transcript':
+                    lastTranscriptAt = Date.now();
                     if (msg.text) {
                         logger.info('[ElevenLabs STT] partial', { text: msg.text });
                         if (onPartial) onPartial(msg.text);
@@ -152,6 +180,8 @@ class STTService {
                     break;
 
                 case 'committed_transcript':
+                    lastTranscriptAt = Date.now();
+                    audioSentSinceLastCommit = false;
                     if (msg.text) {
                         logger.info('[ElevenLabs STT] committed transcript', { text: msg.text });
                         onData(msg.text);
@@ -174,6 +204,9 @@ class STTService {
         });
 
         ws.on('close', (code, reason) => {
+            // Fix B-1/B-2: タイマーをクリア
+            clearTimeout(sessionStartTimer);
+            clearInterval(transcriptWatchdog);
             logger.info('[ElevenLabs STT] WebSocket closed', { code, reason: String(reason) });
             recordApiCall({
                 provider: 'elevenlabs-stt',

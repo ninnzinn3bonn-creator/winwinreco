@@ -93,6 +93,10 @@ window.AppState = {
         roomSttProvider: '',
         roomSttLanguage: '',
         dictionary: [],
-        extractedTerms: []
+        extractedTerms: [],
+        // Fix B-4: フロント空転検知用タイムスタンプ
+        lastAudioSentAt: 0,
+        lastTranscriptAt: 0,
+        transcriptStallWatchdog: null
     }
 };
