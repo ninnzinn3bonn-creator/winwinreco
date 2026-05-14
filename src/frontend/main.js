@@ -2256,6 +2256,10 @@ function showSummaryScreen({ justEnded = false } = {}) {
         window.scrollTo({ top: 0, behavior: 'auto' });
         loadMeetingInsights({ silent: true });
     });
+    // Build the past-meeting selector UI (host only; idempotent after first call)
+    if (state.isHost) {
+        window.AppSharedAi?.buildPastMeetingSelector?.();
+    }
 }
 
 async function loadRoomLogs() {

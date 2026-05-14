@@ -1520,3 +1520,53 @@ participated.csv     ゲスト参加会議一覧 (このバージョンは空)
 ### テスト結果
 
 168 ケース pass (9 スキップは Firestore emulator テスト)。`node --check` OK。`npm run check:frontend` OK。
+
+## 65. AI ワークスペースの過去会議選択機能 (2026-05-14)
+
+ユーザー要望「会議の種類が混じった全部の過去会議が一緒くたに使われると解析品質が落ちる。どの過去会議を文脈に使うか手動で選びたい」への対応。
+
+### 実装内容
+
+- **`src/backend/lib/past-context.js`**: `buildPastMeetingContext` に `roomIds` オプション追加。
+  - `roomIds` が空配列 `[]` のとき → 空ブロックを返す (off モード)
+  - `roomIds` が `[A, B]` のとき → A, B のみにフィルタして返す
+  - `roomIds === null` のとき → 従来挙動 (直近 N 件)
+  - キャッシュキーに `roomIds` を含める: `${accountId}|${excludeRoomId}|${roomIds.join(',')}|${limit}|${charCap}`
+- **`src/backend/app.js`**:
+  - `/rooms/:id/custom-ai` (POST): `past_room_ids: string[]` を受け取り `buildPastMeetingContext` に伝搬。最大 10 件・`room.owner_account_id` 所有検証 (不正 ID は黙って除外)
+  - `/rooms/:id/insights/regenerate` (POST): 同様に `past_room_ids` を受け取り `generateInsightsForRoom` の `opts.pastRoomIds` に渡す
+  - `generateInsightsForRoom`: `opts.pastRoomIds` を受けて `buildPastMeetingContext` を呼ぶ
+- **`src/frontend/shared-ai.js`**: AI ワークスペースに過去会議セレクター UI 追加
+  - `buildPastMeetingSelector()`: 初回呼び出しで `#past-meeting-selector-anchor` の直後にラジオ + チェックリストを DOM に挿入 (idempotent)
+  - `renderPastMeetingSelector()`: 現在の mode に合わせてラジオと past-meeting-list を同期
+  - `getPastMeetingApiPayload()`: mode に応じた `{ use_past_context, past_room_ids }` を返す
+  - `generateCustomAiResult` / `runSharedResult` で `getPastMeetingApiPayload()` を使用
+  - `GET /me/rooms` から終了済み + 自分所有 の直近 30 件を取得してリストアップ (5 分 TTL でキャッシュ)
+  - `state.pastMeetingMode` / `state.selectedPastRoomIds` に UI 状態を保持
+- **`src/frontend/index.html`**: `#past-meeting-selector-anchor` を `#use-past-meetings` の直後に追加
+- **`src/frontend/main.js`**: `showSummaryScreen` でホスト限定に `buildPastMeetingSelector()` を呼ぶ
+- **`src/frontend/style.css`**: `.past-meeting-selector` / `.past-meeting-mode` / `.past-meeting-list` 等の CSS 追加
+- **`tests/past-context-selector.test.js` 新規作成**: 6 ケース
+  - `roomIds:[]` → 空ブロック
+  - `roomIds:[A,B]` → A,B のみ (C 除外)
+  - `roomIds:[A,X]` (X は別 account) → A のみ
+  - キャッシュキー差異確認
+  - 不正 ID は黙って除外・200 成功 (2 ケース)
+
+### UI の 3 モード
+
+| モード | 挙動 |
+|---|---|
+| 自動 (直近5件) | 既存の `use_past_meetings` room 設定に従う |
+| 使わない | `use_past_context: false` を送信 |
+| 手動で選ぶ | `GET /me/rooms` の終了済み会議一覧 (最大 30 件) をチェックボックスで選択し `past_room_ids` に送信 |
+
+### 既知の制限
+
+- 一覧は最大 30 件 (直近の終了済み・自分所有の会議のみ)。30 件超の古い会議は別タブのプロフィール画面から ID を確認する必要がある。
+- ブラウザキャッシュ (5 分 TTL) により、その間に追加された新会議は再読込まで反映されない。
+- 議事録 (minutes) は引き続き past context 不使用 (規約)。
+
+### テスト結果
+
+179 ケース pass (9 スキップは Firestore emulator テスト)。`node --check` OK。`npm run check:frontend` OK。

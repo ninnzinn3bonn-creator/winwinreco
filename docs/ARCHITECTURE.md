@@ -71,6 +71,27 @@ Rules:
 
 This rule exists to keep minutes grounded in the current meeting only.
 
+### 3 モード (auto / off / manual)
+
+AI ワークスペース (会議終了後) は過去会議コンテキストの使い方を 3 モードで切り替えられる。
+
+| モード | 挙動 |
+|---|---|
+| `auto` | room 設定 (`use_past_meetings`) に従い直近 5 件を自動選択 (既存挙動) |
+| `off` | 過去会議コンテキストを使わない (`use_past_context: false` を API に送信) |
+| `manual` | ユーザーが `GET /me/rooms` から最大 30 件の終了済み会議をチェックボックスで選択。選択した `roomId` の配列を `past_room_ids` として送信 |
+
+#### `past_room_ids` の API 仕様
+
+- `/rooms/:id/custom-ai` (POST) と `/rooms/:id/insights/regenerate` (POST) で `past_room_ids: string[]` を受け付ける。
+- サーバー側検証: 最大 10 件 / 全 ID が `room.owner_account_id` と一致することを確認 / 不正 ID は黙って除外。
+- `buildPastMeetingContext` の `roomIds` オプションとしてそのまま伝搬される。
+- `roomIds` に空配列 `[]` を渡すと空ブロックを返す (off と同じ効果)。
+
+#### 議事録 (minutes) は引き続き past context 不使用
+
+`generateSharedAiResult` / `generateMinutesFromTranscript` は type が `minutes` のとき `pastContextBlock` を削除してから AI に渡す。この規約はすべての新コードでも維持すること。
+
 ## Security model
 
 - Each participant receives a random `control_token` when joining a room.

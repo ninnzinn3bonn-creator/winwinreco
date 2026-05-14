@@ -106,6 +106,7 @@ const defaultCache = new LRUCache();
  * @param {number} [opts.limit=5]
  * @param {number} [opts.charCap=400]
  * @param {string|null} [opts.excludeRoomId]
+ * @param {string[]|null} [opts.roomIds] - when set, only these room IDs are used as context
  * @param {LRUCache} [opts.cache]
  * @param {boolean} [opts.useCache=true]
  * @returns {Promise<{ block: string, items: Array }>}
@@ -115,6 +116,7 @@ async function buildPastMeetingContext(roomRepo, accountId, opts = {}) {
         limit = 5,
         charCap = 400,
         excludeRoomId = null,
+        roomIds = null,
         cache = defaultCache,
         useCache = true
     } = opts;
@@ -122,7 +124,13 @@ async function buildPastMeetingContext(roomRepo, accountId, opts = {}) {
         return { block: '', items: [] };
     }
 
-    const cacheKey = `${accountId}|${excludeRoomId || ''}|${limit}|${charCap}`;
+    // Empty roomIds array means "use no past context"
+    if (Array.isArray(roomIds) && roomIds.length === 0) {
+        return { block: '', items: [] };
+    }
+
+    const roomIdsKey = Array.isArray(roomIds) ? roomIds.join(',') : '';
+    const cacheKey = `${accountId}|${excludeRoomId || ''}|${roomIdsKey}|${limit}|${charCap}`;
     if (useCache) {
         const cached = cache.get(cacheKey);
         if (cached) return cached;
@@ -130,10 +138,24 @@ async function buildPastMeetingContext(roomRepo, accountId, opts = {}) {
 
     let rooms = [];
     try {
-        rooms = await roomRepo.findEndedRoomsForAccount(accountId, { limit, excludeRoomId });
+        // Fetch enough rooms to cover manual selection or auto mode
+        const fetchLimit = Array.isArray(roomIds) ? Math.max(roomIds.length, limit) * 4 : limit;
+        rooms = await roomRepo.findEndedRoomsForAccount(accountId, { limit: fetchLimit, excludeRoomId });
     } catch (_err) {
         return { block: '', items: [] };
     }
+
+    // If roomIds is specified, filter to only those IDs (owner already verified by caller)
+    if (Array.isArray(roomIds) && roomIds.length > 0) {
+        const idSet = new Set(roomIds);
+        rooms = rooms.filter((r) => idSet.has(r.id));
+    }
+
+    // Apply limit (roomIds mode uses roomIds.length as natural limit, capped at limit)
+    const effectiveLimit = Array.isArray(roomIds)
+        ? Math.min(roomIds.length, limit)
+        : limit;
+    rooms = rooms.slice(0, effectiveLimit);
 
     const items = rooms
         .map((room) => ({

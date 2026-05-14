@@ -5,6 +5,150 @@
 
     let aiWorkspacePersistTimer = null;
 
+    // Past-meeting selector state
+    // mode: 'auto' | 'off' | 'manual'
+    state.pastMeetingMode = state.pastMeetingMode || 'auto';
+    state.selectedPastRoomIds = state.selectedPastRoomIds || [];
+
+    // ---------- Past meeting selector UI ----------
+
+    let _pastRoomCache = null; // { rooms: [...], fetchedAt: timestamp }
+
+    async function fetchPastRoomsForSelector() {
+        if (_pastRoomCache && (Date.now() - _pastRoomCache.fetchedAt) < 5 * 60 * 1000) {
+            return _pastRoomCache.rooms;
+        }
+        try {
+            const res = await fetch('/me/rooms', { credentials: 'same-origin' });
+            if (!res.ok) return [];
+            const data = await res.json();
+            const rooms = (Array.isArray(data?.rooms) ? data.rooms : [])
+                .filter((r) => r.ended_at && r.is_owner)
+                .slice(0, 30);
+            _pastRoomCache = { rooms, fetchedAt: Date.now() };
+            return rooms;
+        } catch (_) {
+            return [];
+        }
+    }
+
+    function renderPastMeetingSelector() {
+        const container = document.getElementById('past-meeting-selector');
+        if (!container) return;
+
+        const mode = state.pastMeetingMode || 'auto';
+        // Update radio buttons
+        container.querySelectorAll('input[name="past-meeting-mode"]').forEach((radio) => {
+            radio.checked = radio.value === mode;
+        });
+
+        const listEl = container.querySelector('.past-meeting-list');
+        if (listEl) {
+            listEl.hidden = mode !== 'manual';
+        }
+    }
+
+    async function buildPastMeetingSelector() {
+        const anchor = document.getElementById('past-meeting-selector-anchor');
+        if (!anchor || document.getElementById('past-meeting-selector')) return;
+
+        const wrapper = document.createElement('div');
+        wrapper.className = 'past-meeting-selector';
+        wrapper.id = 'past-meeting-selector';
+
+        const modeOptions = [
+            { value: 'auto', label: '自動 (直近5件)' },
+            { value: 'off', label: '使わない' },
+            { value: 'manual', label: '手動で選ぶ' }
+        ];
+
+        const radioGroup = document.createElement('div');
+        radioGroup.className = 'past-meeting-mode-group';
+        modeOptions.forEach(({ value, label }) => {
+            const lbl = document.createElement('label');
+            lbl.className = 'past-meeting-mode';
+            const radio = document.createElement('input');
+            radio.type = 'radio';
+            radio.name = 'past-meeting-mode';
+            radio.value = value;
+            radio.checked = (state.pastMeetingMode || 'auto') === value;
+            radio.addEventListener('change', () => {
+                state.pastMeetingMode = value;
+                renderPastMeetingSelector();
+                if (value === 'manual') {
+                    populatePastMeetingList(wrapper);
+                }
+            });
+            lbl.append(radio, document.createTextNode(' ' + label));
+            radioGroup.appendChild(lbl);
+        });
+
+        const listEl = document.createElement('div');
+        listEl.className = 'past-meeting-list';
+        listEl.hidden = (state.pastMeetingMode || 'auto') !== 'manual';
+
+        wrapper.appendChild(radioGroup);
+        wrapper.appendChild(listEl);
+        anchor.after(wrapper);
+
+        if ((state.pastMeetingMode || 'auto') === 'manual') {
+            await populatePastMeetingList(wrapper);
+        }
+    }
+
+    async function populatePastMeetingList(wrapper) {
+        const listEl = wrapper ? wrapper.querySelector('.past-meeting-list') : document.querySelector('#past-meeting-selector .past-meeting-list');
+        if (!listEl) return;
+        listEl.innerHTML = '<span class="past-meeting-loading">読み込み中...</span>';
+        const rooms = await fetchPastRoomsForSelector();
+        listEl.innerHTML = '';
+        if (!rooms.length) {
+            listEl.innerHTML = '<span class="past-meeting-empty">過去の終了済み会議がありません。</span>';
+            return;
+        }
+        rooms.forEach((room) => {
+            const lbl = document.createElement('label');
+            lbl.className = 'past-meeting-item';
+            const cb = document.createElement('input');
+            cb.type = 'checkbox';
+            cb.value = room.id;
+            cb.checked = state.selectedPastRoomIds.includes(room.id);
+            cb.addEventListener('change', () => {
+                if (cb.checked) {
+                    if (!state.selectedPastRoomIds.includes(room.id)) {
+                        state.selectedPastRoomIds = [...state.selectedPastRoomIds, room.id];
+                    }
+                } else {
+                    state.selectedPastRoomIds = state.selectedPastRoomIds.filter((id) => id !== room.id);
+                }
+            });
+            const dateStr = room.ended_at
+                ? new Date(room.ended_at).toLocaleDateString('ja-JP')
+                : (room.created_at ? new Date(room.created_at).toLocaleDateString('ja-JP') : '');
+            const titleText = room.title || `会議 (${room.id.slice(0, 8)})`;
+            const span = document.createElement('span');
+            span.textContent = ` 「${titleText}」 (${dateStr})`;
+            lbl.append(cb, span);
+            listEl.appendChild(lbl);
+        });
+    }
+
+    function getPastMeetingApiPayload() {
+        const mode = state.pastMeetingMode || 'auto';
+        if (mode === 'off') {
+            return { use_past_context: false };
+        }
+        if (mode === 'manual') {
+            return {
+                use_past_context: state.selectedPastRoomIds.length > 0,
+                past_room_ids: [...state.selectedPastRoomIds]
+            };
+        }
+        // auto: use existing checkbox behaviour
+        const ctxBox = document.getElementById('use-past-meetings');
+        return { use_past_context: ctxBox ? !!ctxBox.checked : true };
+    }
+
     function renderMinutesWorkspace() {
         if (!dom.minutesOutputEditor || !dom.minutesWorkspaceStatus) return;
         const nextMinutes = state.minutesWorkspace.result || 'ここに議事録が表示されます。';
@@ -401,15 +545,14 @@
         renderAiWorkspace();
 
         try {
-            const ctxBox = document.getElementById('use-past-meetings');
-            const usePast = ctxBox ? !!ctxBox.checked : true;
+            const pastPayload = getPastMeetingApiPayload();
             const res = await fetch(`/rooms/${state.roomId}/shared-ai/${type}`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
                     participant_id: state.participantId,
                     control_token: state.controlToken,
-                    use_past_context: usePast
+                    ...pastPayload
                 })
             });
             const data = await readApiResponse(res);
@@ -540,8 +683,7 @@
             state.aiWorkspace.mode = 'custom';
             state.aiWorkspace.title = '自由解析';
             renderAiWorkspace();
-            const ctxBox = document.getElementById('use-past-meetings');
-            const usePast = ctxBox ? !!ctxBox.checked : true;
+            const pastPayload = getPastMeetingApiPayload();
             const res = await fetch(`/rooms/${state.roomId}/custom-ai`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
@@ -549,7 +691,7 @@
                     instruction,
                     participant_id: state.participantId,
                     control_token: state.controlToken,
-                    use_past_context: usePast
+                    ...pastPayload
                 })
             });
             const data = await readApiResponse(res);
@@ -744,6 +886,9 @@
         copyMinutesResult,
         downloadMinutesResult,
         loadChunks,
-        regenerateChunk
+        regenerateChunk,
+        buildPastMeetingSelector,
+        renderPastMeetingSelector,
+        getPastMeetingApiPayload
     };
 })();
