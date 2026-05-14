@@ -163,28 +163,51 @@
         bindClick('btn-jump-latest-floating', () => callHandler('scrollLogToLatest', dom.timeline, { force: true }));
 
         if (dom.timeline && dom.btnJumpLatestFloating) {
+            const unreadBadge = document.getElementById('btn-jump-latest-unread');
+            // FAB の at-bottom 閾値。FAB 自体が 50-70px、下端の余裕も含めて 120px 以内を
+            // 「実質的に最下部」と見なす。これより上にいる時に新着が来たら未読バッジを増やす。
+            const AT_BOTTOM_THRESHOLD_PX = 120;
             const updateFabState = () => {
                 const container = dom.timeline;
                 if (!container) return;
                 let distance;
                 const containerScrolls = (container.scrollHeight - container.clientHeight) > 8;
                 if (containerScrolls) {
-                    // Timeline has internal scroll (desktop/large screen)
+                    // 内部スクロールあり (PC)
                     distance = container.scrollHeight - container.scrollTop - container.clientHeight;
                 } else {
-                    // Timeline has overflow:visible — the whole PAGE scrolls.
-                    // Check window scroll distance from the bottom of the document.
+                    // 内部スクロールなし (モバイル) → ページ全体スクロールを見る
                     const pageScrollable = document.documentElement.scrollHeight - window.innerHeight > 8;
                     if (pageScrollable) {
                         distance = document.documentElement.scrollHeight - window.scrollY - window.innerHeight;
                     } else {
-                        distance = 0; // No page scroll possible → treat as at-bottom
+                        distance = 0;
                     }
                 }
-                const atBottom = distance < 80;
+                const atBottom = distance < AT_BOTTOM_THRESHOLD_PX;
                 dom.btnJumpLatestFloating.classList.toggle('is-at-bottom', atBottom);
                 // F2: 共有フラグを更新。false = ユーザーが上にスクロール中。
-                if (state) state.logAtBottom = atBottom;
+                if (state) {
+                    state.logAtBottom = atBottom;
+                    // 最下部に戻ったら未読カウントをリセット
+                    if (atBottom && state.unreadUtterances) {
+                        state.unreadUtterances = 0;
+                        dom.btnJumpLatestFloating.classList.remove('has-unread');
+                        if (unreadBadge) unreadBadge.textContent = '0';
+                    }
+                }
+            };
+            // 未読バッジ反映用 (state.unreadUtterances が他所で更新された時に呼ばれる)
+            window.AppLogUiUnreadSync = () => {
+                if (!state) return;
+                const n = state.unreadUtterances || 0;
+                if (n > 0 && !state.logAtBottom) {
+                    dom.btnJumpLatestFloating.classList.add('has-unread');
+                    if (unreadBadge) unreadBadge.textContent = '+' + n;
+                } else {
+                    dom.btnJumpLatestFloating.classList.remove('has-unread');
+                    if (unreadBadge) unreadBadge.textContent = '0';
+                }
             };
             dom.timeline.addEventListener('scroll', updateFabState, { passive: true });
             window.addEventListener('scroll', updateFabState, { passive: true });

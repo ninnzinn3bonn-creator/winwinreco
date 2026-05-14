@@ -23,6 +23,7 @@
     function upsertUtterance(raw) {
         const utterance = normalizeUtterance(raw);
         const existing = state.activityItems.find((item) => item.type === 'utterance' && item.data.id === utterance.id);
+        let isNew = false;
         if (existing) {
             existing.data = { ...existing.data, ...utterance };
             existing.timestamp = utterance.timestamp;
@@ -33,8 +34,15 @@
                 timestamp: utterance.timestamp,
                 data: utterance
             });
+            isNew = true;
         }
         state.activityItems.sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
+        // ユーザーが上にスクロール中で新規 utterance が届いたら未読カウンタを更新。
+        // 最下部に戻る時 (bindings.js の updateFabState) にリセットされる。
+        if (isNew && state.logAtBottom === false) {
+            state.unreadUtterances = (state.unreadUtterances || 0) + 1;
+            if (typeof window.AppLogUiUnreadSync === 'function') window.AppLogUiUnreadSync();
+        }
     }
 
     function getVisibleItems() {
@@ -496,15 +504,38 @@
         if (!options.force && (state.isWorkingOnLog || state.logAtBottom === false)) return;
         const containerScrolls = container && (container.scrollHeight - container.clientHeight) > 8;
         if (containerScrolls) {
+            // PC: 内部スクロール (overflow:auto)。FAB は内部スクロールに被らないのでそのまま末尾へ。
             container.scrollTo({ top: container.scrollHeight, behavior: 'smooth' });
+            resetUnreadAfterScroll();
             return;
         }
-        const target = container && container.lastElementChild;
-        if (target && typeof target.scrollIntoView === 'function') {
-            target.scrollIntoView({ behavior: 'smooth', block: 'end' });
+        // モバイル: ページ全体がスクロール。FAB (position:fixed) が viewport 下端に居るので、
+        // 最後の utterance の下端を viewport 下端ピッタリに合わせると FAB に隠れる。
+        // FAB 高さ + 余裕 (96px) 分上に止めることで最新カードが見える状態にする。
+        const FAB_CLEARANCE_PX = 96;
+        const lastEl = container && container.lastElementChild;
+        if (lastEl && typeof lastEl.getBoundingClientRect === 'function') {
+            const rect = lastEl.getBoundingClientRect();
+            const targetY = window.scrollY + rect.bottom - window.innerHeight + FAB_CLEARANCE_PX;
+            window.scrollTo({ top: Math.max(0, targetY), behavior: 'smooth' });
+            resetUnreadAfterScroll();
             return;
         }
         window.scrollTo({ top: document.documentElement.scrollHeight, behavior: 'smooth' });
+        resetUnreadAfterScroll();
+    }
+
+    function resetUnreadAfterScroll() {
+        // タップ or 自動スクロールで最新へ移動した時点で未読カウントをリセット。
+        // 実際の DOM 更新は bindings.js の scroll listener が拾ってくれる
+        // (logAtBottom=true になればバッジが消える) が、明示的にも 0 にしておく。
+        if (state.unreadUtterances) {
+            state.unreadUtterances = 0;
+            const fab = document.getElementById('btn-jump-latest-floating');
+            const badge = document.getElementById('btn-jump-latest-unread');
+            if (fab) fab.classList.remove('has-unread');
+            if (badge) badge.textContent = '0';
+        }
     }
 
     window.AppLogUi = {

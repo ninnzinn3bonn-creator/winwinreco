@@ -1383,6 +1383,33 @@ section > header,
     pointer-events: none;
 }
 
+/* 新着バッジ — ユーザーが上にスクロール中に新規 utterance が届いた件数を表示。
+   logAtBottom=false の間だけ visible になり、最下部に戻ると消える。 */
+.jump-latest-fab .jump-fab-unread {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 22px;
+    height: 22px;
+    padding: 0 7px;
+    margin-left: 6px;
+    border-radius: 11px;
+    background: #ff4d4d;
+    color: #fff;
+    font-size: 0.78rem;
+    font-weight: 800;
+    line-height: 1;
+    box-shadow: 0 0 0 2px rgba(255, 77, 77, 0.25);
+}
+.jump-latest-fab:not(.has-unread) .jump-fab-unread {
+    display: none;
+}
+/* バッジが付いているときは半透明 (is-at-bottom) を解除して目立たせる */
+.jump-latest-fab.has-unread.is-at-bottom {
+    opacity: 1;
+    transform: translate(-50%, 0);
+}
+
 /* Very subtle when at the bottom; pops to full opacity when user scrolls up. */
 .jump-latest-fab.is-at-bottom {
     opacity: 0.22;
@@ -2685,7 +2712,9 @@ body.summary-mode.summary-ai-controls-collapsed #ai-mobile-controls {
         height: auto;
         min-height: 0;
         overflow: visible;
-        padding-bottom: 12px;
+        /* モバイル: FAB (下端 ~20-24px + 高さ ~50px + 余裕) が最新発話を覆わないよう
+           会話リストの末尾にクリアランスを確保する */
+        padding-bottom: 96px;
     }
 
     body.summary-mode {

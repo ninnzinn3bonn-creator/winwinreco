@@ -89,6 +89,7 @@ window.AppState = {
         focusedUtteranceId: null,
         isWorkingOnLog: false,
         logAtBottom: true,   // false = ユーザーが上にスクロール中 → 自動スクロール抑制
+        unreadUtterances: 0, // logAtBottom=false の間に届いた新規 utterance 件数 (FAB バッジ用)
         // F4: ready メッセージで受け取るホスト指定の STT 設定。
         roomSttProvider: '',
         roomSttLanguage: '',

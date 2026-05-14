@@ -2333,22 +2333,26 @@ function initWebSocket() {
 
 function scrollLogToLatest(container, options = {}) {
     if (!options.force && (state.isWorkingOnLog || state.logAtBottom === false)) return;
-    // On desktop the .conversation-list element has its own scroll (overflow:auto).
-    // On mobile we collapse it (overflow:visible) and the whole page scrolls,
-    // so we fall back to scrolling the window to the bottom of the timeline
-    // (or the page) when the container itself doesn't scroll.
+    // PC は .conversation-list が overflow:auto で内部スクロール、モバイルは overflow:visible
+    // でページ全体がスクロール。後者では viewport 下端の FAB に最新発話が隠れないよう、
+    // FAB クリアランス分のオフセットを取って scrollTo する。
     const containerScrolls = container && (container.scrollHeight - container.clientHeight) > 8;
     if (containerScrolls) {
         container.scrollTo({ top: container.scrollHeight, behavior: 'smooth' });
+        if (state.unreadUtterances) state.unreadUtterances = 0;
         return;
     }
-    // Fallback: scroll the page so the latest utterance is in view.
-    const target = container && container.lastElementChild;
-    if (target && typeof target.scrollIntoView === 'function') {
-        target.scrollIntoView({ behavior: 'smooth', block: 'end' });
+    const FAB_CLEARANCE_PX = 96;
+    const lastEl = container && container.lastElementChild;
+    if (lastEl && typeof lastEl.getBoundingClientRect === 'function') {
+        const rect = lastEl.getBoundingClientRect();
+        const targetY = window.scrollY + rect.bottom - window.innerHeight + FAB_CLEARANCE_PX;
+        window.scrollTo({ top: Math.max(0, targetY), behavior: 'smooth' });
+        if (state.unreadUtterances) state.unreadUtterances = 0;
         return;
     }
     window.scrollTo({ top: document.documentElement.scrollHeight, behavior: 'smooth' });
+    if (state.unreadUtterances) state.unreadUtterances = 0;
 }
 
 // ----- Jump Palette (long-press FAB radial menu) -----
