@@ -3280,6 +3280,7 @@ async function bootstrap() {
             if (account && window.AppProfile?.hydrateSetupProfile) {
                 window.AppProfile.hydrateSetupProfile().catch(() => { /* ignore */ });
             }
+            populateSeriesPicker(account);
         });
     }
     setupGlobalModalEscape();
@@ -3289,6 +3290,33 @@ async function bootstrap() {
     loadDictionary();
     setupJumpPalette();
     setupMeetingTitle();
+}
+
+async function populateSeriesPicker(account) {
+    const picker = document.getElementById('series-picker');
+    const select = document.getElementById('series-id');
+    if (!picker || !select) return;
+    if (!account) {
+        picker.style.display = 'none';
+        select.innerHTML = '<option value="">なし</option>';
+        return;
+    }
+    picker.style.display = '';
+    try {
+        const res = await fetch('/me/series', { credentials: 'same-origin' });
+        if (!res.ok) return;
+        const data = await res.json();
+        const list = Array.isArray(data?.series) ? data.series : [];
+        const prev = select.value;
+        select.innerHTML = '<option value="">なし</option>';
+        list.forEach((s) => {
+            const opt = document.createElement('option');
+            opt.value = s.id;
+            opt.textContent = s.name;
+            if (s.id === prev) opt.selected = true;
+            select.appendChild(opt);
+        });
+    } catch (_) {}
 }
 
 function refreshHomeButtonHint() {

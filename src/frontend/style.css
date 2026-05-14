@@ -5171,3 +5171,128 @@ body.easter-flash-time   { animation: easter-flash-time 0.28s; }
     cursor: pointer;
     accent-color: var(--color-accent, #3db8af);
 }
+
+/* ---- 定例シリーズタブ ---- */
+.profile-tab-pane:has(.series-list-col) {
+    display: flex;
+    gap: 16px;
+    align-items: flex-start;
+}
+.series-list-col {
+    min-width: 180px;
+    max-width: 260px;
+    flex: 0 0 220px;
+}
+.series-detail-col {
+    flex: 1;
+    min-width: 0;
+}
+.series-add-btn {
+    width: 100%;
+    margin-bottom: 10px;
+}
+.series-list-wrap {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    max-height: 380px;
+    overflow-y: auto;
+}
+.series-list-item {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    padding: 8px 10px;
+    border: 1px solid var(--color-border, #e4e7e2);
+    border-radius: 8px;
+    cursor: pointer;
+    background: var(--color-surface, #fff);
+    position: relative;
+}
+.series-list-item:hover,
+.series-list-item.active {
+    border-color: var(--color-accent, #3db8af);
+    background: var(--color-surface-soft, #fafbf8);
+}
+.series-item-name {
+    font-weight: 600;
+    font-size: 0.9em;
+}
+.series-item-meta {
+    font-size: 0.75em;
+    color: var(--color-text-muted, #6b7280);
+}
+.series-del-btn {
+    position: absolute;
+    top: 6px;
+    right: 6px;
+    font-size: 0.75em;
+    padding: 2px 8px;
+    background: none;
+    border: 1px solid var(--color-danger, #ef4444);
+    border-radius: 4px;
+    color: var(--color-danger, #ef4444);
+    cursor: pointer;
+    opacity: 0;
+    transition: opacity 0.15s;
+}
+.series-list-item:hover .series-del-btn {
+    opacity: 1;
+}
+.series-empty,
+.series-loading {
+    color: var(--color-text-muted, #6b7280);
+    font-size: 0.85em;
+}
+.series-detail-row {
+    margin-bottom: 10px;
+}
+.series-detail-row label {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    font-size: 0.85em;
+    font-weight: 600;
+    color: var(--color-text-muted, #6b7280);
+}
+.series-detail-row textarea,
+.series-detail-row input {
+    width: 100%;
+    box-sizing: border-box;
+}
+.series-detail-actions {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-top: 8px;
+}
+
+/* ---- 次回アジェンダセクション ---- */
+.next-agenda-section {
+    margin-top: 18px;
+    padding: 14px 16px;
+    border: 1px solid var(--color-border, #e4e7e2);
+    border-radius: 10px;
+    background: var(--color-surface-soft, #fafbf8);
+}
+.next-agenda-section h4 {
+    margin: 0 0 10px 0;
+    font-size: 0.95em;
+    font-weight: 700;
+    color: var(--color-text, #1b2621);
+}
+.next-agenda-status {
+    display: inline-block;
+    margin-left: 10px;
+    font-size: 0.8em;
+    color: var(--color-text-muted, #6b7280);
+}
+.next-agenda-output {
+    display: block;
+    width: 100%;
+    margin-top: 10px;
+    box-sizing: border-box;
+    font-family: var(--font-mono, monospace);
+    font-size: 0.82em;
+    resize: vertical;
+}

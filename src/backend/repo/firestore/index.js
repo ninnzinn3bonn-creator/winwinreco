@@ -11,6 +11,7 @@ const { SessionRepository } = require('./session-repo');
 const { ChunkRepository } = require('./chunk-repo');
 const { PasswordResetRepository } = require('./password-reset-repo');
 const { EmailVerificationRepository } = require('./email-verification-repo');
+const { SeriesRepository } = require('./series-repo');
 
 async function createRepos() {
     return {
@@ -26,7 +27,8 @@ async function createRepos() {
         sessionRepo: new SessionRepository(),
         chunkRepo: new ChunkRepository(),
         passwordResetRepo: new PasswordResetRepository(),
-        emailVerificationRepo: new EmailVerificationRepository()
+        emailVerificationRepo: new EmailVerificationRepository(),
+        seriesRepo: new SeriesRepository()
     };
 }
 

@@ -230,6 +230,14 @@
                 </div>
             </div>
 
+            <div class="form-group host-only" id="series-picker" style="display:none">
+                <label for="series-id">定例シリーズ (オプション)</label>
+                <select id="series-id">
+                    <option value="">なし</option>
+                </select>
+                <p class="mic-check-status">シリーズを選ぶと、この会議が終了後に「次回アジェンダ生成」が使えます。</p>
+            </div>
+
             <div class="ai-config-group host-only">
                 <h3>AI設定</h3>
                 <div class="form-group-row">
@@ -654,6 +662,9 @@
                                 </div>
                                 <textarea id="minutes-output-editor" class="insight-text insight-result-box insight-editor ai-output-editor" placeholder="生成した議事録はここに表示されます。"></textarea>
                             </div>
+                            <!-- 定例シリーズ: 次回アジェンダ生成 (series紐付きルームかつホストのみ表示) -->
+                            <div id="next-agenda-section-anchor"></div>
+
                             <!-- [L9] チャンク別再生成パネル (ホストかつチャンク分割会議のみ表示) -->
                             <div id="chunk-regenerate-panel" class="chunk-regen-panel hidden">
                                 <div class="chunk-regen-header">

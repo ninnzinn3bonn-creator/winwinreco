@@ -227,11 +227,27 @@
         if (!await showRecordingConsentIfNeeded()) return;
         if (!await window.AppAudio.prepareAudio()) return;
         try {
+            const seriesSelect = document.getElementById('series-id');
+            const seriesId = seriesSelect?.value || '';
+            const body = {};
+            if (seriesId) {
+                body.series_id = seriesId;
+                // 選択したシリーズの latest_agenda_text を localStorage に一時保存
+                try {
+                    const serRes = await fetch(`/me/series/${seriesId}`, { credentials: 'same-origin' });
+                    if (serRes.ok) {
+                        const serData = await serRes.json();
+                        if (serData.latest_agenda_text) {
+                            localStorage.setItem('series_latest_agenda', serData.latest_agenda_text);
+                        }
+                    }
+                } catch (_) {}
+            }
             const res = await fetch('/rooms', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 credentials: 'same-origin',
-                body: JSON.stringify({})
+                body: JSON.stringify(body)
             });
             const room = await readApiResponse(res);
             await joinRoomProcess(room.id, displayName, profileText);

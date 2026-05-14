@@ -10,13 +10,14 @@ class RoomRepository {
                 owner_account_id = null,
                 use_past_meetings = true,
                 stt_provider = '',
-                stt_language = ''
+                stt_language = '',
+                series_id = null
             } = room;
             this.db.run(
                 `INSERT INTO rooms
-                 (id, owner_id, material_summary, owner_account_id, use_past_meetings, stt_provider, stt_language)
-                 VALUES (?, ?, ?, ?, ?, ?, ?)`,
-                [id, owner_id, material_summary || '', owner_account_id, use_past_meetings ? 1 : 0, stt_provider, stt_language],
+                 (id, owner_id, material_summary, owner_account_id, use_past_meetings, stt_provider, stt_language, series_id)
+                 VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+                [id, owner_id, material_summary || '', owner_account_id, use_past_meetings ? 1 : 0, stt_provider, stt_language, series_id || null],
                 (err) => {
                     if (err) return reject(err);
                     resolve();

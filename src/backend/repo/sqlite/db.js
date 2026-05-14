@@ -184,7 +184,9 @@ async function initDB(dbPath) {
                         // 自分自身をオーナーに昇格させてセットアップを始められる。
                         ensureColumn(db, 'user_accounts', 'is_owner', 'INTEGER DEFAULT 0'),
                         // §54 利用状況ダッシュボード: ログイン時刻追跡
-                        ensureColumn(db, 'user_accounts', 'last_login_at', 'DATETIME')
+                        ensureColumn(db, 'user_accounts', 'last_login_at', 'DATETIME'),
+                        // 定例シリーズ: rooms に series_id を追加
+                        ensureColumn(db, 'rooms', 'series_id', 'TEXT')
                     ])
                         .then(() => new Promise((resolveActions, rejectActions) => {
                             db.run(`CREATE TABLE IF NOT EXISTS actions (
@@ -265,6 +267,27 @@ async function initDB(dbPath) {
                                     (idxErr) => {
                                         if (idxErr) return rejectChunks(idxErr);
                                         resolveChunks();
+                                    }
+                                );
+                            });
+                        }))
+                        // [Series] 定例会議シリーズ: フレーム + 次回アジェンダ下書き
+                        .then(() => new Promise((resolveSeries, rejectSeries) => {
+                            db.run(`CREATE TABLE IF NOT EXISTS meeting_series (
+                                id TEXT PRIMARY KEY,
+                                owner_account_id TEXT NOT NULL,
+                                name TEXT NOT NULL DEFAULT '',
+                                frame_text TEXT DEFAULT '',
+                                latest_agenda_text TEXT DEFAULT '',
+                                created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                                updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+                            )`, (seriesErr) => {
+                                if (seriesErr) return rejectSeries(seriesErr);
+                                db.run(
+                                    'CREATE INDEX IF NOT EXISTS idx_series_owner ON meeting_series(owner_account_id, created_at)',
+                                    (idxErr) => {
+                                        if (idxErr) return rejectSeries(idxErr);
+                                        resolveSeries();
                                     }
                                 );
                             });

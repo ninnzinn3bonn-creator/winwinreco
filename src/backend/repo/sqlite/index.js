@@ -12,6 +12,7 @@ const { SessionRepository } = require('./session-repo');
 const { ChunkRepository } = require('./chunk-repo');
 const { PasswordResetRepository } = require('./password-reset-repo');
 const { EmailVerificationRepository } = require('./email-verification-repo');
+const { SeriesRepository } = require('./series-repo');
 
 async function createRepos() {
     const dbPath = process.env.DB_PATH || './db/meeting.db';
@@ -30,6 +31,7 @@ async function createRepos() {
         chunkRepo: new ChunkRepository(db),
         passwordResetRepo: new PasswordResetRepository(db),
         emailVerificationRepo: new EmailVerificationRepository(db),
+        seriesRepo: new SeriesRepository(db),
         _raw: db   // shutdown 時の db.close() 用
     };
 }

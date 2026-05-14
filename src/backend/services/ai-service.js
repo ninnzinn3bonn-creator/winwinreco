@@ -922,6 +922,53 @@ class AIService {
         };
     }
 
+    async generateNextAgenda({ frameText, previousAgendaText, minutesText, todoText, aiConfig = {}, monthsAhead = 1 }) {
+        if (!this.enabled) throw new Error('AI Service is not configured.');
+        const provider = this.getProvider(aiConfig);
+
+        const prompt = [
+            '[ROLE]',
+            'あなたは定例会議の「次回アジェンダ下書き」を作る書記です。',
+            `次回会議までの間隔: 約 ${monthsAhead} ヶ月後。`,
+            '入力されたフレームの章立て・見出しの言い回し・箇条書きスタイルを **だいたい踏襲** し、',
+            '今回の会議で起きたこと・TODO・未解決事項を踏まえて、次回会議向けの下書きを作ります。',
+            '出力は **プレーンテキスト** (Markdown でない、見出しもプレーンテキスト、装飾なし)。',
+            '',
+            '[FRAME — 形式の参考。章立て・見出しの呼び方を踏襲]',
+            frameText || '(基準フレームなし)',
+            '',
+            '[前回アジェンダ — 直前の会議で使ったやつ]',
+            previousAgendaText || '(なし)',
+            '',
+            '[INSTRUCTION — 内容の組み立てルール]',
+            '1. フレームの章立て・見出しの呼び方を踏襲する (順序は柔軟でよい)',
+            '2. 今回完了した議題 → 「(完了)」マーカー付きで残す (削除しない)',
+            '3. 未完・継続審議 → 「(継続審議)」マーカー',
+            '4. 今回新規に出てきた論点 → 新規議題として追加',
+            '5. 今回出た TODO は「持ち越し事項」セクション (フレームに無ければ新設) に列挙',
+            '6. 雑談・脱線は除外',
+            '7. 出力はプレーンテキスト。Markdown 構文 (* や ** 等) は使わない',
+            '8. 前置きや説明は書かない。本文だけ',
+            '',
+            '[今回の議事録]',
+            minutesText || '(なし)',
+            '',
+            '[今回の TODO]',
+            todoText || '(なし)',
+            '',
+            '[出力]'
+        ].join('\n');
+
+        const start = Date.now();
+        const result = await provider.generate(prompt, { maxOutputTokens: 16384 });
+        return {
+            result: String(result || '').trim(),
+            prompt,
+            provider: provider.name,
+            duration_ms: Date.now() - start
+        };
+    }
+
     buildUserContextUpdatePrompt(userContext, messages, targetSpeaker) {
         return [
             jp('\u3042\u306a\u305f\u306f\u7814\u7a76\u5ba4\u30bc\u30df\u306e\u9032\u6357\u7ba1\u7406\u3092\u652f\u63f4\u3059\u308b\u30a2\u30b7\u30b9\u30bf\u30f3\u30c8\u3067\u3059\u3002'),

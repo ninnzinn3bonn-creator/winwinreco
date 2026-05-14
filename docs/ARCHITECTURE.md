@@ -637,3 +637,50 @@ AI 生成呼び出しは出力サイズに応じてトークン上限を明示�
 どちらの close も `ws.on('close')` → `passThrough.destroy()` → `app.js の sttStream.on('close')` → `sttStream = null` の経路で処理される。次の音声チャンク到着時に `startSTTStream()` が新しい接続を作り直す。
 
 `app.js` の `startSTTStream()` には再起動クールダウンが実装されている。過去 60 秒で 5 回以上失敗していたら 30 秒クールダウンして無限ループを防ぐ。
+
+---
+
+## Meeting series & next agenda (定例シリーズ + 次回アジェンダ生成)
+
+### meeting_series エンティティ
+
+| フィールド | 型 | 説明 |
+|---|---|---|
+| `id` | TEXT PK | `newId('mss')` — プレフィックス付き UUID |
+| `owner_account_id` | TEXT | ホストアカウントの ID |
+| `name` | TEXT (max 80) | シリーズ名 (例: "月次定例ゼミ") |
+| `frame_text` | TEXT (max 10000) | 基準フレーム。章立て・見出しの参考として保持 |
+| `latest_agenda_text` | TEXT (max 10000) | 次回会議向け下書き。生成のたびに上書き。作成時は `frame_text` を初期値とする |
+| `created_at` | DATETIME | |
+| `updated_at` | DATETIME | |
+
+### rooms.series_id の任意性
+
+`rooms.series_id` は NULL 許容の任意外部キー。シリーズに紐付けない従来の使い方は変わらない。
+`POST /rooms` 作成時に `series_id` を body に含めるとリンクされる (所有者検証あり)。
+シリーズ削除時に rooms.series_id は NULL に戻さない (orphan 化を許容。フロント側で `series_id` を持つが findById が null を返すケースを「(削除済みシリーズ)」として扱う)。
+
+### 生成プロンプトの方針
+
+`AIService.generateNextAgenda()` のプロンプト設計:
+
+1. **フレーム踏襲**: `frame_text` (基準フレーム) の章立て・見出しの呼び方を踏襲するが、順序は柔軟
+2. **完了/継続/新規マーカー**: 今回完了した議題は `(完了)`、未完は `(継続審議)`、新規は追加
+3. **持ち越し事項**: 今回出た TODO を「持ち越し事項」セクションに列挙 (フレームに無ければ新設)
+4. **Markdown 不使用**: 出力はプレーンテキスト。`*` や `**` などの Markdown 構文は使わない
+5. **monthsAhead**: 次回会議までの間隔を渡せる (デフォルト 1 ヶ月)
+
+### 議事録生成とは別系統
+
+`generateNextAgenda()` は以下の点で議事録生成 (`generateMinutesFromTranscript`) と完全に独立:
+
+- **入力が異なる**: フレーム + 前回アジェンダ + minutes_text + todo_text。発話ログ (utterances) を直接使わない
+- **目的が異なる**: 次回会議の準備用の「下書き」であり、当該会議の逐語記録ではない
+- **past context**: 議事録と同様に past context は一切使わない (別会議コンテキストを混入させない)
+- **保存先が異なる**: `meeting_series.latest_agenda_text` に保存。`rooms` テーブルとは別
+
+### セキュリティ
+
+- `/me/series` CRUD はすべて `requireSession` 必須
+- 他人のシリーズは ID が正しくても 404 を返す (enumeration 防止)
+- `POST /rooms/:id/series/generate-next-agenda` は `requireSession` + `room.owner_account_id === req.account.id` の二段階検証

@@ -30,7 +30,8 @@ class RoomRepository {
             ai_workspace_json: d.ai_workspace_json || '',
             ai_workspace_updated_at: fromTimestamp(d.ai_workspace_updated_at),
             stt_provider: d.stt_provider || '',
-            stt_language: d.stt_language || ''
+            stt_language: d.stt_language || '',
+            series_id: d.series_id || null
         };
     }
 
@@ -40,7 +41,8 @@ class RoomRepository {
             owner_account_id = null,
             use_past_meetings = true,
             stt_provider = '',
-            stt_language = ''
+            stt_language = '',
+            series_id = null
         } = room;
         await this.col.doc(id).set({
             owner_id,
@@ -50,6 +52,7 @@ class RoomRepository {
             use_past_meetings: !!use_past_meetings,
             stt_provider,
             stt_language,
+            series_id: series_id || null,
             created_at: serverTs(),
             ended_at: null,
             title: '',

@@ -373,7 +373,10 @@
             state.meetingInsights.updatedAt = data.minutes_updated_at || data.summary_updated_at || data.todo_updated_at || null;
             state.meetingInsights.loading = data.status === 'processing';
             state.minutesWorkspace.updatedAt = data.minutes_updated_at || state.minutesWorkspace.updatedAt;
+            // 定例シリーズ: series_id を state に保持しておく
+            state.meetingInsights.seriesId = data.series_id || null;
             syncSharedResultsIntoEditors();
+            renderNextAgendaSection();
 
             scheduleInsightsPoll();
             renderMeetingInsights();
@@ -859,6 +862,78 @@
         }
     }
 
+    // ---- 次回アジェンダ生成 (定例シリーズ紐付きルームのみ) ---------------------
+
+    function renderNextAgendaSection() {
+        const anchor = document.getElementById('next-agenda-section-anchor');
+        if (!anchor) return;
+        const seriesId = state.meetingInsights?.seriesId;
+        if (!seriesId || !state.isHost) {
+            anchor.innerHTML = '';
+            return;
+        }
+        if (document.getElementById('next-agenda-section')) return; // already rendered
+
+        const section = document.createElement('div');
+        section.id = 'next-agenda-section';
+        section.className = 'next-agenda-section';
+
+        const title = document.createElement('h4');
+        title.textContent = '次回アジェンダ';
+        section.appendChild(title);
+
+        const generateBtn = document.createElement('button');
+        generateBtn.type = 'button';
+        generateBtn.className = 'secondary';
+        generateBtn.textContent = '次回アジェンダを生成';
+
+        const statusEl = document.createElement('span');
+        statusEl.className = 'next-agenda-status';
+
+        const textarea = document.createElement('textarea');
+        textarea.className = 'next-agenda-output';
+        textarea.rows = 10;
+        textarea.placeholder = 'ここに次回アジェンダ下書きが表示されます。';
+        textarea.readOnly = true;
+
+        const copyBtn = document.createElement('button');
+        copyBtn.type = 'button';
+        copyBtn.className = 'secondary';
+        copyBtn.textContent = 'コピー';
+        copyBtn.style.display = 'none';
+
+        generateBtn.addEventListener('click', async () => {
+            generateBtn.disabled = true;
+            statusEl.textContent = '生成中...';
+            try {
+                const res = await fetch(
+                    window.AppMain.withAuthQuery(`/rooms/${state.roomId}/series/generate-next-agenda`),
+                    { method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json' }, body: '{}' }
+                );
+                const data = await res.json();
+                if (!res.ok) throw new Error(data.error || '生成に失敗しました');
+                textarea.value = data.agenda_text || '';
+                copyBtn.style.display = '';
+                statusEl.textContent = `生成しました (${new Date(data.generated_at).toLocaleString('ja-JP')})`;
+                window.AppToast?.success('次回アジェンダを生成しました');
+            } catch (err) {
+                statusEl.textContent = `失敗: ${err.message}`;
+                window.AppToast?.error('次回アジェンダ生成に失敗しました', { detail: err.message });
+            } finally {
+                generateBtn.disabled = false;
+            }
+        });
+
+        copyBtn.addEventListener('click', () => {
+            navigator.clipboard?.writeText(textarea.value).then(() => {
+                window.AppToast?.success('コピーしました');
+            }).catch(() => {});
+        });
+
+        section.append(generateBtn, statusEl, textarea, copyBtn);
+        anchor.appendChild(section);
+    }
+
     window.AppSharedAi = {
         renderMinutesWorkspace,
         renderMeetingInsights,
@@ -889,6 +964,7 @@
         regenerateChunk,
         buildPastMeetingSelector,
         renderPastMeetingSelector,
-        getPastMeetingApiPayload
+        getPastMeetingApiPayload,
+        renderNextAgendaSection
     };
 })();

@@ -1,5 +1,64 @@
 ﻿# プロジェクト進捗メモ (Meeting Minutes App)
 
+## 65. 定例シリーズ + 次回アジェンダ自動生成 (2026-05-14)
+
+### 概要
+
+月次定例会議の「次回アジェンダ下書き」を自動生成する機能を追加。
+フレーム (章立て基準) + 今回議事録 + TODO を入力に、完了/継続/新規をマーカーで区別したプレーンテキスト下書きを生成。
+
+### データモデル
+
+- 新規テーブル `meeting_series` (id / owner_account_id / name / frame_text / latest_agenda_text / created_at / updated_at)
+- `rooms.series_id` TEXT (null OK, optional FK) を追加
+
+### API
+
+- `GET /me/series` / `POST /me/series` / `GET /me/series/:id` / `PATCH /me/series/:id` / `DELETE /me/series/:id` — requireSession 必須、他人のシリーズは 404 で返す (enumeration 防止)
+- `POST /rooms/:id/series/generate-next-agenda` — requireSession + owner_account_id 検証 + aiLimiter
+- `POST /rooms` body に `series_id` を受け付け、所有者検証後に保存
+- `GET /rooms/:id/insights` / `GET /me/rooms` / `POST /rooms` レスポンスに `series_id` を追加
+
+### AI
+
+- `AIService.generateNextAgenda({ frameText, previousAgendaText, minutesText, todoText, aiConfig, monthsAhead })` を新規追加
+- フレームの章立て・見出しを踏襲、完了/(継続審議)/新規 マーカーで区別、Markdown 不使用のプレーンテキスト出力
+
+### フロントエンド
+
+- `profile.js` に「定例シリーズ」タブ追加 (一覧 / 詳細 / 新規作成 / 削除 / 保存)
+- `index.html` のセットアップ画面に `#series-picker` プルダウン追加 (ログイン時のみ表示)
+- `main.js` に `populateSeriesPicker()` を追加、ログイン完了フックから呼ぶ
+- `meeting-ui.js` の `createRoom()` で `series_id` を POST /rooms body に含める
+- `shared-ai.js` に `renderNextAgendaSection()` を追加、`#next-agenda-section-anchor` へ挿入 (series紐付きルームかつホストのみ)
+
+### テスト
+
+`tests/series.test.js` (8ケース) — 全パス。既存テスト 187件 も変化なし。
+
+### 制約 (Phase 2)
+
+- 会議中アジェンダパネル (meeting-mode 内のリアルタイム参照) は Phase 2
+
+### 修正ファイル
+
+- `src/backend/repo/sqlite/db.js` — meeting_series テーブル + rooms.series_id カラム追加
+- `src/backend/repo/sqlite/series-repo.js` — 新規
+- `src/backend/repo/firestore/series-repo.js` — 新規
+- `src/backend/repo/sqlite/room-repo.js` — series_id 対応
+- `src/backend/repo/firestore/room-repo.js` — series_id 対応
+- `src/backend/repo/{sqlite,firestore}/index.js` — seriesRepo 追加
+- `src/backend/services/ai-service.js` — generateNextAgenda() 追加
+- `src/backend/app.js` — /me/series CRUD + /rooms/:id/series/generate-next-agenda + series_id 各所対応
+- `src/frontend/profile.js` — 定例シリーズタブ追加
+- `src/frontend/index.html` — series-picker + next-agenda-section-anchor
+- `src/frontend/meeting-ui.js` — createRoom() に series_id 追加
+- `src/frontend/shared-ai.js` — renderNextAgendaSection() 追加
+- `src/frontend/main.js` — populateSeriesPicker() 追加
+- `tests/series.test.js` — 新規 8ケース
+
+---
+
 ## 64. Groq max_tokens 修正 + ElevenLabs 安定性向上 (2026-05-14)
 
 実利用テスト (1-2 時間会議、ElevenLabs Scribe + Groq gpt-oss-120b) で判明した 2 件のバグを修正。

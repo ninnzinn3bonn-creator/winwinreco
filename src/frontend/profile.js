@@ -158,6 +158,7 @@
         const tabDefs = [
             { id: 'profile', label: 'プロフィール' },
             { id: 'history', label: '会議履歴' },
+            { id: 'series', label: '定例シリーズ' },
             { id: 'settings', label: '設定' }
         ];
         const tabButtons = {};
@@ -197,6 +198,7 @@
             body.innerHTML = '';
             if (tabId === 'profile') body.appendChild(renderProfileTab());
             else if (tabId === 'history') body.appendChild(renderHistoryTab());
+            else if (tabId === 'series') renderSeriesTab(body);
             else if (tabId === 'settings') body.appendChild(renderSettingsTab());
         }
 
@@ -541,6 +543,155 @@
         state.detailPane.appendChild(el('label', {}, ['議事録', minutesArea]));
         state.detailPane.appendChild(el('label', {}, ['TODO', todoArea]));
         state.detailPane.appendChild(el('div', { className: 'auth-modal-actions' }, [cancelBtn, saveBtn]));
+    }
+
+    // -------- Series tab (定例シリーズ) ---------------------------------------
+
+    const seriesState = {
+        list: null,
+        selected: null
+    };
+
+    async function loadSeriesList() {
+        try {
+            const res = await fetchJson('/me/series');
+            seriesState.list = Array.isArray(res?.series) ? res.series : [];
+        } catch (_) {
+            seriesState.list = [];
+        }
+        return seriesState.list;
+    }
+
+    function renderSeriesTab(body) {
+        body.innerHTML = '';
+        const pane = el('div', { className: 'profile-tab-pane' });
+
+        // ---- left: list ----
+        const listCol = el('div', { className: 'series-list-col' });
+        const addBtn = el('button', { type: 'button', className: 'secondary series-add-btn' }, '+ 新規シリーズ');
+        listCol.appendChild(addBtn);
+        const listWrap = el('div', { className: 'series-list-wrap' });
+        listCol.appendChild(listWrap);
+
+        // ---- right: detail ----
+        const detailCol = el('div', { className: 'series-detail-col' });
+        detailCol.textContent = 'シリーズを選択してください。';
+
+        pane.append(listCol, detailCol);
+        body.appendChild(pane);
+
+        function renderList() {
+            listWrap.innerHTML = '';
+            const list = seriesState.list || [];
+            if (!list.length) {
+                listWrap.innerHTML = '<p class="series-empty">シリーズはまだありません。</p>';
+                return;
+            }
+            list.forEach((s) => {
+                const row = el('div', { className: 'series-list-item' + (seriesState.selected?.id === s.id ? ' active' : ''), onClick: () => {
+                    seriesState.selected = s;
+                    renderList();
+                    renderDetail();
+                } });
+                const updStr = s.updated_at ? new Date(s.updated_at).toLocaleDateString('ja-JP') : '';
+                row.append(
+                    el('span', { className: 'series-item-name' }, s.name),
+                    el('span', { className: 'series-item-meta' }, `更新: ${updStr} / ${s.room_count || 0}件の会議`)
+                );
+                const delBtn = el('button', { type: 'button', className: 'danger-btn series-del-btn', onClick: async (e) => {
+                    e.stopPropagation();
+                    if (!confirm(`シリーズ「${s.name}」を削除しますか?`)) return;
+                    try {
+                        await fetchJson(`/me/series/${s.id}`, { method: 'DELETE' });
+                        window.AppToast?.success('シリーズを削除しました');
+                        if (seriesState.selected?.id === s.id) { seriesState.selected = null; detailCol.textContent = ''; }
+                        await loadSeriesList();
+                        renderList();
+                    } catch (err) {
+                        window.AppToast?.error(err.message);
+                    }
+                } }, '削除');
+                row.appendChild(delBtn);
+                listWrap.appendChild(row);
+            });
+        }
+
+        function renderDetail() {
+            detailCol.innerHTML = '';
+            const s = seriesState.selected;
+            if (!s) { detailCol.textContent = 'シリーズを選択してください。'; return; }
+
+            const nameInput = el('input', { type: 'text', value: s.name, maxlength: 80, placeholder: 'シリーズ名' });
+            const frameArea = el('textarea', { placeholder: '基準フレーム (次回アジェンダ生成の参考にする章立て)' });
+            frameArea.value = s.frame_text || '';
+            frameArea.rows = 8;
+            const agendaArea = el('textarea', { placeholder: '次回アジェンダ下書き (生成後ここに表示)' });
+            agendaArea.value = s.latest_agenda_text || '';
+            agendaArea.rows = 8;
+            const status = el('span', { className: 'profile-settings-status' });
+
+            const copyAgendaBtn = el('button', { type: 'button', className: 'secondary', onClick: () => {
+                navigator.clipboard?.writeText(agendaArea.value).then(() => {
+                    window.AppToast?.success('コピーしました');
+                }).catch(() => {});
+            } }, 'コピー');
+
+            const saveBtn = el('button', { type: 'button', className: 'primary', onClick: async () => {
+                try {
+                    const fields = {};
+                    const n = nameInput.value.trim();
+                    if (n) fields.name = n;
+                    fields.frame_text = frameArea.value;
+                    fields.latest_agenda_text = agendaArea.value;
+                    await fetchJson(`/me/series/${s.id}`, {
+                        method: 'PATCH',
+                        body: JSON.stringify(fields)
+                    });
+                    window.AppToast?.success('保存しました');
+                    status.textContent = '保存済み';
+                    setTimeout(() => { status.textContent = ''; }, 1500);
+                    seriesState.selected = { ...s, ...fields };
+                    await loadSeriesList();
+                    renderList();
+                } catch (err) {
+                    window.AppToast?.error(err.message);
+                }
+            } }, '保存');
+
+            detailCol.append(
+                el('div', { className: 'series-detail-row' }, [el('label', {}, ['シリーズ名', nameInput])]),
+                el('div', { className: 'series-detail-row' }, [el('label', {}, ['基準フレーム', frameArea])]),
+                el('div', { className: 'series-detail-row' }, [
+                    el('label', {}, ['次回アジェンダ下書き']),
+                    agendaArea,
+                    copyAgendaBtn
+                ]),
+                el('div', { className: 'series-detail-actions' }, [saveBtn, status])
+            );
+        }
+
+        addBtn.addEventListener('click', async () => {
+            const name = prompt('新しいシリーズ名を入力してください (最大80文字):');
+            if (!name || !name.trim()) return;
+            const frame = prompt('基準フレームを入力してください (後で変更できます):', '') || '';
+            try {
+                const res = await fetchJson('/me/series', {
+                    method: 'POST',
+                    body: JSON.stringify({ name: name.trim(), frame_text: frame })
+                });
+                window.AppToast?.success('シリーズを作成しました');
+                await loadSeriesList();
+                seriesState.selected = seriesState.list?.find((s) => s.id === res.id) || null;
+                renderList();
+                renderDetail();
+            } catch (err) {
+                window.AppToast?.error(err.message);
+            }
+        });
+
+        // 初期描画: ロード中
+        listWrap.innerHTML = '<span class="series-loading">読み込み中...</span>';
+        loadSeriesList().then(() => { renderList(); renderDetail(); });
     }
 
     // -------- Settings tab --------------------------------------------------

@@ -149,7 +149,8 @@ function createApp(repositories = {}) {
     const {
         roomRepo, participantRepo, utteranceRepo, analysisRepo, actionRepo,
         userRepo, userContextRepo, dictionaryRepo, aiService,
-        accountRepo, sessionRepo, chunkRepo, passwordResetRepo, emailVerificationRepo
+        accountRepo, sessionRepo, chunkRepo, passwordResetRepo, emailVerificationRepo,
+        seriesRepo
     } = repositories;
 
     const auth = createAuth({ participantRepo, roomRepo, accountRepo, sessionRepo });
@@ -225,7 +226,8 @@ function createApp(repositories = {}) {
             status: room?.insights_status || 'idle',
             dirty: !!room?.insights_dirty,
             actions: actions || [],
-            speaker_summaries: speakerSummaries
+            speaker_summaries: speakerSummaries,
+            series_id: room?.series_id || null
         };
     }
 
@@ -1473,7 +1475,8 @@ function createApp(repositories = {}) {
                 summary_excerpt: (room.summary_text || '').slice(0, 280),
                 has_minutes: !!(room.minutes_text && room.minutes_text.length),
                 has_todo: !!(room.todo_text && room.todo_text.length),
-                has_ai_workspace: !!(room.ai_workspace_json && room.ai_workspace_json.length)
+                has_ai_workspace: !!(room.ai_workspace_json && room.ai_workspace_json.length),
+                series_id: room.series_id || null
             }));
             res.status(200).json({ rooms: history });
         } catch (error) {
@@ -1616,6 +1619,118 @@ function createApp(repositories = {}) {
         }
     });
 
+    // -------------------------------------------------------------------------
+    // 定例会議シリーズ (meeting_series) CRUD — requireSession 必須
+    // -------------------------------------------------------------------------
+
+    function seriesNotFound(res) {
+        return res.status(404).json({ error: 'Series not found' });
+    }
+
+    app.get('/me/series', requireSession, async (req, res) => {
+        try {
+            if (!seriesRepo) return res.status(503).json({ error: 'Series unavailable' });
+            const list = await seriesRepo.findByOwner(req.account.id);
+            // room_count: findRoomsForAccount から series_id が一致するものを数える
+            const rooms = roomRepo ? await roomRepo.findRoomsForAccount(req.account.id, { limit: 200 }) : [];
+            const countMap = {};
+            rooms.forEach((r) => {
+                if (r.series_id) countMap[r.series_id] = (countMap[r.series_id] || 0) + 1;
+            });
+            const series = list.map((s) => ({
+                id: s.id,
+                name: s.name,
+                frame_text: s.frame_text,
+                latest_agenda_text: s.latest_agenda_text,
+                created_at: s.created_at,
+                updated_at: s.updated_at,
+                room_count: countMap[s.id] || 0
+            }));
+            res.status(200).json({ series });
+        } catch (error) {
+            logger.error(error, { route: 'GET /me/series', requestId: req.requestId, accountId: req.account?.id });
+            res.status(500).json({ error: 'Failed to load series' });
+        }
+    });
+
+    app.post('/me/series', requireSession, async (req, res) => {
+        try {
+            if (!seriesRepo) return res.status(503).json({ error: 'Series unavailable' });
+            const name = String(req.body?.name || '').trim();
+            const frameText = String(req.body?.frame_text || '');
+            if (!name || name.length > 80) {
+                return res.status(400).json({ error: 'name must be 1-80 characters' });
+            }
+            if (frameText.length > 10000) {
+                return res.status(400).json({ error: 'frame_text must be <= 10000 characters' });
+            }
+            const { id } = await seriesRepo.create({
+                ownerAccountId: req.account.id,
+                name,
+                frameText
+            });
+            res.status(201).json({ id });
+        } catch (error) {
+            logger.error(error, { route: 'POST /me/series', requestId: req.requestId, accountId: req.account?.id });
+            res.status(500).json({ error: 'Failed to create series' });
+        }
+    });
+
+    app.get('/me/series/:id', requireSession, async (req, res) => {
+        try {
+            if (!seriesRepo) return res.status(503).json({ error: 'Series unavailable' });
+            const series = await seriesRepo.findById(req.params.id);
+            if (!series || series.owner_account_id !== req.account.id) return seriesNotFound(res);
+            res.status(200).json(series);
+        } catch (error) {
+            logger.error(error, { route: 'GET /me/series/:id', requestId: req.requestId, accountId: req.account?.id });
+            res.status(500).json({ error: 'Failed to load series' });
+        }
+    });
+
+    app.patch('/me/series/:id', requireSession, async (req, res) => {
+        try {
+            if (!seriesRepo) return res.status(503).json({ error: 'Series unavailable' });
+            const series = await seriesRepo.findById(req.params.id);
+            if (!series || series.owner_account_id !== req.account.id) return seriesNotFound(res);
+            const body = req.body || {};
+            const fields = {};
+            if (typeof body.name === 'string') {
+                const n = body.name.trim();
+                if (!n || n.length > 80) return res.status(400).json({ error: 'name must be 1-80 characters' });
+                fields.name = n;
+            }
+            if (typeof body.frame_text === 'string') {
+                if (body.frame_text.length > 10000) return res.status(400).json({ error: 'frame_text too long' });
+                fields.frame_text = body.frame_text;
+            }
+            if (typeof body.latest_agenda_text === 'string') {
+                if (body.latest_agenda_text.length > 10000) return res.status(400).json({ error: 'latest_agenda_text too long' });
+                fields.latest_agenda_text = body.latest_agenda_text;
+            }
+            if (!Object.keys(fields).length) return res.status(400).json({ error: 'No updatable fields provided' });
+            await seriesRepo.update(req.params.id, fields);
+            const updated = await seriesRepo.findById(req.params.id);
+            res.status(200).json(updated);
+        } catch (error) {
+            logger.error(error, { route: 'PATCH /me/series/:id', requestId: req.requestId, accountId: req.account?.id });
+            res.status(500).json({ error: 'Failed to update series' });
+        }
+    });
+
+    app.delete('/me/series/:id', requireSession, async (req, res) => {
+        try {
+            if (!seriesRepo) return res.status(503).json({ error: 'Series unavailable' });
+            const series = await seriesRepo.findById(req.params.id);
+            if (!series || series.owner_account_id !== req.account.id) return seriesNotFound(res);
+            await seriesRepo.delete(req.params.id);
+            res.status(200).json({ deleted: true });
+        } catch (error) {
+            logger.error(error, { route: 'DELETE /me/series/:id', requestId: req.requestId, accountId: req.account?.id });
+            res.status(500).json({ error: 'Failed to delete series' });
+        }
+    });
+
     // Room creation is host-only and requires a logged-in account. owner_id is
     // derived from req.account.id (ignoring any body field) so a host can't
     // impersonate another user's identity at room-creation time.
@@ -1631,13 +1746,26 @@ function createApp(repositories = {}) {
             // F4: ホストの現在の STT 設定をルームに保存し全参加者へ伝播する。
             const roomSttProvider = process.env.STT_PROVIDER || 'google';
             const roomSttLanguage = process.env.STT_LANGUAGE || 'ja';
+
+            // 定例シリーズ紐付け: series_id が提供された場合は存在確認 + 所有者確認
+            let validatedSeriesId = null;
+            const rawSeriesId = req.body?.series_id;
+            if (rawSeriesId && seriesRepo) {
+                const series = await seriesRepo.findById(String(rawSeriesId));
+                if (!series || series.owner_account_id !== req.account.id) {
+                    return res.status(400).json({ error: 'invalid_series_id' });
+                }
+                validatedSeriesId = series.id;
+            }
+
             await roomRepo.create({
                 id: roomId,
                 owner_id: ownerId,
                 owner_account_id: req.account.id,
                 use_past_meetings: true,
                 stt_provider: roomSttProvider,
-                stt_language: roomSttLanguage
+                stt_language: roomSttLanguage,
+                series_id: validatedSeriesId
             });
 
             // Keep the legacy `users` row in sync so existing enrichment code
@@ -1647,7 +1775,7 @@ function createApp(repositories = {}) {
                 await userRepo.upsert({ id: ownerId, name: displayName, profile_text: '' });
             }
 
-            res.status(201).json({ id: roomId });
+            res.status(201).json({ id: roomId, series_id: validatedSeriesId });
         } catch (error) {
             logger.error(error, { route: 'POST /rooms', requestId: req.requestId });
             res.status(500).json({ error: 'Failed to create room' });
@@ -2170,6 +2298,50 @@ function createApp(repositories = {}) {
         } catch (error) {
             logger.error(error, { route: 'POST /rooms/:id/custom-ai', requestId: req.requestId, roomId: req.roomId });
             res.status(500).json({ error: 'Failed to generate custom AI result' });
+        }
+    });
+
+    // POST /rooms/:id/series/generate-next-agenda
+    // ホスト専用 (requireSession) + series 紐付き必須。
+    // フレーム + 議事録 + TODO から次回アジェンダ下書きを生成。
+    app.post('/rooms/:id/series/generate-next-agenda', aiLimiter, requireSession, async (req, res) => {
+        try {
+            const roomId = req.params.id;
+            if (!seriesRepo || !aiService || !aiService.enabled) {
+                return res.status(503).json({ error: 'AI generation is unavailable' });
+            }
+            const room = await roomRepo.findById(roomId);
+            if (!room) return res.status(404).json({ error: 'Room not found' });
+            if (!room.owner_account_id || room.owner_account_id !== req.account.id) {
+                return res.status(403).json({ error: 'Not authorized' });
+            }
+            if (!room.series_id) {
+                return res.status(400).json({ error: 'room_not_linked_to_series' });
+            }
+            const series = await seriesRepo.findById(room.series_id);
+            if (!series) {
+                return res.status(400).json({ error: 'room_not_linked_to_series' });
+            }
+            const aiConfig = {
+                provider: room.ai_provider || 'gemini',
+                model: room.ai_model || 'gemini-2.5-flash'
+            };
+            const generated = await aiService.generateNextAgenda({
+                frameText: series.frame_text || '',
+                previousAgendaText: series.latest_agenda_text || '',
+                minutesText: room.minutes_text || '',
+                todoText: room.todo_text || '',
+                aiConfig,
+                monthsAhead: 1
+            });
+            await seriesRepo.update(room.series_id, { latest_agenda_text: generated.result });
+            res.status(200).json({
+                agenda_text: generated.result,
+                generated_at: new Date().toISOString()
+            });
+        } catch (error) {
+            logger.error(error, { route: 'POST /rooms/:id/series/generate-next-agenda', requestId: req.requestId, roomId: req.roomId });
+            res.status(500).json({ error: 'Failed to generate next agenda' });
         }
     });
 
