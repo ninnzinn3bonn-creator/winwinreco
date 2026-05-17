@@ -75,14 +75,12 @@
                 <p class="welcome-subtitle">議事録 / AI 要約 / ToDo</p>
                 <p class="welcome-tagline">話すだけで、議事録・要約・ToDo が自動で残る。</p>
 
-                <!-- Three primary entry points. Email/password fields are
-                     collapsed by default; tapping「メールでログイン」expands them
-                     in place so a returning user signs in without leaving
-                     this screen. -->
+                <!-- Primary entry points: creating a room requires an account,
+                     joining by room ID can stay anonymous. -->
                 <div id="welcome-actions" class="welcome-actions">
-                    <button type="button" id="welcome-btn-guest" class="primary welcome-action-btn">ゲストで使う (スキップ)</button>
-                    <button type="button" id="welcome-btn-login" class="secondary welcome-action-btn">📧 メールでログイン</button>
-                    <button type="button" id="welcome-btn-signup" class="ghost-btn welcome-action-btn">✨ 新規登録</button>
+                    <button type="button" id="welcome-btn-guest" class="primary welcome-action-btn">新しい会議を作成する</button>
+                    <button type="button" id="welcome-btn-login" class="secondary welcome-action-btn">ルームIDで参加する</button>
+                    <button type="button" id="welcome-btn-signup" class="ghost-btn welcome-action-btn">アカウントを作成</button>
                 </div>
 
                 <form id="welcome-auth-form" class="welcome-auth-form" hidden autocomplete="on">
@@ -112,7 +110,17 @@
                     </div>
                 </form>
 
-                <p class="welcome-hint">議事録は端末・アカウントに保存できます。</p>
+                <div id="welcome-pending" class="welcome-auth-form" hidden>
+                    <h2 class="welcome-form-title">確認メールを送信しました</h2>
+                    <p id="welcome-pending-message" class="welcome-pending-message">メール内のリンクを開くと登録が進みます。</p>
+                    <p class="welcome-pending-sub">確認後にログインすると、新しい会議を作成できます。参加だけならルームIDからゲストで入れます。</p>
+                    <div class="welcome-form-actions">
+                        <button type="button" id="welcome-pending-join" class="secondary">ルームIDで参加する</button>
+                        <button type="button" id="welcome-pending-login" class="primary">ログインに戻る</button>
+                    </div>
+                </div>
+
+                <p class="welcome-hint">会議作成にはアカウントが必要です。参加だけならルームIDで入れます。</p>
             </div>
         </section>
 

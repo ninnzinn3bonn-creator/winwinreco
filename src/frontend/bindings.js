@@ -59,28 +59,40 @@
         const roomIdInput = document.getElementById('room-id');
         const startHint = document.getElementById('start-meeting-hint');
         const isParticipantMode = () => document.body.classList.contains('participant-mode');
+        const isShareRoomMode = () => document.body.classList.contains('participant-share-mode');
         const refreshStartCta = () => {
             if (!startBtn) return;
             const hasRoomId = !!(roomIdInput && roomIdInput.value.trim());
             const participantMode = isParticipantMode();
-            if (participantMode || hasRoomId) {
-                // F5: 参加モードではボタンラベルを「会議に参加する」に統一。
-                startBtn.textContent = '会議に参加する';
-                if (startHint) {
-                    startHint.textContent = participantMode
-                        ? '共有URLから会議に参加します。表示名を入力して開始してください。'
-                        : `ルーム ${roomIdInput.value.trim().toUpperCase()} に参加します。`;
-                }
-            } else {
-                startBtn.textContent = '新しい会議を始める';
-                if (startHint) {
-                    startHint.textContent = '空欄のままなら新しい会議を作成し、IDを入れると既存会議に参加します。';
-                }
-            }
-            // F5: participant-mode ではルーム ID 入力欄を readonly にして誤編集を防ぐ。
+            const account = window.AppAuth?.state?.account;
+            startBtn.disabled = false;
             if (roomIdInput) {
-                roomIdInput.readOnly = isParticipantMode();
+                roomIdInput.readOnly = isShareRoomMode();
             }
+            if (participantMode) {
+                startBtn.textContent = hasRoomId ? 'この会議に参加する' : 'ルームIDを入力して参加';
+                startBtn.disabled = !hasRoomId;
+                if (startHint) {
+                    startHint.textContent = hasRoomId
+                        ? `ルーム ${roomIdInput.value.trim().toUpperCase()} にゲストとして参加します。ログインすると履歴にも保存できます。`
+                        : '共有された6桁のルームIDを入力してください。ログインなしでも参加できます。';
+                }
+                return;
+            }
+            if (hasRoomId) {
+                startBtn.textContent = 'この会議に参加する';
+                if (startHint) {
+                    startHint.textContent = `ルーム ${roomIdInput.value.trim().toUpperCase()} に参加します。`;
+                }
+                return;
+            }
+            startBtn.textContent = account ? '会議ルームを作成して開始' : 'ログインして会議を作成';
+            if (startHint) {
+                startHint.textContent = account
+                    ? 'ホストとして新しい会議を作成します。'
+                    : '会議作成にはログインが必要です。参加だけならルームIDで入れます。';
+            }
+            return;
         };
 
         if (startBtn) {
@@ -100,6 +112,10 @@
         }
         if (roomIdInput) {
             roomIdInput.addEventListener('input', refreshStartCta);
+        }
+        window.addEventListener('app:setup-mode-changed', refreshStartCta);
+        if (window.AppAuth?.onChange) {
+            window.AppAuth.onChange(refreshStartCta);
         }
         refreshStartCta();
 

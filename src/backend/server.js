@@ -45,7 +45,7 @@ async function start() {
         apiKey: process.env.GEMINI_API_KEY,
         groqApiKey: process.env.GROQ_API_KEY
     });
-    logger.info('[startup] AI configured', { provider: aiService.provider || (process.env.AI_PROVIDER || 'auto') });
+    logger.info('[startup] AI configured', { provider: aiService.provider?.name || (process.env.AI_PROVIDER || 'auto') });
 
     repos.aiService = aiService;
 

@@ -2274,6 +2274,12 @@ section > header,
     z-index: 10000;
 }
 
+@media (max-width: 560px) {
+    .debug-float-btn {
+        display: none;
+    }
+}
+
 .hidden {
     display: none !important;
 }
@@ -2769,6 +2775,7 @@ body.summary-mode.summary-sidebar-collapsed .review-main,
         padding: var(--space-2) var(--space-3);
         gap: var(--space-2);
         flex-wrap: nowrap;
+        top: 56px;
     }
     body.meeting-mode #meeting-title-input,
     body.meeting-mode #meeting-title-readonly {
@@ -2811,6 +2818,55 @@ body.summary-mode.summary-sidebar-collapsed .review-main,
     body.meeting-mode #timeline {
         min-height: 40vh;
         min-height: 40dvh;
+    }
+
+    body.meeting-mode .jump-latest-fab.is-at-bottom:not(.has-unread) {
+        opacity: 0;
+        visibility: hidden;
+        pointer-events: none;
+    }
+}
+
+@media (max-width: 560px) {
+    body.meeting-mode #meeting-screen > header {
+        align-items: stretch;
+        flex-wrap: wrap;
+    }
+
+    body.meeting-mode #meeting-screen > header .status {
+        flex: 1 1 100%;
+        justify-content: space-between;
+        min-height: 32px;
+    }
+
+    body.meeting-mode #meeting-screen > header #room-info {
+        max-width: 150px;
+    }
+
+    body.meeting-mode .header-actions {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) 40px 54px;
+        width: 100%;
+    }
+
+    body.meeting-mode .header-actions > button {
+        justify-content: center;
+        width: 100%;
+    }
+
+    body.meeting-mode #btn-mic-state {
+        min-width: 0;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+
+    body.meeting-mode #btn-mobile-menu {
+        padding-inline: 0;
+    }
+
+    body.summary-mode .insight-actions {
+        grid-template-columns: 1fr;
     }
 }
 
@@ -3628,6 +3684,7 @@ body.summary-mode.summary-sidebar-collapsed .review-main,
     font-weight: 600;
     color: var(--color-text, #16201a);
 }
+.welcome-field[hidden] { display: none; }
 .welcome-field input {
     padding: 10px 14px;
     border: 1px solid var(--color-border, #e5e7e3);
@@ -3653,6 +3710,17 @@ body.summary-mode.summary-sidebar-collapsed .review-main,
     display: none;
 }
 .welcome-error:not(:empty) { display: block; }
+.welcome-pending-message,
+.welcome-pending-sub {
+    margin: 0;
+    text-align: center;
+    color: var(--color-text, #16201a);
+    line-height: 1.6;
+}
+.welcome-pending-sub {
+    color: var(--color-text-muted, #6b7a72);
+    font-size: var(--font-size-sm, 14px);
+}
 .welcome-form-actions {
     display: flex;
     align-items: center;

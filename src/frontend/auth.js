@@ -27,17 +27,18 @@
     }
 
     async function request(url, opts = {}) {
-        const headers = { ...(opts.headers || {}) };
-        if (opts.body && !headers['Content-Type']) headers['Content-Type'] = 'application/json';
+        const { silentStatuses = [], ...fetchOptions } = opts;
+        const headers = { ...(fetchOptions.headers || {}) };
+        if (fetchOptions.body && !headers['Content-Type']) headers['Content-Type'] = 'application/json';
         
-        console.debug(`[auth:request] ${opts.method || 'GET'} ${url}`);
+        console.debug(`[auth:request] ${fetchOptions.method || 'GET'} ${url}`);
         const res = await fetch(url, {
-            ...opts,
+            ...fetchOptions,
             headers,
             credentials: 'same-origin'
         });
         
-        if (!res.ok) {
+        if (!res.ok && !silentStatuses.includes(res.status)) {
             console.error(`[auth:request] failed: ${res.status} ${url}`);
         }
 
@@ -71,7 +72,7 @@
 
     async function refreshSession() {
         try {
-            const data = await request('/auth/me');
+            const data = await request('/auth/me', { silentStatuses: [401] });
             state.account = data.account || null;
         } catch (_err) {
             state.account = null;

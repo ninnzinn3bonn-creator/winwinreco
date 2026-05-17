@@ -2097,6 +2097,9 @@ async function createRoom() {
     // auto-filled so the host doesn't have to re-type their own name.
     let account = window.AppAuth ? window.AppAuth.state.account : null;
     if (!account && window.AppAuth) {
+        if (window.AppToast) {
+            window.AppToast.info('会議作成にはログインが必要です', { detail: '参加だけならルームIDでゲスト参加できます。' });
+        }
         account = await window.AppAuth.requireLogin();
     }
     if (!account) return;
@@ -3015,6 +3018,35 @@ function setFlowProgressStep(step) {
     if (flow) flow.setAttribute('data-step', step);
 }
 
+function notifySetupModeChanged() {
+    window.dispatchEvent(new Event('app:setup-mode-changed'));
+}
+
+function setSetupMode(mode = 'host', options = {}) {
+    const isJoinMode = mode === 'join';
+    const roomId = String(options.roomId || '').trim().toUpperCase();
+    document.body.classList.toggle('participant-mode', isJoinMode);
+    document.body.classList.toggle('participant-share-mode', isJoinMode && !!options.fromShare && !!roomId);
+
+    const roomIdInput = document.getElementById('room-id');
+    if (roomIdInput && roomId) roomIdInput.value = roomId;
+    if (roomIdInput && !isJoinMode) roomIdInput.readOnly = false;
+
+    const titleEl = document.getElementById('setup-screen-title');
+    if (titleEl) titleEl.textContent = isJoinMode ? '会議に参加する' : '会議を作成する';
+
+    const banner = document.getElementById('participant-mode-banner');
+    const roomLabel = document.getElementById('participant-mode-room-label');
+    if (banner) banner.classList.toggle('visible', isJoinMode);
+    if (roomLabel) {
+        roomLabel.textContent = roomId
+            ? `招待ルーム ${roomId} に参加します。任意ログインで履歴にも保存できます。`
+            : '共有されたルームIDを入力して参加します。ログインなしでも入れます。';
+    }
+
+    notifySetupModeChanged();
+}
+
 function activateOnlySection(idToActivate) {
     const ids = ['welcome-screen', 'setup-screen', 'meeting-screen', 'summary-screen'];
     ids.forEach((id) => {
@@ -3036,6 +3068,7 @@ function activateOnlySection(idToActivate) {
 function showWelcomeScreen() {
     document.body.classList.remove('meeting-mode', 'summary-mode');
     document.body.classList.add('setup-mode');
+    setSetupMode('host');
     activateOnlySection('welcome-screen');
     // Always reset to the 3-button view when re-entering welcome.
     setWelcomeFormVisible(false);
@@ -3083,16 +3116,22 @@ async function autoStartMicCheckOnSetup() {
 }
 
 let welcomeFormMode = 'login';
+let welcomeAuthIntent = 'create';
 function setWelcomeFormVisible(visible, mode = welcomeFormMode) {
     const actions = document.getElementById('welcome-actions');
     const form = document.getElementById('welcome-auth-form');
+    const pending = document.getElementById('welcome-pending');
     const title = document.getElementById('welcome-form-title');
     const submit = document.getElementById('welcome-form-submit');
     const nameField = document.getElementById('welcome-name-field');
     const pwInput = document.getElementById('welcome-password');
     const errBox = document.getElementById('welcome-error');
     welcomeFormMode = mode === 'signup' ? 'signup' : 'login';
-    if (title) title.textContent = welcomeFormMode === 'signup' ? '新規登録' : 'ログイン';
+    if (title) {
+        title.textContent = welcomeFormMode === 'signup'
+            ? '新規登録'
+            : (welcomeAuthIntent === 'create' ? 'ログインして会議を作成' : 'ログイン');
+    }
     if (submit) submit.textContent = welcomeFormMode === 'signup' ? '登録する' : 'ログイン';
     if (nameField) {
         if (welcomeFormMode === 'signup') nameField.removeAttribute('hidden');
@@ -3109,6 +3148,7 @@ function setWelcomeFormVisible(visible, mode = welcomeFormMode) {
     if (errBox) errBox.textContent = '';
     if (visible) {
         if (actions) actions.setAttribute('hidden', '');
+        if (pending) pending.setAttribute('hidden', '');
         if (form) {
             form.removeAttribute('hidden');
             const emailInput = document.getElementById('welcome-email');
@@ -3124,31 +3164,80 @@ function setWelcomeFormVisible(visible, mode = welcomeFormMode) {
     } else {
         if (actions) actions.removeAttribute('hidden');
         if (form) form.setAttribute('hidden', '');
+        if (pending) pending.setAttribute('hidden', '');
+        welcomeAuthIntent = 'create';
+    }
+}
+
+function showWelcomePending(message) {
+    const actions = document.getElementById('welcome-actions');
+    const form = document.getElementById('welcome-auth-form');
+    const pending = document.getElementById('welcome-pending');
+    const messageEl = document.getElementById('welcome-pending-message');
+    if (actions) actions.setAttribute('hidden', '');
+    if (form) form.setAttribute('hidden', '');
+    if (messageEl) {
+        messageEl.textContent = message || '確認メールを送信しました。メール内のリンクを開くと登録が進みます。';
+    }
+    if (pending) {
+        pending.removeAttribute('hidden');
+        const joinBtn = document.getElementById('welcome-pending-join');
+        try { (joinBtn || pending).focus(); } catch (_) { /* ignore */ }
     }
 }
 
 function setupOnboardingScreens() {
-    const loginBtn = document.getElementById('welcome-btn-login');
+    const createBtn = document.getElementById('welcome-btn-guest');
+    const joinBtn = document.getElementById('welcome-btn-login');
     const signupBtn = document.getElementById('welcome-btn-signup');
-    const guestBtn = document.getElementById('welcome-btn-guest');
     const form = document.getElementById('welcome-auth-form');
     const submitBtn = document.getElementById('welcome-form-submit');
     const backBtn = document.getElementById('welcome-form-back');
     const errBox = document.getElementById('welcome-error');
+    const pendingJoinBtn = document.getElementById('welcome-pending-join');
+    const pendingLoginBtn = document.getElementById('welcome-pending-login');
 
-    if (loginBtn) {
-        loginBtn.addEventListener('click', () => setWelcomeFormVisible(true, 'login'));
+    if (createBtn) {
+        createBtn.addEventListener('click', () => {
+            if (window.AppAuth?.state?.account) {
+                setSetupMode('host');
+                showSetupScreenActive();
+                return;
+            }
+            welcomeAuthIntent = 'create';
+            setWelcomeFormVisible(true, 'login');
+        });
+    }
+    if (joinBtn) {
+        joinBtn.addEventListener('click', () => {
+            setSetupMode('join');
+            showSetupScreenActive();
+            const roomIdInput = document.getElementById('room-id');
+            try { roomIdInput?.focus(); } catch (_) { /* ignore */ }
+        });
     }
     if (signupBtn) {
-        signupBtn.addEventListener('click', () => setWelcomeFormVisible(true, 'signup'));
-    }
-    if (guestBtn) {
-        // Skip auth — proceed as anonymous user. Their stable local_user_id
-        // will be backfilled later if they sign up post-meeting.
-        guestBtn.addEventListener('click', () => showSetupScreenActive());
+        signupBtn.addEventListener('click', () => {
+            welcomeAuthIntent = 'create';
+            setWelcomeFormVisible(true, 'signup');
+        });
     }
     if (backBtn) {
         backBtn.addEventListener('click', () => setWelcomeFormVisible(false));
+    }
+    if (pendingJoinBtn) {
+        pendingJoinBtn.addEventListener('click', () => {
+            setSetupMode('join');
+            showSetupScreenActive();
+            const roomIdInput = document.getElementById('room-id');
+            try { roomIdInput?.focus(); } catch (_) { /* ignore */ }
+        });
+    }
+    if (pendingLoginBtn) {
+        pendingLoginBtn.addEventListener('click', () => {
+            welcomeAuthIntent = 'create';
+            setWelcomeFormVisible(true, 'login');
+        });
     }
     if (form) {
         form.addEventListener('submit', async (ev) => {
@@ -3170,12 +3259,18 @@ function setupOnboardingScreens() {
                         if (submitBtn) submitBtn.disabled = false;
                         return;
                     }
-                    await window.AppAuth.signup(email, password, displayName);
+                    const result = await window.AppAuth.signup(email, password, displayName);
+                    if (result && result.pending) {
+                        if (email) localStorage.setItem('welcome_last_email', email);
+                        showWelcomePending(result.message);
+                        return;
+                    }
                 } else {
                     await window.AppAuth.login(email, password);
                 }
                 // P5-7: 成功したメールアドレスを次回のために保存。
                 if (email) localStorage.setItem('welcome_last_email', email);
+                setSetupMode('host');
                 showSetupScreenActive();
             } catch (err) {
                 if (errBox) errBox.textContent = (err && err.message) || '処理に失敗しました';
@@ -3192,11 +3287,13 @@ function resolveInitialScreen() {
     const hasRoomParam = !!(params.get('room') || params.get('roomId'));
     // Share URL: skip onboarding, go straight to participant setup.
     if (hasRoomParam) {
+        applyParticipantModeFromUrl();
         showSetupScreenActive();
         return;
     }
     // Already logged in: skip welcome.
     if (window.AppAuth && window.AppAuth.state && window.AppAuth.state.account) {
+        setSetupMode('host');
         showSetupScreenActive();
         return;
     }
@@ -3214,9 +3311,7 @@ function applyParticipantModeFromUrl() {
     const roomParam = (params.get('room') || params.get('roomId') || '').toUpperCase();
     if (!roomParam) return;
 
-    document.body.classList.add('participant-mode');
-    const roomIdInput = document.getElementById('room-id');
-    if (roomIdInput) roomIdInput.value = roomParam;
+    setSetupMode('join', { roomId: roomParam, fromShare: true });
 
     // P5-2: display-name を自動補完。
     // 表示名はアカウント名と独立した会議用の名前のため、localStorage のみ参照する。
@@ -3226,13 +3321,7 @@ function applyParticipantModeFromUrl() {
         if (storedName) displayNameInput.value = storedName;
     }
 
-    const titleEl = document.getElementById('setup-screen-title');
-    if (titleEl) titleEl.textContent = 'ミーティングに参加';
-
-    const banner = document.getElementById('participant-mode-banner');
-    const roomLabel = document.getElementById('participant-mode-room-label');
-    if (banner) banner.classList.add('visible');
-    if (roomLabel) roomLabel.textContent = `招待ルーム ${roomParam} に参加します。任意ログインで履歴にも保存できます。`;
+    notifySetupModeChanged();
 }
 
 async function initAuthAndRender() {
@@ -3260,7 +3349,6 @@ async function bootstrap() {
             localStorage.setItem('profile_text', profile.profile_text);
         }
     });
-    applyParticipantModeFromUrl();
     setupOnboardingScreens();
     // B2: blur 時に再 render して focus 中にスキップした分を反映する。
     if (aiOutputEditor) aiOutputEditor.addEventListener('blur', renderAiWorkspace);
@@ -3271,6 +3359,7 @@ async function bootstrap() {
     // still on the welcome screen (i.e. they haven't tapped through yet).
     resolveInitialScreen();
     await initAuthAndRender();
+    notifySetupModeChanged();
     const welcomeEl = document.getElementById('welcome-screen');
     if (welcomeEl && welcomeEl.classList.contains('active')) {
         resolveInitialScreen();
@@ -3281,6 +3370,7 @@ async function bootstrap() {
         // ログイン/アカウント切り替え時に profile_text を #profile-text へ同期。
         // 表示名 (#display-name) はアカウント名と独立しているため触れない。
         window.AppAuth.onChange((account) => {
+            notifySetupModeChanged();
             if (account && window.AppProfile?.hydrateSetupProfile) {
                 window.AppProfile.hydrateSetupProfile().catch(() => { /* ignore */ });
             }
