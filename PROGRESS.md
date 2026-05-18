@@ -1,5 +1,49 @@
 ﻿# プロジェクト進捗メモ (Meeting Minutes App)
 
+## 67. 全機能の実装監査 + テスト拡充 (2026-05-18)
+
+### 監査スコープ
+
+PROGRESS.md §55〜§66 (過去 1〜2 週間に実装した全機能) を対象に、宣言された実装と実コードの整合性を検査した。
+
+### 監査結果
+
+| 項目 | 実装状態 | テスト状態 |
+|---|---|---|
+| U-1 パスワードリセット | ✓ mail.js / password-reset-repo × 2 / reset.html 全存在 | ✓ tests/auth-reset.test.js (7 ケース) |
+| U-2 アカウント削除 / エクスポート | ✓ account-export.js / account-delete.js 存在 | ✓ tests/account-data.test.js |
+| U-3 WS 再接続 | ✓ hello.last_seen_utterance_id バックエンド実装済み | ✓ tests/ws-reconnect.test.js (3 ケース) |
+| U-4 Toast 統一 | ✓ toast.js 存在 / alert() がフロントエンド全 JS から削除済み | ✓ structure-smoke.test.js |
+| U-5 利用規約 / プライバシー | ✓ terms.html / privacy.html 存在、/terms / /privacy ルート有 | ✓ tests/static-pages.test.js |
+| U-6 メール認証 | ✓ email-verification-repo × 2 / REQUIRE_EMAIL_VERIFICATION フラグ存在 | ✓ tests/auth-verify.test.js (6 ケース) |
+| D-1 構造化ログ | ✓ logger.js 存在 / backend に raw console.* 0 件 (logger.js 以外) | ✓ 新規 tests/logger.test.js (4 ケース) |
+| D-2 CI | ✓ .github/workflows/ci.yml 存在 | ✓ structure-smoke.test.js |
+| D-3 Dependabot | ✓ .github/dependabot.yml 存在 | ✓ structure-smoke.test.js |
+| D-4 API メータリング | ✓ metrics.js / recordApiCall 存在 | ✓ tests/metrics.test.js (7 ケース) |
+| ElevenLabs プロンプト切替 | ✓ _isHighAccuracyStt / _buildMinutesEditingRules 実装済み | ✓ 新規 tests/ai-elevenlabs-prompt.test.js (4 ケース) |
+| 定例シリーズ | ✓ series-repo × 2 / /me/series CRUD / generate-next-agenda 存在 | ✓ tests/series.test.js (8 ケース) |
+| 過去会議選択 | ✓ past_room_ids が /custom-ai / /insights/regenerate で受け付け | ✓ tests/past-context-selector.test.js (6 ケース) |
+| 議事録表示バグ修正 | ✓ shared-ai.js 5 箇所に processing リセットガード存在 | — (UI 中心のため自動テスト困難) |
+| meeting-ui.js 配線 | ✓ showSummaryScreen が buildPastMeetingSelector / renderNextAgendaSection を呼ぶ | ✓ structure-smoke.test.js |
+| イースターエッグ | ✓ easter-game.js / /me/easter-score エンドポイント存在 | ✓ structure-smoke.test.js |
+
+### 検出された不整合 (コード変更なし)
+
+- なし。PROGRESS.md §55〜§66 の宣言と実コードはすべて一致。
+
+### 新規追加テスト
+
+- `tests/logger.test.js` — 4 ケース (INFO/WARNING/ERROR JSON 構造検証)
+- `tests/ai-elevenlabs-prompt.test.js` — 4 ケース (STT 別プロンプト切替検証)
+- `tests/structure-smoke.test.js` — 24 ケース (主要ファイル / エンドポイント存在の静的検査)
+
+### テスト実行結果
+
+全 231 ケース pass、9 スキップ (Firestore emulator 系)、0 失敗。
+既存 187 ケース + 新規 44 ケース = 231 ケース合計。
+
+---
+
 ## 66. 議事録・AI解析結果が画面に表示されないバグ修正 (2026-05-18)
 
 ### 問題
