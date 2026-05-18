@@ -97,8 +97,11 @@ class UserAccountRepository {
      * 保留中 (status='pending') のユーザーを古い順に返す。
      */
     async findPending() {
+        // pending_email も含めて返す: REQUIRE_EMAIL_VERIFICATION OFF へ切替後、
+        // 旧アカウントが admin の承認待ちリストから漏れないようにする。
+        // Firestore の `in` クエリは単一フィールドの OR を 1 クエリで処理できる。
         const snap = await this.col
-            .where('status', '==', 'pending')
+            .where('status', 'in', ['pending', 'pending_email'])
             .orderBy('created_at', 'asc')
             .get();
         return snap.docs.map((d) => this._toDomain(d.id, d.data()));
@@ -129,13 +132,12 @@ class UserAccountRepository {
      * 承認待ち件数 (バッジ用)。
      */
     async countPending() {
-        // Firestore は count() aggregation を使うのが軽量
+        // pending_email も含む (REQUIRE_EMAIL_VERIFICATION OFF への切替後の旧アカウント対策)
         try {
-            const agg = await this.col.where('status', '==', 'pending').count().get();
+            const agg = await this.col.where('status', 'in', ['pending', 'pending_email']).count().get();
             return Number(agg.data().count || 0);
         } catch (_) {
-            // 古い firebase-admin で count() がない場合のフォールバック
-            const snap = await this.col.where('status', '==', 'pending').get();
+            const snap = await this.col.where('status', 'in', ['pending', 'pending_email']).get();
             return snap.size;
         }
     }

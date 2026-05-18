@@ -782,8 +782,13 @@ function createApp(repositories = {}) {
             // (/admin/bootstrap-owner) で初回ログインユーザーが自分自身を昇格させる。
             const ownerEmail = (process.env.OWNER_EMAIL || '').toLowerCase();
             const isOwnerEmail = ownerEmail && parsed.email === ownerEmail;
-            // オーナーメールは直接 approved。通常ユーザーはメール認証後に pending へ進む。
-            const initialStatus = isOwnerEmail ? 'approved' : 'pending_email';
+            // メール認証を有効化するには REQUIRE_EMAIL_VERIFICATION=true を立てる。
+            // 既定 (false): メール基盤を介さず、サインアップ後すぐ admin 承認待ち (pending) にする。
+            // SendGrid 等の本番メール設定が無い環境ではこちらが安全 (pending_email で詰まらない)。
+            const requireEmailVerification = String(process.env.REQUIRE_EMAIL_VERIFICATION || '').toLowerCase() === 'true';
+            const initialStatus = isOwnerEmail
+                ? 'approved'
+                : (requireEmailVerification ? 'pending_email' : 'pending');
 
             const account = await accountRepo.create({
                 email: parsed.email,
@@ -808,8 +813,8 @@ function createApp(repositories = {}) {
                 return res.status(201).json({ account: serializeAccount(account) });
             }
 
-            // 確認トークンを生成してメール送信 (fire-and-forget: メール失敗でもアカウントは作成済み)
-            if (emailVerificationRepo) {
+            // メール認証 ON のときだけ確認トークン + メール送信
+            if (requireEmailVerification && emailVerificationRepo) {
                 try {
                     const verifyToken = crypto.randomBytes(32).toString('hex');
                     await emailVerificationRepo.create({ accountId: account.id, token: verifyToken });
@@ -825,7 +830,10 @@ function createApp(repositories = {}) {
 
             return res.status(201).json({
                 pending: true,
-                message: 'ご登録ありがとうございます。確認メールをお送りしました。メール内のリンクをクリックして登録を完了してください。'
+                pending_kind: requireEmailVerification ? 'email_verification' : 'admin_approval',
+                message: requireEmailVerification
+                    ? 'ご登録ありがとうございます。確認メールをお送りしました。メール内のリンクをクリックして登録を完了してください。'
+                    : 'ご登録ありがとうございます。管理者の承認待ちです。承認後にログインできるようになります。'
             });
         } catch (error) {
             logger.error(error, { route: '/auth/signup', requestId: req.requestId });
@@ -855,16 +863,20 @@ function createApp(repositories = {}) {
             // 事後承認フロー: 'approved' 以外は機能解放しない。
             // フロントは error_code を見て承認待ち / 拒否のメッセージを出し分ける。
             const status = account.status || 'approved';
-            if (status === 'pending_email') {
+            // REQUIRE_EMAIL_VERIFICATION ON の運用に切り替わった時のみメール文言を出す。
+            // 既定運用 (admin 承認のみ) では、pending_email のレガシーアカウントもまとめて
+            // 「管理者の承認待ち」として扱う (admin が /admin から approve すれば解放される)。
+            const requireEmailVerification = String(process.env.REQUIRE_EMAIL_VERIFICATION || '').toLowerCase() === 'true';
+            if (status === 'pending_email' && requireEmailVerification) {
                 return res.status(403).json({
                     error_code: 'email_not_verified',
                     error: 'メールアドレスの確認が完了していません。受信箱を確認してください。'
                 });
             }
-            if (status === 'pending') {
+            if (status === 'pending' || status === 'pending_email') {
                 return res.status(403).json({
                     error_code: 'pending_approval',
-                    error: 'アカウントは管理者の承認待ちです。'
+                    error: 'アカウントは管理者の承認待ちです。承認後にログインできるようになります。'
                 });
             }
             if (status === 'rejected') {

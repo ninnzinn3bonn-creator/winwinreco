@@ -43,11 +43,13 @@ class UserAccountRepository {
      * 保留中 (status='pending') のユーザーを古い順に返す。管理画面の承認待ちリスト用。
      */
     async findPending() {
+        // pending_email も含めて返す: REQUIRE_EMAIL_VERIFICATION OFF へ切替後、
+        // 旧アカウントが admin の承認待ちリストから漏れないようにする。
         return new Promise((resolve, reject) => {
             this.db.all(
                 `SELECT id, email, display_name, status, created_at
                  FROM user_accounts
-                 WHERE status = 'pending'
+                 WHERE status IN ('pending', 'pending_email')
                  ORDER BY created_at ASC`,
                 [],
                 (err, rows) => {
@@ -100,7 +102,7 @@ class UserAccountRepository {
     async countPending() {
         return new Promise((resolve, reject) => {
             this.db.get(
-                `SELECT COUNT(*) AS c FROM user_accounts WHERE status = 'pending'`,
+                `SELECT COUNT(*) AS c FROM user_accounts WHERE status IN ('pending', 'pending_email')`,
                 [],
                 (err, row) => {
                     if (err) return reject(err);

@@ -3169,15 +3169,24 @@ function setWelcomeFormVisible(visible, mode = welcomeFormMode) {
     }
 }
 
-function showWelcomePending(message) {
+function showWelcomePending(message, kind) {
     const actions = document.getElementById('welcome-actions');
     const form = document.getElementById('welcome-auth-form');
     const pending = document.getElementById('welcome-pending');
+    const titleEl = document.getElementById('welcome-pending-title');
     const messageEl = document.getElementById('welcome-pending-message');
     if (actions) actions.setAttribute('hidden', '');
     if (form) form.setAttribute('hidden', '');
+    // kind: 'admin_approval' (既定) or 'email_verification'
+    // バックエンドの /auth/signup レスポンスから pending_kind を受け取る。
+    const isEmail = kind === 'email_verification';
+    if (titleEl) {
+        titleEl.textContent = isEmail ? '確認メールを送信しました' : '登録ありがとうございます';
+    }
     if (messageEl) {
-        messageEl.textContent = message || '確認メールを送信しました。メール内のリンクを開くと登録が進みます。';
+        messageEl.textContent = message || (isEmail
+            ? 'メール内のリンクを開くと登録が進みます。'
+            : '管理者の承認待ちです。承認されるとログインできるようになります。');
     }
     if (pending) {
         pending.removeAttribute('hidden');
@@ -3262,7 +3271,9 @@ function setupOnboardingScreens() {
                     const result = await window.AppAuth.signup(email, password, displayName);
                     if (result && result.pending) {
                         if (email) localStorage.setItem('welcome_last_email', email);
-                        showWelcomePending(result.message);
+                        // バックエンドが pending_kind ('admin_approval' or 'email_verification')
+                        // を返すので、文言を切替える
+                        showWelcomePending(result.message, result.pending_kind);
                         return;
                     }
                 } else {

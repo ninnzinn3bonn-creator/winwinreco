@@ -14,6 +14,9 @@
 
 process.env.MAIL_PROVIDER = 'console'; // suppress real mail in tests
 process.env.REQUEST_LOG = '0';
+// このスイートはメール認証フロー (U-6) の挙動を検証するため、明示的に ON にする。
+// 本番では既定 OFF (admin 承認のみ) で運用される。
+process.env.REQUIRE_EMAIL_VERIFICATION = 'true';
 
 const request = require('supertest');
 const path = require('path');
