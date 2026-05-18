@@ -6,9 +6,9 @@
   "scripts": {
     "check:frontend": "node --check src/frontend/main.js && node --check src/frontend/bindings.js && node --check src/frontend/utils.js && node --check src/frontend/state.js && node --check src/frontend/dom.js && node --check src/frontend/debug.js && node --check src/frontend/mic-presets.js && node --check src/frontend/auth.js && node --check src/frontend/profile.js && node --check src/frontend/dictionary.js && node --check src/frontend/audio.js && node --check src/frontend/log-ui.js && node --check src/frontend/shared-ai.js && node --check src/frontend/meeting-ui.js && node --check src/frontend/admin.js",
     "check:duplicates": "node scripts/check-duplicate-functions.js",
-    "pretest": "npm.cmd run check:frontend && npm.cmd run check:duplicates",
+    "pretest": "npm run check:frontend && npm run check:duplicates",
     "test": "jest",
-    "test:all": "npm.cmd run test && npm.cmd run test:firestore",
+    "test:all": "npm run test && npm run test:firestore",
     "test:firestore": "cross-env DB_DRIVER=firestore FIRESTORE_EMULATOR_HOST=localhost:8080 GOOGLE_CLOUD_PROJECT=demo-test NODE_ENV=test jest --runInBand",
     "emulators": "firebase emulators:start --only firestore --project demo-test",
     "test:e2e": "playwright test",
