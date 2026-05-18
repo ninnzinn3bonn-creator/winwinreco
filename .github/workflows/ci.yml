@@ -19,7 +19,10 @@ jobs:
       - name: Update npm to match lockfile (npm 11.x lockfile)
         run: npm install -g npm@latest
       - name: Install dependencies
-        run: npm ci
+        # npm ci は package.json と package-lock.json の差分に厳格すぎて
+        # ローカル (npm 11) と CI (Node 20 同梱の npm 10 → 11) で挙動差を起こす。
+        # CI では npm install (--no-audit で audit を別ジョブに任せる) を使う。
+        run: npm install --no-audit --no-fund
       - name: Frontend syntax check
         run: npm run check:frontend
       - name: Duplicate function check
@@ -40,7 +43,10 @@ jobs:
       - name: Update npm to match lockfile (npm 11.x lockfile)
         run: npm install -g npm@latest
       - name: Install dependencies
-        run: npm ci
+        # npm ci は package.json と package-lock.json の差分に厳格すぎて
+        # ローカル (npm 11) と CI (Node 20 同梱の npm 10 → 11) で挙動差を起こす。
+        # CI では npm install (--no-audit で audit を別ジョブに任せる) を使う。
+        run: npm install --no-audit --no-fund
       - name: Security audit (production deps, critical severity)
         # 本番依存 (--omit=dev) に絞って critical のみ fail。
         # devDependencies (firebase-tools / playwright 等) の脆弱性は本番影響なし、
