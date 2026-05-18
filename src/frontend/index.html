@@ -603,14 +603,17 @@
                             </div>
                         </div>
                         <div class="ai-workspace-controls">
-                            <!-- 過去会議コンテクストは明示的な opt-in。
-                                 既定は OFF (今回の会議のみ) で、必要なときだけチェックする。
-                                 議事録生成は別経路で強制 OFF (過去のログを混ぜない)。 -->
-                            <label class="checkbox-row ai-context-toggle" for="use-past-meetings">
+                            <!-- 過去会議コンテクストの制御は下の past-meeting-selector
+                                 (動的挿入されるラジオ群) に統一。
+                                 旧 #use-past-meetings チェックボックスは互換のため
+                                 残すが UI からは隠す (main.js などが id を参照しても
+                                 null check で安全に skip される)。 -->
+                            <label class="checkbox-row ai-context-toggle" for="use-past-meetings" hidden style="display:none;">
                                 <input type="checkbox" id="use-past-meetings">
-                                <span>過去の会議の要約も参考にする (要約・自由解析・話者別アクション)</span>
+                                <span>過去の会議の要約も参考にする (legacy hidden)</span>
                             </label>
-                            <!-- anchor for dynamically-inserted past-meeting-selector -->
+                            <!-- anchor for dynamically-inserted past-meeting-selector
+                                 (auto / off / manual のラジオがここに動的挿入される) -->
                             <div id="past-meeting-selector-anchor"></div>
                             <div id="ai-mobile-controls" class="ai-mobile-controls">
                                 <div class="ai-action-row">

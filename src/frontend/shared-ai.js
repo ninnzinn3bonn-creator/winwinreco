@@ -136,7 +136,11 @@
     }
 
     function getPastMeetingApiPayload() {
-        // 既定 'off' に変更 (旧 'auto' から)。過去会議参照は明示的に選択しなければ常に OFF。
+        // ラジオが唯一の真実源:
+        //   'off'    → 今回の会議のみ
+        //   'auto'   → 直近 5 件を参照
+        //   'manual' → ユーザーがチェックボックスで選んだルームを参照
+        // (旧 #use-past-meetings チェックボックスは UI から外したので参照しない)
         const mode = state.pastMeetingMode || 'off';
         if (mode === 'off') {
             return { use_past_context: false };
@@ -147,9 +151,8 @@
                 past_room_ids: [...state.selectedPastRoomIds]
             };
         }
-        // auto: 既存チェックボックスも opt-in 扱いに揃える (未チェックなら false)
-        const ctxBox = document.getElementById('use-past-meetings');
-        return { use_past_context: ctxBox ? !!ctxBox.checked : false };
+        // auto: 無条件に true。サーバー側で直近 5 件を取得する。
+        return { use_past_context: true };
     }
 
     function renderMinutesWorkspace() {
