@@ -6,8 +6,9 @@
     let aiWorkspacePersistTimer = null;
 
     // Past-meeting selector state
-    // mode: 'auto' | 'off' | 'manual'
-    state.pastMeetingMode = state.pastMeetingMode || 'auto';
+    // mode: 'off' (デフォルト: 今回の会議のみ) | 'auto' (直近5件を参照) | 'manual' (チェックで選択)
+    // 既定 'off' に変更 (旧 'auto' から)。要約等のデフォルトを「今回のみ」とし、過去会議参照は明示的な opt-in に。
+    if (state.pastMeetingMode == null) state.pastMeetingMode = 'off';
     state.selectedPastRoomIds = state.selectedPastRoomIds || [];
 
     // ---------- Past meeting selector UI ----------
@@ -56,10 +57,11 @@
         wrapper.className = 'past-meeting-selector';
         wrapper.id = 'past-meeting-selector';
 
+        // 既定は 'off' (今回の会議のみ)。過去回参照は明示的な opt-in。
         const modeOptions = [
-            { value: 'auto', label: '自動 (直近5件)' },
-            { value: 'off', label: '使わない' },
-            { value: 'manual', label: '手動で選ぶ' }
+            { value: 'off', label: '今回の会議のみ (推奨)' },
+            { value: 'auto', label: '直近5件も参照' },
+            { value: 'manual', label: '過去会議を手動で選ぶ' }
         ];
 
         const radioGroup = document.createElement('div');
@@ -134,7 +136,8 @@
     }
 
     function getPastMeetingApiPayload() {
-        const mode = state.pastMeetingMode || 'auto';
+        // 既定 'off' に変更 (旧 'auto' から)。過去会議参照は明示的に選択しなければ常に OFF。
+        const mode = state.pastMeetingMode || 'off';
         if (mode === 'off') {
             return { use_past_context: false };
         }
@@ -144,9 +147,9 @@
                 past_room_ids: [...state.selectedPastRoomIds]
             };
         }
-        // auto: use existing checkbox behaviour
+        // auto: 既存チェックボックスも opt-in 扱いに揃える (未チェックなら false)
         const ctxBox = document.getElementById('use-past-meetings');
-        return { use_past_context: ctxBox ? !!ctxBox.checked : true };
+        return { use_past_context: ctxBox ? !!ctxBox.checked : false };
     }
 
     function renderMinutesWorkspace() {
