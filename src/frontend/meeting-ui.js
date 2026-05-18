@@ -380,6 +380,15 @@
             window.scrollTo({ top: 0, behavior: 'auto' });
             window.AppSharedAi.loadMeetingInsights({ silent: true });
         });
+        // 過去会議選別 UI (auto / off / manual) をホストのみ生成。
+        // buildPastMeetingSelector は idempotent (二重呼出し OK)。
+        if (state.isHost) {
+            window.AppSharedAi?.buildPastMeetingSelector?.();
+        }
+        // ホストかつ series_id 紐付きルームのみ「次回アジェンダ生成」セクションを表示
+        if (state.isHost) {
+            window.AppSharedAi?.renderNextAgendaSection?.();
+        }
     }
 
     async function loadRoomLogs() {
