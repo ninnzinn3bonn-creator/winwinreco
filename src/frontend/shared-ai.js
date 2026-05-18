@@ -161,7 +161,10 @@
         if (document.activeElement !== dom.minutesOutputEditor && dom.minutesOutputEditor.value !== nextMinutes) {
             dom.minutesOutputEditor.value = nextMinutes;
         }
-        const isLoading = !!state.minutesWorkspace.loading || state.meetingInsights.status === 'processing';
+        // 「ユーザーが今ボタンを押して生成中」と「サーバーが裏で自動生成中」は別物。
+        // ここはユーザー操作 (state.minutesWorkspace.loading) だけを見る。
+        // サーバー側の status は別の status 行 (renderMeetingInsights) で表現する。
+        const isLoading = !!state.minutesWorkspace.loading;
         if (dom.minutesOutputCard) dom.minutesOutputCard.classList.toggle('is-loading', isLoading);
         if (dom.minutesOutputLoading) dom.minutesOutputLoading.classList.toggle('hidden', !isLoading);
         dom.minutesOutputEditor.classList.toggle('is-busy', isLoading);
@@ -185,7 +188,12 @@
             dom.minutesWorkspaceStatus.innerHTML = '<span class="spinner inline-spinner"></span> 議事録を生成中です...';
             return;
         }
-        if (!isLoading && state.minutesWorkspace.progress) state.minutesWorkspace.progress = null;
+        if (state.minutesWorkspace.progress) state.minutesWorkspace.progress = null;
+        // 結果が無く、サーバー側で自動生成中なら控えめにテキストで通知 (エディタは隠さない)
+        if (!state.minutesWorkspace.result && state.meetingInsights.status === 'processing') {
+            dom.minutesWorkspaceStatus.innerText = 'バックグラウンドで自動生成中です... 完了するまでお待ちください。';
+            return;
+        }
         if (state.minutesWorkspace.updatedAt) {
             dom.minutesWorkspaceStatus.innerText = `最終更新: ${new Date(state.minutesWorkspace.updatedAt).toLocaleString('ja-JP')}`;
             return;
@@ -252,7 +260,8 @@
         if (document.activeElement !== dom.aiOutputEditor && dom.aiOutputEditor.value !== nextResult) {
             dom.aiOutputEditor.value = nextResult;
         }
-        const isLoading = !!state.aiWorkspace.loading || state.meetingInsights.status === 'processing';
+        // 同じく、ここはユーザー操作の loading だけを見る (サーバー status を混ぜない)。
+        const isLoading = !!state.aiWorkspace.loading;
         if (dom.aiOutputCard) dom.aiOutputCard.classList.toggle('is-loading', isLoading);
         if (dom.aiOutputLoading) dom.aiOutputLoading.classList.toggle('hidden', !isLoading);
         dom.aiOutputEditor.classList.toggle('is-busy', isLoading);
@@ -276,7 +285,7 @@
             dom.aiWorkspaceStatus.innerHTML = '<span class="spinner inline-spinner"></span> AIが解析中です...';
             return;
         }
-        if (!isLoading && state.aiWorkspace.progress) state.aiWorkspace.progress = null;
+        if (state.aiWorkspace.progress) state.aiWorkspace.progress = null;
         if (state.aiWorkspace.savedAt) {
             dom.aiWorkspaceStatus.innerText = `保存済み: ${new Date(state.aiWorkspace.savedAt).toLocaleString('ja-JP')}`;
             return;
@@ -429,13 +438,8 @@
             const resultText = String(data.result || '').trim();
             if (!resultText) throw new Error('AIから空の結果が返りました');
 
-            // Override any lingering 'processing' status so renderAiWorkspace
-            // does not re-enter the spinner branch after setAiWorkspace.
-            if (state.meetingInsights.status === 'processing') {
-                clearInsightsPoll();
-                state.meetingInsights.status = 'idle';
-                state.meetingInsights.loading = false;
-            }
+            // (band-aid 撤去) かつて renderAiWorkspace が meetingInsights.status を
+            // 見ていたため、ここで強制リセットしていたが、render が独立した今は不要。
             setAiWorkspace(type, title, resultText, instruction);
             dom.aiWorkspaceStatus.innerText = `${title}の解析結果を表示しています。`;
             dom.aiOutputEditor.focus();
@@ -588,13 +592,7 @@
 
             state.meetingInsights.updatedAt = data.updated_at || new Date().toISOString();
             await loadMeetingInsights({ silent: true });
-            // Manual generation completed — override any 'processing' status so that
-            // renderAiWorkspace / renderMeetingInsights do not re-enter the spinner branch.
-            if (state.meetingInsights.status === 'processing') {
-                clearInsightsPoll();
-                state.meetingInsights.status = 'idle';
-                state.meetingInsights.loading = false;
-            }
+            // (band-aid 撤去) render が server status と分離されたため不要。
             setAiWorkspace(type, title, resultText);
             dom.aiWorkspaceStatus.innerText = `${title}を生成しました。`;
             dom.aiOutputEditor.focus();
@@ -655,19 +653,9 @@
             // Direct DOM write before any async work so the value is visible immediately
             dom.minutesOutputEditor.value = resultText;
             await loadMeetingInsights({ silent: true });
-            // Manual generation completed — override any 'processing' status that
-            // loadMeetingInsights may have pulled from the server so that
-            // renderMinutesWorkspace does not re-enter the spinner branch.
-            if (state.meetingInsights.status === 'processing') {
-                clearInsightsPoll();
-                state.meetingInsights.status = 'idle';
-                state.meetingInsights.loading = false;
-            }
-            // Restore the textarea value in case syncSharedResultsIntoEditors overwrote it
-            // while minutesWorkspace.loading was still true (race window).
-            if (dom.minutesOutputEditor.value !== resultText) {
-                dom.minutesOutputEditor.value = resultText;
-            }
+            // (band-aid 撤去) render が server status から独立した今は不要。
+            // renderMinutesWorkspace は state.minutesWorkspace.loading だけを見るので
+            // 結果は finally 後の render で確実に表示される。
             dom.minutesWorkspaceStatus.innerText = '議事録を生成しました。必要に応じて内容を整えてください。';
             // [L9] チャンク分割されていればパネルを表示する
             await loadChunks();
@@ -735,13 +723,7 @@
             if (!res.ok) throw new Error(data.error || '自由解析に失敗しました');
             const resultText = String(data.result || '').trim();
             if (!resultText) throw new Error('AIから空の結果が返りました');
-            // Override any lingering 'processing' status so renderAiWorkspace
-            // does not re-enter the spinner branch after setAiWorkspace.
-            if (state.meetingInsights.status === 'processing') {
-                clearInsightsPoll();
-                state.meetingInsights.status = 'idle';
-                state.meetingInsights.loading = false;
-            }
+            // (band-aid 撤去) render が server status と分離されたため不要。
             setAiWorkspace('custom', '自由解析', resultText, instruction);
             dom.aiWorkspaceStatus.innerText = '議事録ベースの自由解析を表示しています。';
             dom.aiOutputEditor.focus();
@@ -889,13 +871,7 @@
                 state.editorDirty.minutes = 0;
                 if (dom.minutesOutputEditor) dom.minutesOutputEditor.value = resultText;
             }
-            // Override any lingering 'processing' status so renderMinutesWorkspace
-            // does not re-enter the spinner branch in the finally block.
-            if (state.meetingInsights.status === 'processing') {
-                clearInsightsPoll();
-                state.meetingInsights.status = 'idle';
-                state.meetingInsights.loading = false;
-            }
+            // (band-aid 撤去) render が server status と分離されたため不要。
             dom.minutesWorkspaceStatus.innerText = `チャンク ${chunkIndex + 1} を再生成しました。`;
 
             // チャンク一覧を更新
