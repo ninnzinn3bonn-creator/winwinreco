@@ -16,6 +16,8 @@ jobs:
         with:
           node-version: '20'
           cache: 'npm'
+      - name: Update npm to match lockfile (npm 11.x lockfile)
+        run: npm install -g npm@latest
       - name: Install dependencies
         run: npm ci
       - name: Frontend syntax check
@@ -35,6 +37,8 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '20'
+      - name: Update npm to match lockfile (npm 11.x lockfile)
+        run: npm install -g npm@latest
       - name: Install dependencies
         run: npm ci
       - name: Security audit (production deps, critical severity)
