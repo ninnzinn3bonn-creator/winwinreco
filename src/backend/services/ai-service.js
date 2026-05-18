@@ -218,12 +218,34 @@ class GeminiProvider {
 
     isRetryableModelError(error) {
         const message = String(error?.message || '');
-        return (
+        // 429 (quota / rate limit)、404/400 (モデル不在) は別モデルに切替
+        if (
             message.includes('[429') ||
             message.includes('Too Many Requests') ||
             message.includes('Quota exceeded') ||
             message.includes('is not found for API version') ||
             message.includes('is not supported for generateContent')
+        ) return true;
+        // 503 (Service Unavailable / high demand) は一時障害なので別モデル + バックオフリトライ
+        if (
+            message.includes('[503') ||
+            message.includes('Service Unavailable') ||
+            message.includes('high demand') ||
+            message.includes('UNAVAILABLE') ||
+            message.includes('overloaded')
+        ) return true;
+        return false;
+    }
+
+    isTransientError(error) {
+        // 一時的なエラー (503 / overloaded) は同じモデルでもバックオフリトライする価値がある
+        const message = String(error?.message || '');
+        return (
+            message.includes('[503') ||
+            message.includes('Service Unavailable') ||
+            message.includes('high demand') ||
+            message.includes('UNAVAILABLE') ||
+            message.includes('overloaded')
         );
     }
 
@@ -233,48 +255,66 @@ class GeminiProvider {
         let lastError = null;
 
         for (const modelName of this.fallbackModelNames) {
-            try {
-                this.currentModelName = modelName;
-                this.name = `gemini (${modelName})`;
+            // 各モデルにつき、503 のような一時障害なら指数バックオフで最大 3 回試行する。
+            // それでもダメなら次のフォールバックモデルへ。
+            const MAX_ATTEMPTS = 3;
+            for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt++) {
+                try {
+                    this.currentModelName = modelName;
+                    this.name = `gemini (${modelName})`;
 
-                const generationConfig = {
-                    // 議事録は逐語で長文になるので 16384 を既定値とする (Gemini 2.5 Flash は 65536 まで対応)。
-                    maxOutputTokens: options.maxOutputTokens || 16384,
-                };
+                    const generationConfig = {
+                        // 議事録は逐語で長文になるので 16384 を既定値とする (Gemini 2.5 Flash は 65536 まで対応)。
+                        maxOutputTokens: options.maxOutputTokens || 16384,
+                    };
 
-                if (options.json) {
-                    generationConfig.responseMimeType = "application/json";
-                }
+                    if (options.json) {
+                        generationConfig.responseMimeType = "application/json";
+                    }
 
-                const model = this.genAI.getGenerativeModel({
-                    model: this.currentModelName,
-                    generationConfig
-                });
+                    const model = this.genAI.getGenerativeModel({
+                        model: this.currentModelName,
+                        generationConfig
+                    });
 
-                const result = await model.generateContent(prompt);
-                const response = await result.response;
-                const text = response.text();
-                recordApiCall({
-                    provider: this.name.split(' ')[0],
-                    operation: 'generate',
-                    tokens_in: tokensIn,
-                    tokens_out: Math.ceil((text || '').length * 0.6),
-                    duration_ms: Date.now() - start,
-                    status: 'ok'
-                });
-                return text;
-            } catch (error) {
-                lastError = error;
-                if (!this.isRetryableModelError(error)) {
+                    const result = await model.generateContent(prompt);
+                    const response = await result.response;
+                    const text = response.text();
                     recordApiCall({
                         provider: this.name.split(' ')[0],
                         operation: 'generate',
                         tokens_in: tokensIn,
+                        tokens_out: Math.ceil((text || '').length * 0.6),
                         duration_ms: Date.now() - start,
-                        status: 'error',
-                        error: String(error?.message || error).slice(0, 200)
+                        status: 'ok'
                     });
-                    throw error;
+                    return text;
+                } catch (error) {
+                    lastError = error;
+                    if (!this.isRetryableModelError(error)) {
+                        recordApiCall({
+                            provider: this.name.split(' ')[0],
+                            operation: 'generate',
+                            tokens_in: tokensIn,
+                            duration_ms: Date.now() - start,
+                            status: 'error',
+                            error: String(error?.message || error).slice(0, 200)
+                        });
+                        throw error;
+                    }
+                    // 503 系の一時障害なら、同じモデルでバックオフしてリトライ。
+                    // それ以外 (quota / model not found) は即座に次のモデルへ。
+                    if (this.isTransientError(error) && attempt < MAX_ATTEMPTS - 1) {
+                        const waitMs = (1 << attempt) * 1000; // 1s, 2s, 4s
+                        logger.warn('[GeminiProvider] transient error, retrying', {
+                            model: modelName, attempt: attempt + 1, waitMs,
+                            error: String(error?.message || error).slice(0, 200)
+                        });
+                        await new Promise((r) => setTimeout(r, waitMs));
+                        continue;
+                    }
+                    // 別モデルへ
+                    break;
                 }
             }
         }
