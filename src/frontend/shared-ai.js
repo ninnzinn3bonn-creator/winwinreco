@@ -423,6 +423,13 @@
             const resultText = String(data.result || '').trim();
             if (!resultText) throw new Error('AIから空の結果が返りました');
 
+            // Override any lingering 'processing' status so renderAiWorkspace
+            // does not re-enter the spinner branch after setAiWorkspace.
+            if (state.meetingInsights.status === 'processing') {
+                clearInsightsPoll();
+                state.meetingInsights.status = 'idle';
+                state.meetingInsights.loading = false;
+            }
             setAiWorkspace(type, title, resultText, instruction);
             dom.aiWorkspaceStatus.innerText = `${title}の解析結果を表示しています。`;
             dom.aiOutputEditor.focus();
@@ -575,6 +582,13 @@
 
             state.meetingInsights.updatedAt = data.updated_at || new Date().toISOString();
             await loadMeetingInsights({ silent: true });
+            // Manual generation completed — override any 'processing' status so that
+            // renderAiWorkspace / renderMeetingInsights do not re-enter the spinner branch.
+            if (state.meetingInsights.status === 'processing') {
+                clearInsightsPoll();
+                state.meetingInsights.status = 'idle';
+                state.meetingInsights.loading = false;
+            }
             setAiWorkspace(type, title, resultText);
             dom.aiWorkspaceStatus.innerText = `${title}を生成しました。`;
             dom.aiOutputEditor.focus();
@@ -632,9 +646,23 @@
             state.minutesWorkspace.updatedAt = data.updated_at || new Date().toISOString();
             state.meetingInsights.minutes = resultText;
             state.editorDirty.minutes = 0;
+            // Direct DOM write before any async work so the value is visible immediately
             dom.minutesOutputEditor.value = resultText;
-            dom.minutesWorkspaceStatus.innerText = '議事録を生成しました。必要に応じて内容を整えてください。';
             await loadMeetingInsights({ silent: true });
+            // Manual generation completed — override any 'processing' status that
+            // loadMeetingInsights may have pulled from the server so that
+            // renderMinutesWorkspace does not re-enter the spinner branch.
+            if (state.meetingInsights.status === 'processing') {
+                clearInsightsPoll();
+                state.meetingInsights.status = 'idle';
+                state.meetingInsights.loading = false;
+            }
+            // Restore the textarea value in case syncSharedResultsIntoEditors overwrote it
+            // while minutesWorkspace.loading was still true (race window).
+            if (dom.minutesOutputEditor.value !== resultText) {
+                dom.minutesOutputEditor.value = resultText;
+            }
+            dom.minutesWorkspaceStatus.innerText = '議事録を生成しました。必要に応じて内容を整えてください。';
             // [L9] チャンク分割されていればパネルを表示する
             await loadChunks();
             dom.minutesOutputEditor.focus();
@@ -701,6 +729,13 @@
             if (!res.ok) throw new Error(data.error || '自由解析に失敗しました');
             const resultText = String(data.result || '').trim();
             if (!resultText) throw new Error('AIから空の結果が返りました');
+            // Override any lingering 'processing' status so renderAiWorkspace
+            // does not re-enter the spinner branch after setAiWorkspace.
+            if (state.meetingInsights.status === 'processing') {
+                clearInsightsPoll();
+                state.meetingInsights.status = 'idle';
+                state.meetingInsights.loading = false;
+            }
             setAiWorkspace('custom', '自由解析', resultText, instruction);
             dom.aiWorkspaceStatus.innerText = '議事録ベースの自由解析を表示しています。';
             dom.aiOutputEditor.focus();
@@ -847,6 +882,13 @@
                 state.minutesWorkspace.updatedAt = data.updated_at || new Date().toISOString();
                 state.editorDirty.minutes = 0;
                 if (dom.minutesOutputEditor) dom.minutesOutputEditor.value = resultText;
+            }
+            // Override any lingering 'processing' status so renderMinutesWorkspace
+            // does not re-enter the spinner branch in the finally block.
+            if (state.meetingInsights.status === 'processing') {
+                clearInsightsPoll();
+                state.meetingInsights.status = 'idle';
+                state.meetingInsights.loading = false;
             }
             dom.minutesWorkspaceStatus.innerText = `チャンク ${chunkIndex + 1} を再生成しました。`;
 

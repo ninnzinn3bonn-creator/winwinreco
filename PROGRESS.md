@@ -1,5 +1,43 @@
 ﻿# プロジェクト進捗メモ (Meeting Minutes App)
 
+## 66. 議事録・AI解析結果が画面に表示されないバグ修正 (2026-05-18)
+
+### 問題
+
+`runMinutesGeneration` / `runSharedResult` / `runDirectAnalysis` / `generateCustomAiResult` / `regenerateChunk` で生成完了後、結果が `#minutes-output-editor` や `#ai-output-editor` に表示されずスピナーが残り続けるバグ。
+
+### 根本原因
+
+`renderMinutesWorkspace` / `renderAiWorkspace` の `isLoading` 判定が以下の OR 条件になっていた:
+
+```js
+const isLoading = !!state.minutesWorkspace.loading || state.meetingInsights.status === 'processing';
+```
+
+各生成関数の末尾では `state.minutesWorkspace.loading = false` に戻すが、その直前に呼ぶ `await loadMeetingInsights({ silent: true })` がサーバーから `status: 'processing'` を受け取ると `state.meetingInsights.status = 'processing'` に再設定される。その結果、`loading` が `false` であっても `isLoading === true` のまま `return` (early exit) し、スピナー表示が解除されなかった。
+
+### 修正内容 (`src/frontend/shared-ai.js`)
+
+各生成関数において `loadMeetingInsights` 完了直後 (あるいは `setAiWorkspace` 呼び出し直前) に以下のガードを追加:
+
+```js
+if (state.meetingInsights.status === 'processing') {
+    clearInsightsPoll();
+    state.meetingInsights.status = 'idle';
+    state.meetingInsights.loading = false;
+}
+```
+
+修正対象関数: `runMinutesGeneration` / `runSharedResult` / `runDirectAnalysis` / `generateCustomAiResult` / `regenerateChunk` (5 箇所)
+
+`runMinutesGeneration` ではさらに `loadMeetingInsights` の `syncSharedResultsIntoEditors` が textarea を上書きする競合ウィンドウをカバーするため、直後に textarea 値の再確認ガードも追加した。
+
+### テスト
+
+187 テスト全件パス (既存テストに変更なし)。
+
+---
+
 ## 65. 定例シリーズ + 次回アジェンダ自動生成 (2026-05-14)
 
 ### 概要
