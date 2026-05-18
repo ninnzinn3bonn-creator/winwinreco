@@ -112,6 +112,12 @@ class STTService {
         // 最後のコミット以降に実際に音声を送ったかどうか。
         // 送っていない場合はコミットしない（空コミット → WS 強制切断を防ぐ）。
         let audioSentSinceLastCommit = false;
+        // ElevenLabs は 0.3 秒未満の uncommitted audio で commit すると
+        // "Commit request ignored: only N.NNs of uncommitted audio" エラーを返す。
+        // 16kHz PCM s16le = 32000 bytes/sec なので 0.3s = 9600 bytes。
+        // 余裕を持って 0.4s 相当を最低閾値にする。
+        let bytesSinceLastCommit = 0;
+        const MIN_COMMIT_BYTES = Math.ceil(this.sampleRate * 2 * 0.4); // 16000 * 2 * 0.4 = 12800
         // メータリング用: ストリーム開始時刻
         const streamStart = Date.now();
 
@@ -182,6 +188,7 @@ class STTService {
                 case 'committed_transcript':
                     lastTranscriptAt = Date.now();
                     audioSentSinceLastCommit = false;
+                    bytesSinceLastCommit = 0;
                     if (msg.text) {
                         logger.info('[ElevenLabs STT] committed transcript', { text: msg.text });
                         onData(msg.text);
@@ -228,6 +235,7 @@ class STTService {
             if (sessionReady && ws.readyState === WebSocket.OPEN) {
                 sendChunk(buf);
                 audioSentSinceLastCommit = true;
+                bytesSinceLastCommit += buf.length;
             } else {
                 pending.push(buf);
             }
@@ -240,9 +248,17 @@ class STTService {
         // 空コミットを送らない — 空コミットを受けた ElevenLabs が WS を閉じるのを防ぐ。
         passThrough.commit = () => {
             if (!audioSentSinceLastCommit) return;
+            if (bytesSinceLastCommit < MIN_COMMIT_BYTES) {
+                // ElevenLabs が "only N.NNs of uncommitted audio" で reject するのを防ぐ
+                logger.info('[ElevenLabs STT] skip commit: insufficient audio', {
+                    bytes: bytesSinceLastCommit, minBytes: MIN_COMMIT_BYTES
+                });
+                return;
+            }
             if (sessionReady && ws.readyState === WebSocket.OPEN) {
-                logger.info('[ElevenLabs STT] mid-session commit sent');
+                logger.info('[ElevenLabs STT] mid-session commit sent', { bytes: bytesSinceLastCommit });
                 audioSentSinceLastCommit = false;
+                bytesSinceLastCommit = 0;
                 sendChunk(null, true);
             }
         };

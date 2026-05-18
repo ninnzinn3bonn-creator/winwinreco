@@ -63,6 +63,14 @@
         { "fieldPath": "is_owner", "order": "ASCENDING" },
         { "fieldPath": "created_at", "order": "ASCENDING" }
       ]
+    },
+    {
+      "collectionGroup": "meeting_series",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "owner_account_id", "order": "ASCENDING" },
+        { "fieldPath": "created_at", "order": "DESCENDING" }
+      ]
     }
   ],
   "fieldOverrides": [

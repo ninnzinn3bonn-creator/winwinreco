@@ -112,6 +112,33 @@ class GroqProvider {
     async generate(prompt, options = {}) {
         const start = Date.now();
         const tokensIn = Math.ceil((prompt || '').length * 0.6);
+
+        // Groq on_demand tier の TPM (tokens-per-minute) は 8000。
+        // 入力 + 想定出力 (1024〜16384) で簡単に超過するので、
+        // 推定入力が 6000 トークンを超えたら Gemini にフォールバックする。
+        // Gemini は 1M tokens/min なので余裕がある。
+        const TPM_SAFETY_THRESHOLD = 6000;
+        const geminiKey = process.env.GEMINI_API_KEY;
+        if (tokensIn > TPM_SAFETY_THRESHOLD && geminiKey && geminiKey !== 'dummy') {
+            logger.warn('[GroqProvider] tokens_in exceeds TPM safety threshold, falling back to Gemini', {
+                tokens_in: tokensIn,
+                threshold: TPM_SAFETY_THRESHOLD,
+                tag: 'tpm_fallback'
+            });
+            const gemini = new GeminiProvider(geminiKey);
+            // fallback の API 呼出も recordApiCall を内部で行うので、ここでは
+            // 元の Groq を呼んだ事実だけ skipped で記録しておく。
+            recordApiCall({
+                provider: 'groq',
+                operation: 'generate',
+                tokens_in: tokensIn,
+                duration_ms: 0,
+                status: 'skipped',
+                error: 'tpm_fallback_to_gemini'
+            });
+            return gemini.generate(prompt, options);
+        }
+
         try {
             const chatCompletion = await this.client.chat.completions.create({
                 messages: [{ role: 'user', content: prompt }],
@@ -131,13 +158,36 @@ class GroqProvider {
             });
             return result;
         } catch (error) {
+            // 413 rate_limit_exceeded を捕捉して Gemini フォールバックを試みる
+            // (静的閾値で漏れた場合の二段目の防御)
+            const errMsg = String(error?.message || error);
+            const isRateLimit = errMsg.includes('rate_limit_exceeded')
+                || errMsg.includes('Request too large')
+                || errMsg.includes('tokens per minute');
+            if (isRateLimit && geminiKey && geminiKey !== 'dummy') {
+                logger.warn('[GroqProvider] rate_limit_exceeded, falling back to Gemini', {
+                    tokens_in: tokensIn,
+                    error: errMsg.slice(0, 200),
+                    tag: 'tpm_fallback'
+                });
+                recordApiCall({
+                    provider: this.name.split(' ')[0],
+                    operation: 'generate',
+                    tokens_in: tokensIn,
+                    duration_ms: Date.now() - start,
+                    status: 'fallback',
+                    error: errMsg.slice(0, 200)
+                });
+                const gemini = new GeminiProvider(geminiKey);
+                return gemini.generate(prompt, options);
+            }
             recordApiCall({
                 provider: this.name.split(' ')[0],
                 operation: 'generate',
                 tokens_in: tokensIn,
                 duration_ms: Date.now() - start,
                 status: 'error',
-                error: String(error?.message || error).slice(0, 200)
+                error: errMsg.slice(0, 200)
             });
             throw error;
         }

@@ -275,6 +275,9 @@ function createApp(repositories = {}) {
             // language or topics from prior sessions.
             const minutesAiConfig = { ...aiConfig };
             delete minutesAiConfig.pastContextBlock;
+            // 議事録は逐語記録なので、過去会議由来の userContexts (project_summary や
+            // past_decisions など) は不要。Groq TPM 上限 (8000) を超える原因にもなる。
+            const minutesUserContexts = [];
 
             const roomMeta = {
                 roomId,
@@ -300,7 +303,7 @@ function createApp(repositories = {}) {
                             withTimeoutAndRetry(
                                 () => aiService.generateMinutesPerChunk(
                                     chunk, chunks.length, roomMeta,
-                                    participants, userContexts, minutesAiConfig
+                                    participants, minutesUserContexts, minutesAiConfig
                                 ),
                                 {
                                     timeoutMs: 60000,
@@ -339,7 +342,7 @@ function createApp(repositories = {}) {
             } else {
                 // ── 通常パス (短い会議) ───────────────────────────────────
                 const generated = await aiService.generateMinutesFromTranscript(
-                    utterances, roomMeta, participants, userContexts, minutesAiConfig
+                    utterances, roomMeta, participants, minutesUserContexts, minutesAiConfig
                 );
                 minutesText = generated.result;
             }
@@ -2684,8 +2687,11 @@ function createApp(repositories = {}) {
                 : instruction;
 
             const participants = await enrichParticipantsWithProfiles(participantRepo, userRepo, roomId);
-            const userIds = participants.map((participant) => participant.user_id).filter(Boolean);
-            const userContexts = userContextRepo ? await userContextRepo.findByUserIds(userIds) : [];
+            // 会議中の解析は「いま話されている内容」に集中させる。
+            // userContexts は過去会議由来の project_summary / current_status / past_decisions などを
+            // 含み、ホストや参加者の活動履歴が蓄積するほど巨大化する (Groq TPM 8000 を簡単に超過)。
+            // リアルタイム解析では渡さない (会議後の auto generation だけが履歴を参照する)。
+            const userContexts = [];
             const { result, prompt, provider: resultProvider } = await activeAiService.analyzeMeeting(utterances, type, combinedInstruction, participants, userContexts, aiConfig);
             const latestTimestamp = utterances[utterances.length - 1].started_at;
 
