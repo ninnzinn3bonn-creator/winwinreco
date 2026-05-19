@@ -225,7 +225,12 @@
         }
 
         if (!await showRecordingConsentIfNeeded()) return;
-        if (!await window.AppAudio.prepareAudio()) return;
+        const micReady = await window.AppAudio.prepareAudio();
+        if (!micReady) {
+            window.AppToast.warn('マイクなしで会議を開始します', {
+                detail: '会議画面のマイクボタンから再接続できます。'
+            });
+        }
         try {
             const seriesSelect = document.getElementById('series-id');
             const seriesId = seriesSelect?.value || '';

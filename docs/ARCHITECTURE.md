@@ -9,6 +9,18 @@
 - `summary-mode`
   - post-meeting review, shared AI, and minutes
 
+## Host room-start flow
+
+Authenticated hosts create the room before the meeting UI opens:
+
+1. `src/frontend/meeting-ui.js#createRoom` confirms recording consent.
+2. It attempts microphone preparation on the user gesture.
+3. If microphone preparation fails, the host still creates and joins the room, then can reconnect the mic from the meeting screen.
+4. `POST /rooms` requires a logged-in session and derives `owner_account_id` from the session.
+5. `POST /rooms/:id/join` links the participant row back to the account, which makes the host controls available.
+
+This keeps account/session problems separate from browser microphone permission problems: a valid authenticated host should not be blocked from opening a room just because the device microphone is temporarily denied or unavailable.
+
 ## Frontend module split
 
 The frontend is split into browser globals with a clearer responsibility boundary:
