@@ -35,6 +35,15 @@ window.AppState = {
         summaryAiControlsCollapsed: false,
         activityItems: [],
         provisionalCards: {},
+        // Product decision (2026-06-29): GIJIRO now runs with a fixed AI/STT
+        // provider pair. Keep these values as the frontend source of truth so
+        // old localStorage values from the former selectable UI cannot quietly
+        // switch a room back to Gemini or Google STT.
+        fixedAiProvider: 'groq',
+        fixedAiModel: 'openai/gpt-oss-120b',
+        fixedSttProvider: 'elevenlabs',
+        fixedSttBatchModel: 'scribe_v2',
+        fixedSttRealtimeModel: 'scribe_v2_realtime',
         aiProvider: 'groq',
         aiModel: 'openai/gpt-oss-120b',
         usePastMeetings: true,
@@ -69,7 +78,11 @@ window.AppState = {
             result: '',
             loading: false,
             updatedAt: null,
-            progress: null  // { completed: number, total: number } | null
+            progress: null,  // { completed: number, total: number } | null
+            // 議事録本文とは別に、チャンク生成の成否を保持する。
+            // 本文内の placeholder だけに依存するとユーザーが部分失敗を見落とすため、
+            // UI 警告と再生成導線はこのメタ情報を唯一の判定材料にする。
+            chunkMeta: { total: 0, failed: 0, status: [] }
         },
         liveMeetingAnalysis: {
             loadingKey: '',

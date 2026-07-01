@@ -18,13 +18,11 @@
      *                                       reverberant audio has a low
      *                                       crest, so far-field presets
      *                                       use loose bounds.
-     *   stt          — Google Cloud Speech-to-Text hints. microphoneDistance
-     *                  ('NEARFIELD' | 'FARFIELD' | 'MIDFIELD') and
-     *                  recordingDeviceType ('SMARTPHONE' | 'PC' | etc) are
-     *                  best-practice metadata that the backend relays to
-     *                  the recognizer.
+     *   stt          — backend STT metadata hints. These field names mirror
+     *                  the old Google recognizer config, but production STT
+     *                  is fixed to ElevenLabs Scribe.
      *
-     * Tuning rationale (from Google STT best-practices doc + field testing):
+     * Tuning rationale (from STT best-practices + field testing):
      *   - Close mics (pin/wired): NEARFIELD, no AGC/NS, tight VAD, useEnhanced.
      *   - Tabletop / far group:   FARFIELD, AGC+NS on, loose VAD (catch
      *                             quiet voices), low threshold.
@@ -73,7 +71,7 @@
             recommendedFor: '1人1マイク、口元マイク、USB ヘッドセット',
             bestPractices: [
                 'マイクは口元 5〜10cm を目安に固定し、衣擦れが入らない位置にします。',
-                'Google Cloud Speech-to-Text の推奨どおり、近接マイクでは前処理を増やしすぎない方が安定します。',
+                '近接マイクでは前処理を増やしすぎない方が、音声認識に渡す声の輪郭が安定します。',
                 '机の振動やケーブル接触音を避けるため、衣服やスタンドに固定します。'
             ],
             constraints: {

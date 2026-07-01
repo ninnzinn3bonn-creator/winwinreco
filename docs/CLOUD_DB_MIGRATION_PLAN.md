@@ -1,5 +1,7 @@
 # Cloud Run 公開向け DB 移行プラン (SQLite → Firestore)
 
+> Current provider note (2026-06-29): this migration plan contains historical examples from the selectable-provider phase. The current production contract is fixed to `AI_PROVIDER=groq` with Groq `openai/gpt-oss-120b` and `STT_PROVIDER=elevenlabs` with ElevenLabs Scribe `scribe_v2` / `scribe_v2_realtime`. Use `cloudbuild.yaml` and `.env.example` for current provider values.
+
 ローカル SQLite で動いている GIJIRO を、Cloud Run で公開した状態でも DB が動作するよう Firestore へ移行する設計・タスク計画書。
 
 担当エージェントが本ドキュメント単体で迷わず作業着手できるよう、**確定値・正確なコマンド・既存実装との整合・機械検証可能な受け入れ条件のみ**で構成している。

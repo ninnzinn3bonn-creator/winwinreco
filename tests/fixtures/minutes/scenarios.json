@@ -1,0 +1,65 @@
+{
+  "short": {
+    "roomId": "room-minutes-short",
+    "startedAt": "2026-06-30T09:00:00.000Z",
+    "utterances": [
+      {
+        "id": "s-1",
+        "display_name": "Host",
+        "transcript": "今日はオンボーディングの残課題を確認します。",
+        "offsetMs": 0
+      },
+      {
+        "id": "s-2",
+        "display_name": "Alice",
+        "transcript": "Provider は Groq と ElevenLabs Scribe に固定済みです。",
+        "offsetMs": 90000
+      },
+      {
+        "id": "s-3",
+        "display_name": "Host",
+        "transcript": "会議終了後の議事録生成ロジックを優先して改善します。",
+        "offsetMs": 180000
+      }
+    ]
+  },
+  "domainTerms": {
+    "roomId": "room-minutes-domain",
+    "startedAt": "2026-06-30T10:00:00.000Z",
+    "utterances": [
+      {
+        "id": "d-1",
+        "display_name": "Researcher",
+        "transcript": "Scribe の transcript をもとに、RAG と topic tree の扱いを確認します。",
+        "offsetMs": 0
+      },
+      {
+        "id": "d-2",
+        "display_name": "Host",
+        "transcript": "専門用語は誤変換せず、発話録として残す方針です。",
+        "offsetMs": 120000
+      }
+    ]
+  },
+  "long90": {
+    "roomId": "room-minutes-long",
+    "startedAt": "2026-06-30T13:00:00.000Z",
+    "generatedUtterances": {
+      "count": 19,
+      "intervalMs": 300000,
+      "speakers": ["Host", "Alice", "Bob"],
+      "transcriptTemplate": "終了後議事録生成の長時間ケースを検証する発話"
+    }
+  },
+  "partialFailure": {
+    "roomId": "room-minutes-partial-failure",
+    "startedAt": "2026-06-30T15:00:00.000Z",
+    "failChunkIndex": 1,
+    "generatedUtterances": {
+      "count": 8,
+      "intervalMs": 300000,
+      "speakers": ["Host", "Alice"],
+      "transcriptTemplate": "一部チャンク失敗時の復旧導線を検証する発話"
+    }
+  }
+}

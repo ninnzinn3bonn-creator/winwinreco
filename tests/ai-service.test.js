@@ -54,4 +54,32 @@ describe('AIService Gemini fallback', () => {
         }));
         expect(service.provider.name).toBe('gemini (gemini-2.5-flash)');
     });
+
+    test('summary prompt adds past-meeting comparison only when past context is provided', async () => {
+        const service = new AIService({
+            apiKey: 'test-key',
+            geminiModel: 'gemini-2.5-flash'
+        });
+        service.provider = {
+            name: 'mock-provider',
+            generate: jest.fn(async () => '要約結果')
+        };
+
+        await service.generateSummaryFromMinutes(
+            '今回の議事録',
+            [],
+            [],
+            { pastContextBlock: '[過去関連会議サマリ]\n前回は試作が未完了。\n[/過去関連会議サマリ]' }
+        );
+        const promptWithPast = service.provider.generate.mock.calls[0][0];
+
+        await service.generateSummaryFromMinutes('今回の議事録', [], [], {});
+        const promptWithoutPast = service.provider.generate.mock.calls[1][0];
+
+        expect(promptWithPast).toContain('## 過去会議との差分');
+        expect(promptWithPast).toContain('過去会議の要約');
+        expect(promptWithPast).toContain('今回の会議の要約');
+        expect(promptWithPast).toContain('変化・差分コメント');
+        expect(promptWithoutPast).not.toContain('## 過去会議との差分');
+    });
 });

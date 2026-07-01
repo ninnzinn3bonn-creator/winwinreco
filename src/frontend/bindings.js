@@ -275,9 +275,13 @@
 
         if (dom.aiProvider) {
             dom.aiProvider.onchange = (event) => {
-                const provider = event.target.value;
+                // The provider select is now disabled and contains a single
+                // Groq option, but this handler remains for older DOM states
+                // and tests. Always normalize to the fixed provider pair.
+                const provider = state.fixedAiProvider || 'groq';
+                event.target.value = provider;
                 state.aiProvider = provider;
-                state.aiModel = provider === 'groq' ? 'openai/gpt-oss-120b' : 'gemini-2.5-flash';
+                state.aiModel = state.fixedAiModel || 'openai/gpt-oss-120b';
                 localStorage.setItem('ai_provider', state.aiProvider);
                 localStorage.setItem('ai_model', state.aiModel);
                 if (dom.aiModelInput) {

@@ -65,7 +65,7 @@ gcloud firestore indexes composite list
 | `GOOGLE_CLOUD_PROJECT=project-54176cf1-4753-464d-869` | Firestore Admin SDK の接続先 |
 | `OWNER_EMAIL=...` | 後方互換のオーナー判定 (DB の `is_owner` が無くてもフォールバック) |
 | `GEMINI_API_KEY` / `GROQ_API_KEY` / `GOOGLE_API_KEY` / `ELEVENLABS_API_KEY` | AI / STT |
-| `AI_PROVIDER` / `STT_PROVIDER` / `STT_LANGUAGE` | プロバイダ選択 |
+| `AI_PROVIDER` / `STT_PROVIDER` / `STT_LANGUAGE` | 固定プロバイダ設定 (Groq / ElevenLabs Scribe) |
 | `COOKIE_SECURE=true` | 本番のみ |
 | `WS_ALLOWED_ORIGINS` | WebSocket CORS |
 

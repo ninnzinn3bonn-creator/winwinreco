@@ -1,4 +1,177 @@
-﻿# プロジェクト進捗メモ (Meeting Minutes App)
+# プロジェクト進捗メモ (Meeting Minutes App)
+
+## 75. 文字起こし確定遅延・議事録アクション整理・過去会議差分要約 (2026-07-01)
+
+### 実施内容
+
+- ElevenLabs realtime STT の無音 commit タイマーを 2 秒から 3 秒へ変更した。
+  - 短い言い淀みで確定カードへ切り替わり、次の話し始めが欠落するリスクを下げるため。
+- 会議終了後の議事録ワークスペースから `Markdown 保存` ボタンを削除し、AI整理タブと同じ `コピー` / `ダウンロード` の2操作に統一した。
+- 過去会議サマリを参照して要約を生成する場合だけ、要約プロンプトに以下の出力要求を追加した。
+  - 過去会議の要約
+  - 今回の会議の要約
+  - 進んだ点、変わっていない点、新しく出た論点の差分コメント
+- 今回の会議のみで要約する場合は、従来の要約プロンプトのまま差分セクションを出さない。
+- 長時間議事録の summary merge prompt にも同じ差分要求を追加した。
+
+### 検証
+
+- `npm run check:encoding`
+- `npm run check:frontend`
+- `node --check src/backend/app.js`
+- `node --check src/backend/services/ai-service.js`
+- `npx jest tests/ai-service.test.js tests/static-pages.test.js --runInBand`
+- `npm test -- --runInBand` (31 suites passed, 1 skipped / 245 passed, 9 skipped)
+- ブラウザ確認: `/` の議事録パネルで `コピー` / `ダウンロード` の2ボタンのみ表示、`Markdown 保存` なし、console error なし。
+
+## 74. PowerShell / 文字コード固定の作業環境整備 (2026-07-01)
+
+### 実施内容
+
+- `.editorconfig` と `.gitattributes` を追加し、リポジトリのテキスト標準を UTF-8 / LF、PowerShell 系スクリプトを CRLF として明示した。
+- `scripts/Set-Utf8PowerShell.ps1` を追加し、Windows PowerShell 5.1 のセッションで `Get-Content` / `Set-Content` / `Out-File` / `Select-String` などを UTF-8 前提に固定できるようにした。
+- `scripts/Install-PowerShell7.ps1` を追加し、`winget` で PowerShell 7 をユーザースコープに導入するコマンドを明示確認できるようにした。
+- `scripts/check-encoding.js` と `npm run check:encoding` を追加し、UTF-16、invalid UTF-8、典型的な mojibake を検出できるようにした。
+- `pretest` に `check:encoding` を組み込み、通常の `npm test` で文字コード劣化も検出するようにした。
+- 既存の UTF-8 BOM 付きファイルを UTF-8 BOMなしに揃え、過去ログ内に残っていた実文字化け1件を修正した。
+- `README.md` と `docs/DEVELOPMENT_RULES.md` に PowerShell 5.1 での UTF-8 固定手順、PowerShell 7 導入補助、裸の `>` リダイレクトを避けるルールを追記した。
+
+### 検証
+
+- `node --check scripts/check-encoding.js`
+- `. .\scripts\Set-Utf8PowerShell.ps1 -Quiet; [Console]::OutputEncoding.WebName; (Get-Content package.json | Select-String 'description').ToString()`
+- `.\scripts\Install-PowerShell7.ps1 -WhatIfOnly`
+- `npm run check:encoding`
+- `npm test -- --runInBand` (31 suites passed, 1 skipped / 243 passed, 9 skipped)
+
+## 73. セットアップ画面整理・参加失敗修正・終了後AI解析回帰確認 (2026-07-01)
+
+### 実施内容
+
+- 会議セットアップ画面から `AI設定` カード、`専門用語辞書` カード、固定 provider の API ステータスカードを削除した。
+- マイク確認カードから手順カードを削除し、利用シーン選択 → メーター確認 → 必要時だけ微調整、という画面の自然な流れに整理した。
+- STT が ElevenLabs Scribe 固定であるため、辞書DOMが存在しない画面では legacy 辞書ロードが API を呼ばないようにした。
+- 会議中の発話カードから左端カラーの `border-left` 表現を削除し、薄い枠線と控えめな背景色のシンプルなメッセージカードに寄せた。
+- 会議参加失敗の主因として、参加者側 `joinRoom()` がマイク準備失敗時に入室前 return していた点を修正した。参加者はマイクなしでも入室でき、会議画面のマイクボタンで再接続できる。
+- 参加API失敗時にレスポンス本文を読まず `Join failed` だけを出していたため、backend のエラー詳細を Toast と debug log に出すようにした。
+- 短時間・長時間それぞれの会議終了後AI解析テストを追加し、終了API後に議事録、要約、ToDo 生成へ進むことを確認した。
+
+### 検証
+
+- `npm run check:frontend`
+- `npx jest tests/static-pages.test.js tests/api-insights.test.js --runInBand`
+- `npm test -- --runInBand` (31 suites passed, 1 skipped / 243 passed, 9 skipped)
+- ブラウザ実機確認: セットアップ画面で AI設定・専門用語辞書・APIステータス・手順カードが DOM から消えていること、コンソール error がないこと、発話カードCSSに `border-left` が残っていないことを確認。
+
+## 72. M1-B / M1-C 実装: 部分失敗可視化と merge 小改善 (2026-06-30)
+
+### 実施内容
+
+- `POST /rooms/:id/shared-ai/minutes`、`GET /rooms/:id/chunks`、`POST /rooms/:id/regenerate-chunk/:index` のレスポンスに `chunk_total` / `chunk_failed` / `chunk_status` を追加した。
+- `src/frontend/shared-ai.js` と `src/frontend/state.js` に議事録 chunk メタ状態を追加し、失敗 chunk がある場合は議事録本文とは別に警告帯を表示するようにした。
+- `src/frontend/index.html` / `src/frontend/style.css` に部分失敗警告と chunk 再生成パネルの表示スタイルを追加した。
+- `AIService.generateMinutesPerChunk()` の prompt に、前 chunk context と同じ発話を出力しない指示を明確に追加した。
+- `AIService.mergeMinutesChunks()` に、隣接 chunk 境界の同一行だけを後続 chunk 側から削る deterministic な重複除去を追加した。
+- 未確定仕様である chunk 境界 heuristic の変更は行わず、必要時は仕様確認して別タスク化する方針を `docs/POST_MEETING_MINUTES_GENERATION_PLAN.md` に明記した。
+- `docs/TASKS.md` と `CLAUDE.md` を更新し、M1-A / M1-B / M1-C の確定済み範囲は実装済み、現在アクティブな残タスクなしの状態に戻した。
+
+### 検証
+
+- `npx jest tests/api-insights.test.js --runInBand`
+- `npx jest tests/chunking.test.js --runInBand`
+- `npx jest tests/ai-elevenlabs-prompt.test.js --runInBand`
+- `node --check src/frontend/shared-ai.js`
+- `node --check src/frontend/state.js`
+- `node --check src/backend/services/ai-service.js`
+- `node --check src/backend/app.js`
+
+## 71. M1-A 実装: 終了後議事録生成の回帰 harness (2026-06-30)
+
+### 実施内容
+
+- `tests/fixtures/minutes/scenarios.json` を追加し、短時間会議、専門用語多め会議、90 分級会議、一部 chunk 失敗会議の deterministic fixture を定義した。
+- `tests/api-insights.test.js` に `POST /rooms/:id/shared-ai/minutes` の API レベル回帰テストを追加した。
+- 固定した挙動:
+  - 短時間会議は `generateMinutesFromTranscript()` を使う。
+  - 長時間会議は `generateMinutesPerChunk()` と `mergeMinutesChunks()` を使う。
+  - 議事録生成には past meeting context と userContext を渡さない。
+  - STT metadata は ElevenLabs Scribe (`stt_provider: elevenlabs`) として渡る。
+  - chunk 進捗 WebSocket message が `completed: 0` から `completed: total` まで送られる。
+  - chunk 部分失敗は `chunkRepo.upsert(... status: 'error')` として保存され、merged minutes に失敗 placeholder が残る。
+- `withTimeoutAndRetry()` の成功時に timeout timer が残る問題を修正した。chunk path の成功件数ぶん 60 秒 timer が残り、Jest と本番プロセスに不要な open handle / timer pressure を作るため、`finally` で `clearTimeout()` するようにした。
+- `docs/POST_MEETING_MINUTES_GENERATION_PLAN.md` の M1-A を implemented に更新し、次の推奨順を M1-B / M1-C に変更した。
+- `docs/TASKS.md` は再び「現在アクティブな残タスクはありません」に戻した。
+
+### 検証
+
+- `npx jest tests/api-insights.test.js --runInBand`
+- `npx jest tests/chunking.test.js --runInBand`
+
+## 70. 残タスク M1 完了: 終了後議事録生成ロジック監査計画 (2026-06-30)
+
+### 実施内容
+
+- `docs/POST_MEETING_MINUTES_GENERATION_PLAN.md` を追加し、会議終了後の議事録生成フローを監査した。
+- 現行フローを UI 起点、API 起点、入力収集、チャンク分岐、チャンク生成、並列・再試行、永続化、merge、短時間生成、表示の段階に分けて整理した。
+- 改善余地を以下に絞った。
+  - chunk 部分失敗が最終議事録本文に混ざるリスク
+  - `mergeMinutesChunks()` が単純連結で overlap 重複を除去しない点
+  - `chunkUtterances()` が時間と token だけを見て話題境界を見ない点
+  - 終了後生成全体の deterministic fixture が不足している点
+  - Gemini fallback の内部観測性
+- 次の実装単位を 3 つに絞った。
+  - M1-A: 終了後議事録生成の回帰 harness
+  - M1-B: 部分失敗の可視化と復旧導線
+  - M1-C: chunk 境界と merge 品質の小改善
+- `docs/TASKS.md` から M1 を削除し、Section C を「現在アクティブな残タスクはありません」に更新した。
+- `CLAUDE.md` の残タスクサマリも「残タスクなし」に更新した。
+
+### 検証
+
+- ドキュメントのみの変更。コード実行パスは変更していない。
+- `git diff --check` で whitespace error がないことを確認する。
+
+## 69. 確認事項反映と会議終了後議事録生成改善計画 (2026-06-30)
+
+### 確定した仕様判断
+
+- Gemini emergency fallback は仕様として維持する。表面上の provider は Groq 固定のまま、Groq の長文・rate limit などの安全策として backend 内部 fallback を残す。
+- 会議中ストリーミング議事録生成は実装しない。終了後の議事録生成ロジックを監査・改善する方針へ切り替える。
+- API キー再発行は今回は見送り。
+
+### 実施内容
+
+- `cloudbuild.yaml` の Cloud Run secrets に `GEMINI_API_KEY=gemini-api-key:latest` を戻し、Gemini fallback が本番でも機能するようにした。Google STT secret は戻していない。
+- Cloud Billing Budget API (`billingbudgets.googleapis.com`) を有効化。
+- 既存 budget `個人用` (`billingAccounts/01A568-5F299D-DE9E45/budgets/4c26a4cb-2646-4329-bc3c-02e058e46f00`) を更新。
+  - 金額: `3000 JPY` / 月次
+  - 通知しきい値: `25% / 50% / 100%`
+  - 請求先アカウントの通貨が JPY のため、既存の 3000 JPY budget を維持してしきい値を `$5/$10/$20` 相当の運用意図に合わせた。
+- `docs/TASKS.md` から L11 / OPS-1 / OPS-2 をアクティブタスクとして外し、`M1` として「会議終了後の議事録生成ロジック監査・改善計画」を追加。
+
+### 次の実装計画
+
+この計画は §70 で `docs/POST_MEETING_MINUTES_GENERATION_PLAN.md` に整理済み。次に実装する場合は、同メモの M1-A / M1-B / M1-C から新規タスク化する。
+
+## 68. Groq + ElevenLabs Scribe 固定化と開発コメント規約追加 (2026-06-29)
+
+### 実施内容
+
+- AI provider を Groq `openai/gpt-oss-120b`、STT provider を ElevenLabs Scribe `scribe_v2` / realtime `scribe_v2_realtime` に固定。
+- 会議前画面、会議中画面、会議後 AI 生成画面の loading 文言を `GroqでAI解析中です...` / `Groqで議事録を生成中です...` に統一。
+- 設定画面と会議前 AI provider select を disabled 化し、旧 `localStorage` / legacy `ai_config` / WebSocket `stt_provider` が残っていても backend で固定 provider に正規化するよう変更。
+- `cloudbuild.yaml` / `.env.example` / README / CLAUDE / ARCHITECTURE / TASKS / 運用系 docs を Groq + ElevenLabs Scribe 固定仕様に同期。
+- 今後の実コードでは、AI エージェントが判断根拠を追えるように intent / invariant / fallback / provider contract を厚めにコメントするルールを `docs/DEVELOPMENT_RULES.md` へ追加。
+
+### 検証
+
+- `npm test -- --runInBand`
+  - 30 test suites passed, 1 skipped
+  - 231 tests passed, 9 skipped
+
+### 補足
+
+- 2026-06-30 に Gemini emergency fallback 維持、API キー再発行見送り、会議中ストリーミング議事録生成なしで確定した。詳細は §69。
 
 ## 67. 全機能の実装監査 + テスト拡充 (2026-05-18)
 
@@ -964,7 +1137,7 @@ L1〜L4 で議事録 Map-Reduce を実装した続きとして、要約/ToDo/自
 - `meeting-ui.js` の `ready` ハンドラで受け取った STT 設定を state と localStorage に反映。
 
 ### F5 — 共有 URL から入った参加者に「会議に参加する」ボタン表示
-- `bindings.js` の `refreshStartCta()` で文字化けしていたボタンラベル (`莨夊ｭｰ縺ｫ蜿ょ刈`) を `'会議に参加する'` に修正。
+- `bindings.js` の `refreshStartCta()` で文字化けしていた参加ボタンラベルを `'会議に参加する'` に修正。
 - participant-mode のときルーム ID 入力欄を `readOnly = true` にして誤編集を防止。
 
 ### 確認

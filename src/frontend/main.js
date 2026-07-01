@@ -1,4 +1,4 @@
-﻿const { state } = window.AppState;
+const { state } = window.AppState;
 const {
     setupScreen,
     meetingScreen,
@@ -75,6 +75,15 @@ const {
     defaultDesktop: DEFAULT_DESKTOP_PRESET = 'pin_mic'
 } = window.AppMicPresets || {};
 
+// Product decision (2026-06-29): provider selection is locked. main.js still
+// contains legacy orchestration paths, so fixed constants here prevent stale
+// localStorage values from re-enabling the old Gemini / Google choices.
+const FIXED_AI_PROVIDER = 'groq';
+const FIXED_AI_MODEL = 'openai/gpt-oss-120b';
+const FIXED_STT_PROVIDER = 'elevenlabs';
+const AI_LOADING_TEXT = 'GroqでAI解析中です...';
+const MINUTES_LOADING_TEXT = 'Groqで議事録を生成中です...';
+
 const AppDebug = {
     log(level, message, details) {
         if (window.DebugMonitor?.log) {
@@ -100,9 +109,10 @@ function sendMicPresetMetadataToServer(preset) {
     if (!target || !target.stt) return;
     if (!state.ws || state.ws.readyState !== WebSocket.OPEN) return;
     try {
-        const sttProvider = (() => {
-            try { return localStorage.getItem('stt_provider') || 'google'; } catch (_) { return 'google'; }
-        })();
+        // Provider selection is fixed at the product level. This legacy helper
+        // remains in main.js for backward compatibility with older module
+        // wiring, so it must also ignore stale localStorage provider choices.
+        const sttProvider = state.fixedSttProvider || FIXED_STT_PROVIDER;
         state.ws.send(JSON.stringify({
             type: 'mic_preset',
             stt_provider: sttProvider,
@@ -172,6 +182,10 @@ function authedBody(extra = {}) {
 }
 
 async function loadDictionary() {
+    // The pre-meeting dictionary card is intentionally absent while STT is
+    // fixed to ElevenLabs Scribe. Keep this legacy helper dormant when the DOM
+    // target is missing so setup boot does not make unnecessary API calls.
+    if (!window.AppDom?.dictionaryList) return;
     try {
         const res = await fetch('/api/dictionary');
         const data = await readApiResponse(res);
@@ -248,7 +262,7 @@ async function extractTermsFromText() {
     const originalText = btn.innerText;
     
     btn.disabled = true;
-    btn.innerText = '解析中...';
+    btn.innerText = AI_LOADING_TEXT;
     resultsArea.classList.add('hidden');
 
     try {
@@ -935,15 +949,15 @@ function renderMinutesWorkspace() {
             minutesProgressWrap.classList.remove('hidden');
             const pct = Math.round(prog.completed / prog.total * 100);
             minutesProgressBar.style.width = `${pct}%`;
-            if (minutesLoadingText) minutesLoadingText.textContent = `議事録を生成中です... (${prog.completed}/${prog.total} チャンク)`;
+            if (minutesLoadingText) minutesLoadingText.textContent = `${MINUTES_LOADING_TEXT} (${prog.completed}/${prog.total} チャンク)`;
         } else {
             minutesProgressWrap.classList.add('hidden');
-            if (minutesLoadingText) minutesLoadingText.textContent = '議事録を生成中です...';
+            if (minutesLoadingText) minutesLoadingText.textContent = MINUTES_LOADING_TEXT;
         }
     }
 
     if (isLoading) {
-        minutesWorkspaceStatus.innerHTML = '<span class="spinner inline-spinner"></span> 議事録を生成中です...';
+        minutesWorkspaceStatus.innerHTML = `<span class="spinner inline-spinner"></span> ${MINUTES_LOADING_TEXT}`;
         return;
     }
 
@@ -976,7 +990,7 @@ function renderMeetingInsights() {
     if (minutesButton) minutesButton.innerText = isHost ? '自動調整で議事録を生成' : '議事録を表示';
 
     if (state.meetingInsights.status === 'processing' || state.meetingInsights.loading) {
-        aiWorkspaceStatus.innerHTML = '<span class="spinner inline-spinner"></span> 共有AI結果を生成中です...';
+        aiWorkspaceStatus.innerHTML = `<span class="spinner inline-spinner"></span> ${AI_LOADING_TEXT}`;
         return;
     }
 
@@ -1097,8 +1111,8 @@ async function runDirectAnalysis(type, title, instruction = '') {
                 type,
                 instruction,
                 ai_config: {
-                    provider: state.aiProvider || 'gemini',
-                    model: state.aiModel || (state.aiProvider === 'groq' ? 'openai/gpt-oss-120b' : 'gemini-2.5-flash')
+                    provider: state.fixedAiProvider || FIXED_AI_PROVIDER,
+                    model: state.fixedAiModel || FIXED_AI_MODEL
                 }
             }))
         });
@@ -1140,7 +1154,7 @@ function renderMeetingAnalysis() {
     Object.entries(meetingAiButtons).forEach(([key, button]) => {
         const isLoading = loadingKey === key;
         button.disabled = !!loadingKey && !isLoading;
-        button.innerText = isLoading ? '解析中...' : (
+        button.innerText = isLoading ? AI_LOADING_TEXT : (
             key === 'summary'
                 ? '要約'
                 : key === 'todo'
@@ -1179,7 +1193,7 @@ async function runMeetingAnalysis(key) {
     if (!config) return;
 
     state.liveMeetingAnalysis.loadingKey = key;
-    state.liveMeetingAnalysis.status = `${config.title}を Gemini で解析しています...`;
+    state.liveMeetingAnalysis.status = AI_LOADING_TEXT;
     renderMeetingAnalysis();
 
     try {
@@ -1190,8 +1204,8 @@ async function runMeetingAnalysis(key) {
                 type: config.type,
                 instruction: config.instruction || '',
                 ai_config: {
-                    provider: state.aiProvider || 'gemini',
-                    model: state.aiModel || (state.aiProvider === 'groq' ? 'openai/gpt-oss-120b' : 'gemini-2.5-flash')
+                    provider: state.fixedAiProvider || FIXED_AI_PROVIDER,
+                    model: state.fixedAiModel || FIXED_AI_MODEL
                 }
             }))
         });
@@ -1750,15 +1764,15 @@ function renderAiWorkspace() {
             aiProgressWrap.classList.remove('hidden');
             const pct = Math.round(aiProg.completed / aiProg.total * 100);
             aiProgressBar.style.width = `${pct}%`;
-            if (aiLoadingText) aiLoadingText.textContent = `AIが解析中です... (${aiProg.completed}/${aiProg.total} チャンク)`;
+            if (aiLoadingText) aiLoadingText.textContent = `${AI_LOADING_TEXT} (${aiProg.completed}/${aiProg.total} チャンク)`;
         } else {
             aiProgressWrap.classList.add('hidden');
-            if (aiLoadingText) aiLoadingText.textContent = 'AIが解析中です...';
+            if (aiLoadingText) aiLoadingText.textContent = AI_LOADING_TEXT;
         }
     }
 
     if (isLoading) {
-        aiWorkspaceStatus.innerHTML = '<span class="spinner inline-spinner"></span> AIが解析中です...';
+        aiWorkspaceStatus.innerHTML = `<span class="spinner inline-spinner"></span> ${AI_LOADING_TEXT}`;
         return;
     }
 
@@ -2132,9 +2146,13 @@ async function joinRoomProcess(roomId, displayName, profileText = '') {
         const userId = ensureLocalUserId();
         const usePastMeetings = !!document.getElementById('use-past-meetings')?.checked;
         
-        // Save current AI settings
+        // Providers are fixed; overwrite stale browser choices before the
+        // room join call so the backend never receives legacy Gemini values.
+        state.aiProvider = state.fixedAiProvider || FIXED_AI_PROVIDER;
+        state.aiModel = state.fixedAiModel || FIXED_AI_MODEL;
         localStorage.setItem('ai_provider', state.aiProvider);
         localStorage.setItem('ai_model', state.aiModel);
+        localStorage.setItem('stt_provider', state.fixedSttProvider || FIXED_STT_PROVIDER);
         localStorage.setItem('use_past_meetings', usePastMeetings ? '1' : '0');
         state.usePastMeetings = usePastMeetings;
 
@@ -2151,8 +2169,8 @@ async function joinRoomProcess(roomId, displayName, profileText = '') {
                 location_id: 'web-browser',
                 profile_text: profileText,
                 ai_config: {
-                    provider: state.aiProvider,
-                    model: state.aiModel,
+                    provider: state.fixedAiProvider || FIXED_AI_PROVIDER,
+                    model: state.fixedAiModel || FIXED_AI_MODEL,
                     use_past_meetings: usePastMeetings
                 }
             })
@@ -2293,7 +2311,7 @@ function initWebSocket() {
         addSystemMessage('サーバーに接続しました。');
         state.ws.send(JSON.stringify({ type: 'hello' }));
         // Send the current mic preset metadata so the server can build the
-        // right Google STT config (microphone distance, recording device).
+        // right STT metadata (microphone distance, recording device).
         sendMicPresetMetadataToServer();
     };
     state.ws.onmessage = (event) => {
@@ -2825,43 +2843,25 @@ async function checkApiStatus() {
         const res = await fetch('/api/status');
         const status = await readApiResponse(res);
 
-        // ユーザーが profile で選択した STT プロバイダーを優先して表示する。
-        // サーバーの STT_PROVIDER 環境変数はデフォルト値に過ぎない。
-        const userSttProvider = (() => {
-            try { return localStorage.getItem('stt_provider') || ''; } catch (_) { return ''; }
-        })();
-        const effectiveSttProvider = userSttProvider || status.stt_provider || 'google';
-        const isOverriding = userSttProvider && userSttProvider !== status.stt_provider;
-
-        // ElevenLabs 選択時はリアルタイム専用モデル名・言語コードを表示
-        let sttModelDisplay, sttLangDisplay;
-        if (effectiveSttProvider === 'elevenlabs') {
-            sttModelDisplay = 'scribe_v2_realtime';
-            sttLangDisplay = 'ja';
-        } else {
-            sttModelDisplay = status.stt_model || '-';
-            sttLangDisplay = status.stt_language || '-';
-        }
-
-        const sttProviderLabel = effectiveSttProvider.toUpperCase()
-            + (isOverriding ? ' (プロフィール設定)' : '');
-
-        // ElevenLabs のキーがサーバーに設定されているかも確認
-        const sttOk = effectiveSttProvider === 'elevenlabs'
-            ? !!(status.stt_available_providers || []).includes('elevenlabs')
-            : !!status.speech_to_text;
+        // Provider selection is fixed. The status card should confirm the
+        // locked operational choice, not imply the user can override it from
+        // profile settings or localStorage.
+        const sttModelDisplay = state.fixedSttRealtimeModel || 'scribe_v2_realtime';
+        const sttLangDisplay = status.stt_language || 'ja';
+        const sttProviderLabel = 'ELEVENLABS SCRIBE (固定)';
+        const sttOk = !!status.speech_to_text;
 
         const dictWords = Number.isFinite(status.stt_dictionary_words) ? status.stt_dictionary_words : 0;
         const boostCap = Number.isFinite(status.stt_boost_cap) ? status.stt_boost_cap : 100;
         const boostSummary = dictWords <= boostCap
             ? `辞書 ${dictWords}語 (全件をブーストに送信)`
             : `辞書 ${dictWords}語 (会議ごとに上位 ${boostCap}語をブーストに送信)`;
-        const aiProvider = (status.ai_provider || '未設定').toUpperCase();
+        const aiProvider = 'GROQ (固定)';
         const secureOk = isSecureContextForMedia();
         const lines = [
             `<strong>音声認識:</strong> ${sttOk ? '✅' : '⚠️'} ${sttProviderLabel} / モデル ${sttModelDisplay} / 言語 ${sttLangDisplay}`,
             `<strong>ブースト単語:</strong> ${boostSummary}`,
-            `<strong>AI:</strong> ${aiProvider}${status.ai_provider === 'groq' ? ' (既定)' : ''}`,
+            `<strong>AI:</strong> ${aiProvider} / モデル ${state.fixedAiModel || FIXED_AI_MODEL}`,
             `<strong>HTTPS:</strong> ${secureOk ? 'OK' : '⚠️ HTTPS が必要です'}`
         ];
         container.innerHTML = `<div class="system-message api-status-block">${lines.join('<br>')}</div>`;
@@ -2878,8 +2878,6 @@ function initializeSetupUi() {
     const savedProfileText = localStorage.getItem('profile_text');
     const savedSensitivity = localStorage.getItem('mic_sensitivity');
     const savedMicPreset = localStorage.getItem('mic_preset');
-    const savedAiProvider = localStorage.getItem('ai_provider');
-    const savedAiModel = localStorage.getItem('ai_model');
     const savedUsePastMeetings = localStorage.getItem('use_past_meetings');
     const savedMinThreshold = Number(localStorage.getItem('mic_threshold_min'));
     const savedMaxThreshold = Number(localStorage.getItem('mic_threshold_max'));
@@ -2894,12 +2892,17 @@ function initializeSetupUi() {
         usePastCheckbox.checked = state.usePastMeetings;
     }
     
-    if (savedAiProvider) {
-        state.aiProvider = savedAiProvider;
-        if (window.AppDom.aiProvider) window.AppDom.aiProvider.value = savedAiProvider;
-    }
-    // Always sync model state with current provider. Groq is the default.
-    state.aiModel = state.aiProvider === 'groq' ? 'openai/gpt-oss-120b' : 'gemini-2.5-flash';
+    // Ignore stale provider choices saved before provider locking. The setup
+    // screen still contains a disabled select for visibility, so keep that
+    // DOM control synchronized with the fixed Groq model.
+    state.aiProvider = state.fixedAiProvider || FIXED_AI_PROVIDER;
+    state.aiModel = state.fixedAiModel || FIXED_AI_MODEL;
+    try {
+        localStorage.setItem('ai_provider', state.aiProvider);
+        localStorage.setItem('ai_model', state.aiModel);
+        localStorage.setItem('stt_provider', state.fixedSttProvider || FIXED_STT_PROVIDER);
+    } catch (_) { /* ignore */ }
+    if (window.AppDom.aiProvider) window.AppDom.aiProvider.value = state.aiProvider;
     if (window.AppDom.aiModelInput) {
         window.AppDom.aiModelInput.value = state.aiModel;
     }

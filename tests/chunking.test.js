@@ -423,6 +423,24 @@ describe('AIService.mergeMinutesChunks', () => {
         expect(r).toBe('一番目\n\n三番目');
     });
 
+    test('M1-C: 隣接チャンク境界の同一行だけを後続側から除去する', () => {
+        const chunks = [
+            { chunkIndex: 0, result: 'Alice: まず前提を確認します。\nBob: はい、確認しました。' },
+            { chunkIndex: 1, result: 'Bob: はい、確認しました。\nAlice: 次の論点に進みます。' },
+        ];
+        const r = svc.mergeMinutesChunks(chunks);
+        expect(r).toBe('Alice: まず前提を確認します。\nBob: はい、確認しました。\n\nAlice: 次の論点に進みます。');
+    });
+
+    test('M1-C: 境界以外の同一発話は削らない', () => {
+        const chunks = [
+            { chunkIndex: 0, result: 'Alice: 了解です。\nBob: 次に進みます。' },
+            { chunkIndex: 1, result: 'Carol: 別件です。\nAlice: 了解です。' },
+        ];
+        const r = svc.mergeMinutesChunks(chunks);
+        expect(r).toBe('Alice: 了解です。\nBob: 次に進みます。\n\nCarol: 別件です。\nAlice: 了解です。');
+    });
+
     test('エラーチャンクのプレースホルダーも結合される (議事録に痕跡が残る)', () => {
         const chunks = [
             { chunkIndex: 0, result: '一番目' },

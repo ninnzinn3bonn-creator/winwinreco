@@ -313,7 +313,7 @@ README.txt           内容の説明
 
 #### 内容ガイドライン (法務確認推奨)
 - データの保存場所 (Cloud Firestore, asia-northeast1)
-- 利用される外部 API (Google STT, ElevenLabs, Gemini)
+- 利用される外部 API (Groq, ElevenLabs Scribe)
 - 第三者へのデータ提供有無
 - 削除権 / エクスポート権 (U-2 と接続)
 - お問い合わせ窓口 (`OWNER_EMAIL` を使う、または別アドレス)
@@ -494,7 +494,7 @@ jobs:
 
 #### 現状
 - Cloud Billing Budget Alert ($5/$10/$20) のみ — 「使いすぎてから気付く」レベル
-- Gemini / Google STT / ElevenLabs の API 個別の使用量は不可視
+- Groq / ElevenLabs Scribe の API 個別の使用量は不可視
 
 #### 設計
 1. **アプリ側でメータリング**

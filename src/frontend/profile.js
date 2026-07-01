@@ -71,23 +71,39 @@
 
     // -------- Settings (client-only, localStorage) --------------------------
     const SETTINGS_KEY = 'gijiro:settings';
+    // Product decision (2026-06-29): provider choice is no longer a user
+    // preference. These constants intentionally duplicate the frontend state
+    // defaults so the settings modal can sanitize older saved settings before
+    // anything else reads them.
+    const FIXED_AI_PROVIDER = 'groq';
+    const FIXED_AI_MODEL = 'openai/gpt-oss-120b';
+    const FIXED_STT_PROVIDER = 'elevenlabs';
+    const FIXED_STT_BATCH_MODEL = 'scribe_v2';
+    const FIXED_STT_REALTIME_MODEL = 'scribe_v2_realtime';
     const SETTINGS_DEFAULTS = {
         theme: 'system',           // system | light | dark
-        defaultAiProvider: 'gemini', // gemini | groq
+        defaultAiProvider: FIXED_AI_PROVIDER,
         defaultMicPreset: '',       // empty → fall back to device default
         autoBackfill: true,         // automatically link anonymous joins on login
-        sttProvider: 'google'       // google | elevenlabs
+        sttProvider: FIXED_STT_PROVIDER
     };
     function loadSettings() {
         try {
             const raw = localStorage.getItem(SETTINGS_KEY);
-            return Object.assign({}, SETTINGS_DEFAULTS, raw ? JSON.parse(raw) : {});
+            return normalizeSettings(Object.assign({}, SETTINGS_DEFAULTS, raw ? JSON.parse(raw) : {}));
         } catch (_) {
             return { ...SETTINGS_DEFAULTS };
         }
     }
+    function normalizeSettings(settings) {
+        return {
+            ...settings,
+            defaultAiProvider: FIXED_AI_PROVIDER,
+            sttProvider: FIXED_STT_PROVIDER
+        };
+    }
     function saveSettings(next) {
-        const merged = Object.assign({}, loadSettings(), next);
+        const merged = normalizeSettings(Object.assign({}, loadSettings(), next));
         try { localStorage.setItem(SETTINGS_KEY, JSON.stringify(merged)); } catch (_) { /* ignore */ }
         applySettings(merged);
         return merged;
@@ -110,10 +126,13 @@
                 document.documentElement.style.colorScheme = 'light dark';
             }
         } catch (_) { /* ignore */ }
-        // Default AI provider — used by main.js next time it boots.
-        try { localStorage.setItem('ai_provider', s.defaultAiProvider); } catch (_) { /* ignore */ }
-        // STT provider — read by main.js when sending mic_preset to the server.
-        try { localStorage.setItem('stt_provider', s.sttProvider || 'google'); } catch (_) { /* ignore */ }
+        // Provider choices are fixed. We still persist them because older code
+        // paths and browser tabs read localStorage during bootstrap; writing
+        // the fixed values here prevents stale user choices from leaking into
+        // room creation or WebSocket mic metadata.
+        try { localStorage.setItem('ai_provider', FIXED_AI_PROVIDER); } catch (_) { /* ignore */ }
+        try { localStorage.setItem('ai_model', FIXED_AI_MODEL); } catch (_) { /* ignore */ }
+        try { localStorage.setItem('stt_provider', FIXED_STT_PROVIDER); } catch (_) { /* ignore */ }
         if (s.defaultMicPreset) {
             try { localStorage.setItem('mic_preset', s.defaultMicPreset); } catch (_) { /* ignore */ }
         }
@@ -711,17 +730,15 @@
         const themeSelect = el('select', {}, themeOptions);
         themeSelect.value = settings.theme;
 
-        const aiSelect = el('select', {}, [
-            el('option', { value: 'gemini' }, 'Gemini (gemini-2.5-flash)'),
-            el('option', { value: 'groq' }, 'Groq (gpt-oss-120b)')
+        const aiSelect = el('select', { disabled: true, 'aria-describedby': 'fixed-provider-note' }, [
+            el('option', { value: FIXED_AI_PROVIDER }, 'Groq (gpt-oss-120b)')
         ]);
-        aiSelect.value = settings.defaultAiProvider;
+        aiSelect.value = FIXED_AI_PROVIDER;
 
-        const sttSelect = el('select', {}, [
-            el('option', { value: 'google' }, 'Google (デフォルト)'),
-            el('option', { value: 'elevenlabs' }, 'ElevenLabs Scribe')
+        const sttSelect = el('select', { disabled: true, 'aria-describedby': 'fixed-provider-note' }, [
+            el('option', { value: FIXED_STT_PROVIDER }, 'ElevenLabs Scribe (scribe_v2 / realtime: scribe_v2_realtime)')
         ]);
-        sttSelect.value = settings.sttProvider || 'google';
+        sttSelect.value = FIXED_STT_PROVIDER;
 
         const micSelect = el('select', {}, [
             el('option', { value: '' }, '自動 (デバイス推奨)'),
@@ -740,18 +757,16 @@
         function persist() {
             saveSettings({
                 theme: themeSelect.value,
-                defaultAiProvider: aiSelect.value,
+                defaultAiProvider: FIXED_AI_PROVIDER,
                 defaultMicPreset: micSelect.value,
                 autoBackfill: !!backfillCheckbox.checked,
-                sttProvider: sttSelect.value
+                sttProvider: FIXED_STT_PROVIDER
             });
             status.textContent = '保存しました';
             setTimeout(() => { status.textContent = ''; }, 1400);
         }
         themeSelect.addEventListener('change', persist);
-        aiSelect.addEventListener('change', persist);
         micSelect.addEventListener('change', persist);
-        sttSelect.addEventListener('change', persist);
         backfillCheckbox.addEventListener('change', persist);
 
         const localUserId = (() => {
@@ -770,7 +785,7 @@
         });
 
         return el('div', { className: 'profile-tab-pane profile-pane-settings' }, [
-            el('p', { className: 'profile-pane-lead' }, '基本的なアプリ設定です。設定はこの端末に保存され、会議準備画面の AI / マイク選択とも同期します。'),
+            el('p', { className: 'profile-pane-lead' }, '基本的なアプリ設定です。AI は Groq、音声認識は ElevenLabs Scribe に固定されています。'),
             el('div', { className: 'profile-settings-grid' }, [
                 el('label', {}, ['表示テーマ', themeSelect]),
                 el('label', {}, ['既定の AI プロバイダ', aiSelect]),
@@ -781,6 +796,7 @@
                     el('span', {}, 'ログイン時に過去の匿名参加を自動でアカウントに紐付ける')
                 ])
             ]),
+            el('p', { id: 'fixed-provider-note', className: 'profile-pane-lead' }, `プロバイダは運用品質を揃えるため固定です。AI: Groq ${FIXED_AI_MODEL} / STT: ElevenLabs Scribe ${FIXED_STT_BATCH_MODEL} (${FIXED_STT_REALTIME_MODEL})。`),
             el('div', { className: 'profile-settings-row' }, [status]),
             el('details', { className: 'profile-settings-advanced' }, [
                 el('summary', {}, '詳細情報'),

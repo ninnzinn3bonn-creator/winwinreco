@@ -28,7 +28,10 @@ describe('End-to-End Audio Flow', () => {
         const mockSpeechClient = {
             recognize: jest.fn().mockResolvedValue([{ results: [{ alternatives: [{ transcript: 'Test Transcript' }] }] }])
         };
-        const sttService = new STTService({ client: mockSpeechClient });
+        const sttService = new STTService({
+            provider: 'google',
+            client: mockSpeechClient
+        });
         const audioProcessor = new AudioProcessor({ chunkLimit: 2 }); // Process every 2 chunks
 
         const app = createApp(repos);

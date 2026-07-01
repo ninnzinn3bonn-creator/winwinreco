@@ -39,7 +39,7 @@ documentation trustworthy.
 
 ## Watch Closely in This Project
 
-- default AI provider and default STT provider
+- fixed AI provider and fixed STT provider
 - setup screen options
 - post-meeting tab structure
 - host-only generation rules

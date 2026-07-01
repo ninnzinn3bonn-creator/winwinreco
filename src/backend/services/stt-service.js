@@ -32,8 +32,10 @@ function pcm16ToWav(audioBuffer, {
 class STTService {
     constructor(options = {}) {
         this.provider = options.provider
-            || process.env.STT_PROVIDER
-            || (process.env.ELEVENLABS_API_KEY ? 'elevenlabs' : process.env.GROQ_API_KEY ? 'groq' : 'google');
+            // Product default is ElevenLabs Scribe. Tests and explicit legacy
+            // utilities can still pass options.provider, but ambient
+            // STT_PROVIDER must not silently re-enable old Google/Groq STT.
+            || 'elevenlabs';
 
         this.sampleRate = options.sampleRate || 16000;
         this.language = options.language || 'ja';

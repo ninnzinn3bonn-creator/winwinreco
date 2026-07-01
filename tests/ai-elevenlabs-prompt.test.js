@@ -40,4 +40,43 @@ describe('ElevenLabs prompt switch', () => {
         const rules = svc._buildMinutesEditingRules({});
         expect(rules.allowed).toMatch(/誤認識/);
     });
+
+    test('M1-C: chunk prompt marks overlap context as non-output', async () => {
+        const generate = jest.fn(async () => 'chunk minutes');
+        svc.getProvider = jest.fn(() => ({ name: 'mock-provider', generate }));
+
+        await svc.generateMinutesPerChunk(
+            {
+                index: 1,
+                startTs: '2026-06-30T10:10:00.000Z',
+                endTs: '2026-06-30T10:20:00.000Z',
+                overlapWith: ['utt-overlap'],
+                utterances: [
+                    {
+                        id: 'utt-overlap',
+                        display_name: 'Alice',
+                        transcript: '前チャンクと重複する発話です。',
+                        started_at: '2026-06-30T10:09:40.000Z'
+                    },
+                    {
+                        id: 'utt-target',
+                        display_name: 'Bob',
+                        transcript: 'ここから新しい発話です。',
+                        started_at: '2026-06-30T10:10:10.000Z'
+                    }
+                ]
+            },
+            3,
+            { stt_provider: 'elevenlabs' },
+            [],
+            [],
+            {}
+        );
+
+        const prompt = generate.mock.calls[0][0];
+        expect(prompt).toContain('[CONTEXT - 前チャンクの末尾。文脈参照のみ、出力には含めないこと]');
+        expect(prompt).toContain('上記 CONTEXT と同じ発話');
+        expect(prompt).toContain('[OUTPUT TARGET - ここから先のみを発言録として出力してください]');
+        expect(prompt).toMatch(/Alice: 前チャンクと重複する発話です。[\s\S]*Bob: ここから新しい発話です。/);
+    });
 });

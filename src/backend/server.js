@@ -28,7 +28,10 @@ async function start() {
 
     const audioProcessor = new AudioProcessor({ chunkLimit: 10 });
     const sttService = new STTService({
-        provider: process.env.STT_PROVIDER || 'google',
+        // Product decision (2026-06-29): production STT is fixed to
+        // ElevenLabs Scribe. Do not read STT_PROVIDER here; stale .env values
+        // from the old selectable-provider era must not switch runtime STT.
+        provider: 'elevenlabs',
         groqApiKey: process.env.GROQ_API_KEY,
         groqModel: process.env.GROQ_STT_MODEL || 'whisper-large-v3-turbo',
         googleApiKey: process.env.GOOGLE_API_KEY,
@@ -37,15 +40,23 @@ async function start() {
     logger.info('[startup] STT configured', {
         provider: sttService.provider,
         language: sttService.language,
-        model: sttService.provider === 'groq' ? sttService.groqModel : 'latest_long(google)'
+        model: sttService.provider === 'elevenlabs'
+            ? sttService.elevenLabsRealtimeModel
+            : sttService.provider === 'groq'
+                ? sttService.groqModel
+                : 'latest_long(google)'
     });
 
     const aiService = new AIService({
-        provider: process.env.AI_PROVIDER || (process.env.GROQ_API_KEY ? 'groq' : 'gemini'),
+        // Product decision (2026-06-29): production AI is fixed to Groq.
+        // AIService still contains provider implementations for tests and
+        // emergency fallback paths, but app bootstrap must not honor stale
+        // AI_PROVIDER values from older deployments.
+        provider: 'groq',
         apiKey: process.env.GEMINI_API_KEY,
         groqApiKey: process.env.GROQ_API_KEY
     });
-    logger.info('[startup] AI configured', { provider: aiService.provider?.name || (process.env.AI_PROVIDER || 'auto') });
+    logger.info('[startup] AI configured', { provider: aiService.provider?.name || 'groq' });
 
     repos.aiService = aiService;
 

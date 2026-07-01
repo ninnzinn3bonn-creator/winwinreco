@@ -43,6 +43,23 @@ function validateSignupInput(body) {
 const COOKIE_SECURE = process.env.COOKIE_SECURE === 'true';
 const SESSION_TTL_DAYS = 30;
 const SESSION_TTL_SECONDS = SESSION_TTL_DAYS * 24 * 60 * 60;
+// Product decision (2026-06-29): provider selection is fixed for operational
+// consistency. The UI is disabled, but the backend still normalizes incoming
+// ai_config / room defaults because older tabs or API clients can submit stale
+// "gemini" or "google" values from localStorage.
+const FIXED_AI_PROVIDER = 'groq';
+const FIXED_AI_MODEL = 'openai/gpt-oss-120b';
+const FIXED_STT_PROVIDER = 'elevenlabs';
+const FIXED_STT_BATCH_MODEL = 'scribe_v2';
+const FIXED_STT_REALTIME_MODEL = 'scribe_v2_realtime';
+
+function fixedAiConfig(extra = {}) {
+    return {
+        ...extra,
+        provider: FIXED_AI_PROVIDER,
+        model: FIXED_AI_MODEL
+    };
+}
 
 function generateShortRoomId() {
     const alphabet = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
@@ -115,6 +132,10 @@ function createApp(repositories = {}) {
     app.get('/privacy', (req, res) => {
         const path = require('path');
         res.sendFile(path.join(__dirname, '../frontend/privacy.html'));
+    });
+    app.get('/progress', (req, res) => {
+        const path = require('path');
+        res.sendFile(path.join(__dirname, '../frontend/progress.html'));
     });
 
     // リクエスト ID ミドルウェア: 全リクエストに UUID を付与し、ログの追跡に使う。
@@ -231,17 +252,42 @@ function createApp(repositories = {}) {
         };
     }
 
+    function buildMinuteChunkMeta(chunkItems = []) {
+        // The minutes path sees two data shapes:
+        //   - live AI results: { chunkIndex, startTs, endTs, result, provider }
+        //   - persisted rows: { chunk_index, start_ts, end_ts, result_text, status }
+        // Normalize both into one API contract so the frontend can warn about
+        // partial failures without scraping the final minutes text.
+        const chunkStatus = (Array.isArray(chunkItems) ? chunkItems : [])
+            .map((item) => {
+                const chunkIndex = Number.isInteger(item.chunkIndex) ? item.chunkIndex : Number(item.chunk_index);
+                const provider = item.provider || '';
+                const status = item.status || (provider === 'error' ? 'error' : 'done');
+                const resultText = item.result != null ? item.result : item.result_text;
+                return {
+                    chunk_index: Number.isFinite(chunkIndex) ? chunkIndex : 0,
+                    status: status === 'error' ? 'error' : 'done',
+                    start_ts: item.startTs || item.start_ts || '',
+                    end_ts: item.endTs || item.end_ts || '',
+                    has_result: String(resultText || '').trim().length > 0
+                };
+            })
+            .sort((a, b) => a.chunk_index - b.chunk_index);
+
+        return {
+            chunk_total: chunkStatus.length,
+            chunk_failed: chunkStatus.filter((item) => item.status === 'error').length,
+            chunk_status: chunkStatus
+        };
+    }
+
     async function generateSharedAiResult(roomId, type, options = {}) {
         const room = await roomRepo.findById(roomId);
         if (!room) {
             throw new Error('Room not found');
         }
 
-        const provider = room.ai_provider || 'gemini';
-        const aiConfig = {
-            provider,
-            model: room.ai_model || (provider === 'groq' ? 'openai/gpt-oss-120b' : 'gemini-2.5-flash')
-        };
+        const aiConfig = fixedAiConfig();
 
         // Past-meeting context is gated by:
         //   1) the host being logged in (owner_account_id present)
@@ -283,10 +329,11 @@ function createApp(repositories = {}) {
                 roomId,
                 date: new Date().toLocaleString('ja-JP'),
                 title: `ルーム ${roomId}`,
-                stt_provider: room.stt_provider || 'google'
+                stt_provider: room.stt_provider || FIXED_STT_PROVIDER
             };
 
             let minutesText;
+            let minutesChunkMeta = buildMinuteChunkMeta();
 
             if (shouldChunk(utterances)) {
                 // ── Map-Reduce パス (長時間会議) ──────────────────────────
@@ -339,6 +386,7 @@ function createApp(repositories = {}) {
                 );
 
                 minutesText = aiService.mergeMinutesChunks(chunkResults, roomMeta);
+                minutesChunkMeta = buildMinuteChunkMeta(chunkResults);
             } else {
                 // ── 通常パス (短い会議) ───────────────────────────────────
                 const generated = await aiService.generateMinutesFromTranscript(
@@ -354,7 +402,8 @@ function createApp(repositories = {}) {
             return {
                 type,
                 result: minutesText,
-                updated_at: updatedRoom?.minutes_updated_at || null
+                updated_at: updatedRoom?.minutes_updated_at || null,
+                ...minutesChunkMeta
             };
         }
 
@@ -518,11 +567,7 @@ function createApp(repositories = {}) {
             throw new Error('Room not found');
         }
 
-        const provider = room.ai_provider || 'gemini';
-        const resolvedAiConfig = aiConfig || {
-            provider,
-            model: room.ai_model || (provider === 'groq' ? 'openai/gpt-oss-120b' : 'gemini-2.5-flash')
-        };
+        const resolvedAiConfig = fixedAiConfig(aiConfig || {});
 
         // Inject past-meeting context block if requested via manual room selection
         if (Array.isArray(opts.pastRoomIds) && room.owner_account_id) {
@@ -643,21 +688,15 @@ function createApp(repositories = {}) {
         res.status(200).send('GIJIRO API');
     });
 
-    // GET /api/status - Check if API keys are configured properly. Now also
-    // surfaces the active STT language, model, and dictionary boost-word
-    // count so the setup screen can confirm "GROQ / Japanese / N boost words"
-    // at a glance instead of guessing from server logs.
+    // GET /api/status - Check if the fixed providers are configured properly.
+    // The setup screen uses this response as a read-only status card; it no
+    // longer exposes a provider picker, so keep the response wording aligned
+    // with the Groq + ElevenLabs Scribe product decision.
     app.get('/api/status', async (req, res) => {
-        // STT defaults to Google (matches server.js bootstrap). AI defaults
-        // to Groq when its API key is present, otherwise Gemini.
-        const sttProvider = process.env.STT_PROVIDER || 'google';
-        const aiProvider = process.env.AI_PROVIDER || (process.env.GROQ_API_KEY ? 'groq' : 'gemini');
+        const sttProvider = FIXED_STT_PROVIDER;
+        const aiProvider = FIXED_AI_PROVIDER;
         const sttLanguage = process.env.STT_LANGUAGE || 'ja';
-        const sttModel = sttProvider === 'groq'
-            ? (process.env.GROQ_STT_MODEL || 'whisper-large-v3-turbo')
-            : sttProvider === 'elevenlabs'
-                ? (process.env.ELEVENLABS_STT_MODEL || 'scribe_v2_flash')
-                : 'latest_long';
+        const sttModel = process.env.ELEVENLABS_STT_REALTIME_MODEL || FIXED_STT_REALTIME_MODEL;
         let dictionaryCount = 0;
         try {
             if (dictionaryRepo && typeof dictionaryRepo.findAll === 'function') {
@@ -674,19 +713,13 @@ function createApp(repositories = {}) {
         // both so the UI can show "N 語登録 / 最大 100 語送信" honestly.
         const STT_BOOST_CAP = 100;
         const status = {
-            speech_to_text: sttProvider === 'groq'
-                ? !!process.env.GROQ_API_KEY && process.env.GROQ_API_KEY !== 'dummy'
-                : sttProvider === 'elevenlabs'
-                    ? !!process.env.ELEVENLABS_API_KEY && process.env.ELEVENLABS_API_KEY !== 'dummy'
-                    : !!process.env.GOOGLE_API_KEY && process.env.GOOGLE_API_KEY !== 'dummy',
+            speech_to_text: !!process.env.ELEVENLABS_API_KEY && process.env.ELEVENLABS_API_KEY !== 'dummy',
             stt_provider: sttProvider,
             stt_language: sttLanguage,
             stt_model: sttModel,
-            // フロントエンドが切り替え可能なプロバイダー一覧
-            stt_available_providers: [
-                'google',
-                ...(process.env.ELEVENLABS_API_KEY && process.env.ELEVENLABS_API_KEY !== 'dummy' ? ['elevenlabs'] : [])
-            ],
+            // Kept as an array for compatibility with older frontend code, but
+            // it intentionally contains only the fixed production provider.
+            stt_available_providers: ['elevenlabs'],
             stt_dictionary_words: dictionaryCount,
             stt_boost_cap: STT_BOOST_CAP,
             // Effective per-meeting boost = min(dictionary + participants, cap).
@@ -696,7 +729,10 @@ function createApp(repositories = {}) {
             stt_boost_words: Math.min(dictionaryCount, STT_BOOST_CAP),
             ai_provider: aiProvider,
             groq_ai: !!process.env.GROQ_API_KEY && process.env.GROQ_API_KEY !== 'dummy',
-            gemini_ai: !!process.env.GEMINI_API_KEY && process.env.GEMINI_API_KEY !== 'dummy'
+            gemini_ai: false,
+            providers_locked: true,
+            ai_model: FIXED_AI_MODEL,
+            stt_batch_model: process.env.ELEVENLABS_STT_MODEL || FIXED_STT_BATCH_MODEL
         };
         res.status(200).json(status);
     });
@@ -1758,8 +1794,10 @@ function createApp(repositories = {}) {
                 roomId = generateShortRoomId();
             } while (await roomRepo.findById(roomId));
 
-            // F4: ホストの現在の STT 設定をルームに保存し全参加者へ伝播する。
-            const roomSttProvider = process.env.STT_PROVIDER || 'google';
+            // Provider selection is fixed. Store the fixed STT provider on the
+            // room so every participant receives the same recognizer choice in
+            // the WebSocket ready payload.
+            const roomSttProvider = FIXED_STT_PROVIDER;
             const roomSttLanguage = process.env.STT_LANGUAGE || 'ja';
 
             // 定例シリーズ紐付け: series_id が提供された場合は存在確認 + 所有者確認
@@ -1855,10 +1893,13 @@ function createApp(repositories = {}) {
                 || normalizedUserId === room.owner_id;
 
             if (isHost && ai_config) {
+                // The client still sends ai_config for backward-compatible
+                // shape, but provider/model are fixed server-side. Only the
+                // past-meeting toggle remains user-controlled.
                 await roomRepo.updateAiConfig(
                     roomId,
-                    ai_config.provider,
-                    ai_config.model,
+                    FIXED_AI_PROVIDER,
+                    FIXED_AI_MODEL,
                     typeof ai_config.use_past_meetings === 'boolean' ? ai_config.use_past_meetings : null
                 );
             }
@@ -2118,12 +2159,7 @@ function createApp(repositories = {}) {
             const contextLogs = roomLogs.filter((_, index) => Math.abs(index - currentIndex) <= 2);
             const target = roomLogs[currentIndex];
 
-            const room = await roomRepo.findById(roomId);
-            const provider = room?.ai_provider || 'gemini';
-            const aiConfig = {
-                provider,
-                model: room?.ai_model || (provider === 'groq' ? 'openai/gpt-oss-120b' : 'gemini-2.5-flash')
-            };
+            const aiConfig = fixedAiConfig();
 
             const correction = await aiService.correctTranscript(target, contextLogs, aiConfig);
             const updated = await utteranceRepo.updateMemory(utteranceId, {
@@ -2145,20 +2181,9 @@ function createApp(repositories = {}) {
         try {
             const { roomId } = req.params;
             const roomLogs = await utteranceRepo.findByRoomIdWithParticipants(roomId);
-            const { ai_config } = req.body || {};
-
-            let activeAiService = aiService;
-            if (ai_config && ai_config.provider) {
-                const { AIService: AIServiceClass } = require('./services/ai-service');
-                activeAiService = new AIServiceClass({
-                    provider: ai_config.provider,
-                    geminiModel: ai_config.provider === 'gemini' ? ai_config.model : null,
-                    groqModel: ai_config.provider === 'groq' ? ai_config.model : null,
-                    ollamaModel: ai_config.provider === 'ollama' ? ai_config.model : null,
-                    apiKey: process.env.GEMINI_API_KEY,
-                    groqApiKey: process.env.GROQ_API_KEY
-                });
-            }
+            // Provider/model are fixed. Ignore request.ai_config so legacy
+            // clients cannot select Gemini or Ollama for bulk correction.
+            const activeAiService = aiService;
 
             if (!activeAiService || !activeAiService.enabled) {
                 return res.status(503).json({ error: 'AI Service is not configured or disabled.' });
@@ -2167,12 +2192,7 @@ function createApp(repositories = {}) {
             const targets = roomLogs.filter((log) => log.transcript_source !== 'user');
             const updatedLogs = [];
 
-            const room = await roomRepo.findById(roomId);
-            const provider = room?.ai_provider || 'gemini';
-            const aiConfig = {
-                provider,
-                model: room?.ai_model || (provider === 'groq' ? 'openai/gpt-oss-120b' : 'gemini-2.5-flash')
-            };
+            const aiConfig = fixedAiConfig();
 
             for (let index = 0; index < targets.length; index += 1) {
                 const target = targets[index];
@@ -2216,10 +2236,7 @@ function createApp(repositories = {}) {
                 return res.status(409).json({ error: 'Minutes must be generated first' });
             }
 
-            const aiConfig = {
-                provider: room.ai_provider || 'gemini',
-                model: room.ai_model || 'gemini-2.5-flash'
-            };
+            const aiConfig = fixedAiConfig();
 
             // Per-call override: if use_past_context === false, skip the
             // past block for this analysis only (room-level setting unchanged).
@@ -2337,10 +2354,7 @@ function createApp(repositories = {}) {
             if (!series) {
                 return res.status(400).json({ error: 'room_not_linked_to_series' });
             }
-            const aiConfig = {
-                provider: room.ai_provider || 'gemini',
-                model: room.ai_model || 'gemini-2.5-flash'
-            };
+            const aiConfig = fixedAiConfig();
             const generated = await aiService.generateNextAgenda({
                 frameText: series.frame_text || '',
                 previousAgendaText: series.latest_agenda_text || '',
@@ -2395,7 +2409,7 @@ function createApp(repositories = {}) {
         if (!chunkRepo) return res.status(503).json({ error: 'Chunk storage unavailable' });
         try {
             const chunks = await chunkRepo.findByRoom(req.roomId, 'minutes');
-            res.status(200).json({ chunks });
+            res.status(200).json({ chunks, ...buildMinuteChunkMeta(chunks) });
         } catch (error) {
             logger.error(error, { route: 'GET /rooms/:id/chunks', requestId: req.requestId, roomId: req.roomId });
             res.status(500).json({ error: 'Failed to load chunks' });
@@ -2430,11 +2444,7 @@ function createApp(repositories = {}) {
                 return res.status(404).json({ error: `チャンク ${chunkIndex} が見つかりません (合計 ${chunks.length} チャンク)` });
             }
 
-            const provider = room.ai_provider || 'gemini';
-            const minutesAiConfig = {
-                provider,
-                model: room.ai_model || (provider === 'groq' ? 'openai/gpt-oss-120b' : 'gemini-2.5-flash')
-            };
+            const minutesAiConfig = fixedAiConfig();
             const participants = await enrichParticipantsWithProfiles(participantRepo, userRepo, roomId);
             const userIds = participants.map((p) => p.user_id).filter(Boolean);
             const userContexts = userContextRepo ? await userContextRepo.findByUserIds(userIds) : [];
@@ -2442,7 +2452,7 @@ function createApp(repositories = {}) {
                 roomId,
                 date: new Date().toLocaleString('ja-JP'),
                 title: `ルーム ${roomId}`,
-                stt_provider: room.stt_provider || 'google'
+                stt_provider: room.stt_provider || FIXED_STT_PROVIDER
             };
 
             // 対象チャンクを再生成
@@ -2484,7 +2494,8 @@ function createApp(repositories = {}) {
             return res.status(200).json({
                 chunk_index: chunkIndex,
                 result: mergedMinutes,
-                updated_at: updatedRoom?.minutes_updated_at || null
+                updated_at: updatedRoom?.minutes_updated_at || null,
+                ...buildMinuteChunkMeta(allChunks)
             });
         } catch (error) {
             logger.error(error, { route: 'POST /rooms/:id/regenerate-chunk/:index', requestId: req.requestId, roomId: req.roomId });
@@ -2641,12 +2652,9 @@ function createApp(repositories = {}) {
             const room = await roomRepo.findById(roomId);
             if (!room) return res.status(404).json({ error: 'Room not found' });
 
-            const provider = room.ai_provider || reqAiConfig?.provider || 'gemini';
-            const aiConfig = {
-                provider,
-                model: room.ai_model || reqAiConfig?.model || (provider === 'groq' ? 'openai/gpt-oss-120b' : 'gemini-2.5-flash'),
-                stt_provider: room.stt_provider || 'google'
-            };
+            const aiConfig = fixedAiConfig({
+                stt_provider: room.stt_provider || FIXED_STT_PROVIDER
+            });
 
             // Fetch utterances for context (all or only new ones)
             let utterances;
@@ -2662,20 +2670,9 @@ function createApp(repositories = {}) {
                 return res.status(200).json({ result: current_tree || '', provider: 'none', message: 'No new utterances.' });
             }
 
-            // Decide which AI service/config to use
-            let activeAiService = aiService;
-            if (reqAiConfig && reqAiConfig.provider) {
-                const { AIService: AIServiceClass } = require('./services/ai-service');
-                // Create a temporary service instance with the requested config
-                activeAiService = new AIServiceClass({
-                    provider: reqAiConfig.provider,
-                    geminiModel: reqAiConfig.provider === 'gemini' ? reqAiConfig.model : null,
-                    groqModel: reqAiConfig.provider === 'groq' ? reqAiConfig.model : null,
-                    ollamaModel: reqAiConfig.provider === 'ollama' ? reqAiConfig.model : null,
-                    apiKey: process.env.GEMINI_API_KEY,
-                    groqApiKey: process.env.GROQ_API_KEY
-                });
-            }
+            // Provider/model are fixed. Request ai_config is accepted only for
+            // backward-compatible request shape and deliberately ignored here.
+            const activeAiService = aiService;
 
             if (!activeAiService || !activeAiService.enabled) {
                 return res.status(503).json({ error: 'AI Service is not configured or disabled.' });
@@ -3096,7 +3093,11 @@ function setupWebSocket(server, repositories = {}, options = {}) {
 
                     // ElevenLabs はリアルタイム WebSocket ストリームを使う。
                     // audioProcessor のバッファを経由せず、直接 sttStream に書き込む。
-                    // 無音 1.5 秒で自動コミット（Google STT の utterance 区切りに相当）。
+                    // 無音 3 秒で自動コミット。ElevenLabs Scribe では
+                    // 明示的に commit を送ることで、会話の一区切りを
+                    // transcript として確定させる。短い言い淀みで即確定すると
+                    // 次の話し始めの音声が別セッション境界に落ちるため、少し
+                    // 余白を持たせて冒頭欠落を減らす。
                     if (activeSttService?.provider === 'elevenlabs') {
                         if (sttStream && sttStream.writable) {
                             try {
@@ -3107,7 +3108,7 @@ function setupWebSocket(server, repositories = {}, options = {}) {
                             }
                         }
 
-                        // 無音タイマーをリセット。2 秒間音声が来なければ commit を送る。
+                        // 無音タイマーをリセット。3 秒間音声が来なければ commit を送る。
                         if (ws.elevenLabsSilenceTimer) {
                             clearTimeout(ws.elevenLabsSilenceTimer);
                         }
@@ -3116,7 +3117,7 @@ function setupWebSocket(server, repositories = {}, options = {}) {
                             if (sttStream && typeof sttStream.commit === 'function') {
                                 sttStream.commit();
                             }
-                        }, 2000);
+                        }, 3000);
 
                         return;
                     }
@@ -3170,8 +3171,8 @@ function setupWebSocket(server, repositories = {}, options = {}) {
                         // Mic preset metadata. The client sends this once on
                         // connection and again whenever the user picks a new
                         // preset. Stored on ws so the next STT stream/recognize
-                        // call can build the correct Google config (microphone
-                        // distance, recording device type, audio topic).
+                        // call can carry device-distance hints into the fixed
+                        // ElevenLabs Scribe pipeline.
                         if (msg.type === 'mic_preset') {
                             const meta = (msg.mic && typeof msg.mic === 'object') ? msg.mic : {};
                             ws.sttMeta = {
@@ -3181,26 +3182,33 @@ function setupWebSocket(server, repositories = {}, options = {}) {
                                     ? meta.recordingDeviceType.slice(0, 64) : undefined
                             };
 
-                            // Session-level STT provider switch.
-                            // When the frontend sends stt_provider, create a
-                            // session-specific instance if it differs from global.
+                            // Provider choice is fixed to ElevenLabs Scribe.
+                            // Older tabs can still send stt_provider:"google"
+                            // or "groq" from localStorage, so treat the field
+                            // as diagnostic input only and normalize the active
+                            // session service back to the fixed provider.
                             const requestedProvider = typeof msg.stt_provider === 'string'
                                 ? msg.stt_provider.toLowerCase() : null;
-                            const allowedProviders = ['google', 'elevenlabs', 'groq'];
-                            if (requestedProvider && allowedProviders.includes(requestedProvider)) {
-                                const currentProvider = (ws.sessionSttService || sttService)?.provider;
-                                if (requestedProvider !== currentProvider) {
-                                    ws.sessionSttService = new STTService({
-                                        provider: requestedProvider,
-                                        googleApiKey: process.env.GOOGLE_API_KEY,
-                                        groqApiKey: process.env.GROQ_API_KEY,
-                                        groqModel: process.env.GROQ_STT_MODEL || 'whisper-large-v3-turbo',
-                                        elevenLabsApiKey: process.env.ELEVENLABS_API_KEY,
-                                        elevenLabsModel: process.env.ELEVENLABS_STT_MODEL || 'scribe_v2_flash',
-                                        language: process.env.STT_LANGUAGE || 'ja'
-                                    });
-                                    logger.info('[STT] Session provider switched', { provider: requestedProvider, participantId });
-                                }
+                            if (requestedProvider && requestedProvider !== FIXED_STT_PROVIDER) {
+                                logger.warn('[STT] Ignored stale session provider request', {
+                                    requestedProvider,
+                                    fixedProvider: FIXED_STT_PROVIDER,
+                                    participantId
+                                });
+                            }
+                            const currentProvider = (ws.sessionSttService || sttService)?.provider;
+                            if (currentProvider !== FIXED_STT_PROVIDER) {
+                                ws.sessionSttService = new STTService({
+                                    provider: FIXED_STT_PROVIDER,
+                                    googleApiKey: process.env.GOOGLE_API_KEY,
+                                    groqApiKey: process.env.GROQ_API_KEY,
+                                    groqModel: process.env.GROQ_STT_MODEL || 'whisper-large-v3-turbo',
+                                    elevenLabsApiKey: process.env.ELEVENLABS_API_KEY,
+                                    elevenLabsModel: process.env.ELEVENLABS_STT_MODEL || FIXED_STT_BATCH_MODEL,
+                                    elevenLabsRealtimeModel: process.env.ELEVENLABS_STT_REALTIME_MODEL || FIXED_STT_REALTIME_MODEL,
+                                    language: process.env.STT_LANGUAGE || 'ja'
+                                });
+                                logger.info('[STT] Session provider normalized', { provider: FIXED_STT_PROVIDER, participantId });
                             }
 
                             // Restart the streaming recognizer so the new

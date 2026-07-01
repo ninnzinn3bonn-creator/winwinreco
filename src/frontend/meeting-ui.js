@@ -173,7 +173,7 @@
                 <div class="auth-modal-wrapper consent-modal">
                     <h2 class="auth-modal-title">録音とAI処理の同意</h2>
                     <p>この会議は録音され、文字起こし・議事録・要約・ToDoが自動生成されます。</p>
-                    <p>処理には Google Cloud / Gemini / Groq / ElevenLabs などの外部 AI サービスが利用される場合があります。</p>
+                    <p>AI解析は Groq、音声認識は ElevenLabs Scribe で処理されます。</p>
                     <p><a href="/terms" target="_blank" rel="noopener">利用規約</a>・<a href="/privacy" target="_blank" rel="noopener">プライバシーポリシー</a>をご確認ください。</p>
                     <label class="consent-remember">
                         <input type="checkbox" id="consent-remember-checkbox" checked>
@@ -205,7 +205,14 @@
         const roomId = document.getElementById('room-id').value.trim().toUpperCase();
         if (!displayName || !roomId) return window.AppToast.warn('表示名とルームIDを入力してください');
         if (!await showRecordingConsentIfNeeded()) return;
-        if (!await window.AppAudio.prepareAudio()) return;
+        const micReady = await window.AppAudio.prepareAudio();
+        if (!micReady) {
+            // 参加者は「会議に入ること」が最優先。マイク許可やデバイス検出に
+            // 失敗しても入室自体は続行し、会議画面のマイクボタンで再接続できる。
+            window.AppToast.warn('マイクなしで会議に参加します', {
+                detail: '会議画面のマイクボタンから再接続できます。'
+            });
+        }
         await joinRoomProcess(roomId, displayName, profileText);
     }
 
@@ -255,6 +262,7 @@
                 body: JSON.stringify(body)
             });
             const room = await readApiResponse(res);
+            if (!res.ok) throw new Error(room.error || 'ルーム作成に失敗しました');
             await joinRoomProcess(room.id, displayName, profileText);
         } catch (error) {
             window.AppToast.error('ルーム作成に失敗しました', { detail: error?.message || '' });
@@ -267,8 +275,14 @@
             const userId = window.AppMain.ensureLocalUserId();
             const usePastMeetings = !!document.getElementById('use-past-meetings')?.checked;
 
+            // Providers are fixed for every room. Persisting the fixed values
+            // keeps older browser tabs and legacy helpers aligned with the
+            // disabled provider UI.
+            state.aiProvider = state.fixedAiProvider || 'groq';
+            state.aiModel = state.fixedAiModel || 'openai/gpt-oss-120b';
             localStorage.setItem('ai_provider', state.aiProvider);
             localStorage.setItem('ai_model', state.aiModel);
+            localStorage.setItem('stt_provider', state.fixedSttProvider || 'elevenlabs');
             localStorage.setItem('use_past_meetings', usePastMeetings ? '1' : '0');
             state.usePastMeetings = usePastMeetings;
 
@@ -282,14 +296,14 @@
                     location_id: 'web-browser',
                     profile_text: profileText,
                     ai_config: {
-                        provider: state.aiProvider,
-                        model: state.aiModel,
+                        provider: state.fixedAiProvider || 'groq',
+                        model: state.fixedAiModel || 'openai/gpt-oss-120b',
                         use_past_meetings: usePastMeetings
                     }
                 })
             });
-            if (!res.ok) throw new Error('Join failed');
             const participant = await readApiResponse(res);
+            if (!res.ok) throw new Error(participant.error || 'ルーム参加に失敗しました');
             state.roomId = normalizedRoomId;
             state.participantId = participant.id;
             state.controlToken = participant.control_token;
@@ -300,8 +314,9 @@
             localStorage.setItem('profile_text', profileText);
             showMeetingScreen();
             initWebSocket();
-        } catch (_) {
-            window.AppToast.error('ルーム参加に失敗しました');
+        } catch (error) {
+            window.AppMain?.AppDebug?.log('error', 'joinRoomProcess failed', error?.message || '');
+            window.AppToast.error('ルーム参加に失敗しました', { detail: error?.message || '' });
         }
     }
 
@@ -441,8 +456,12 @@
                 window.AppAudio.startTranscriptStallWatchdog();
                 // F4: ホスト指定の STT 設定を state に保存し、mic_preset 送信時に使用する。
                 if (msg.room_stt_provider) {
-                    state.roomSttProvider = msg.room_stt_provider;
-                    try { localStorage.setItem('stt_provider', msg.room_stt_provider); } catch (_) { /* ignore */ }
+                    // Room payloads from old deployments may still say
+                    // "google". Keep the participant UI aligned with the
+                    // current fixed provider contract instead of preserving
+                    // that stale value in localStorage.
+                    state.roomSttProvider = state.fixedSttProvider || 'elevenlabs';
+                    try { localStorage.setItem('stt_provider', state.roomSttProvider); } catch (_) { /* ignore */ }
                 }
                 if (msg.room_stt_language) {
                     state.roomSttLanguage = msg.room_stt_language;

@@ -55,9 +55,11 @@
         if (!target || !target.stt) return;
         if (!state.ws || state.ws.readyState !== WebSocket.OPEN) return;
         try {
-            const sttProvider = (() => {
-                try { return localStorage.getItem('stt_provider') || 'google'; } catch (_) { return 'google'; }
-            })();
+            // STT is fixed to ElevenLabs Scribe. Do not read localStorage here:
+            // older sessions may still contain "google", and sending that in a
+            // mic_preset message would silently create a per-session provider
+            // switch on the backend.
+            const sttProvider = state.fixedSttProvider || 'elevenlabs';
             state.ws.send(JSON.stringify({
                 type: 'mic_preset',
                 stt_provider: sttProvider,

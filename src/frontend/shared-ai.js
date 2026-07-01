@@ -4,6 +4,52 @@
     const { formatTime, downloadTextFile, readApiResponse } = window.AppUtils;
 
     let aiWorkspacePersistTimer = null;
+    // Shared loading text for every Groq-backed AI action. Keeping this in one
+    // place prevents setup, live-meeting, and post-meeting surfaces from
+    // drifting back to generic "AI解析中" or old provider names such as Gemini.
+    const AI_LOADING_TEXT = 'GroqでAI解析中です...';
+    const MINUTES_LOADING_TEXT = 'Groqで議事録を生成中です...';
+
+    function normalizeMinutesChunkMeta(source = {}) {
+        // Backend responses use snake_case because they cross the HTTP API
+        // boundary. Frontend state uses compact camelCase-ish keys. Keep this
+        // adapter explicit so generation, chunk reload, and chunk regeneration
+        // all drive the same partial-failure warning.
+        const rawStatus = Array.isArray(source.chunk_status)
+            ? source.chunk_status
+            : (Array.isArray(source.status) ? source.status : []);
+        const status = rawStatus.map((item) => ({
+            chunkIndex: Number.isFinite(Number(item.chunk_index)) ? Number(item.chunk_index) : 0,
+            status: item.status === 'error' ? 'error' : 'done',
+            startTs: item.start_ts || '',
+            endTs: item.end_ts || '',
+            hasResult: item.has_result !== false
+        })).sort((a, b) => a.chunkIndex - b.chunkIndex);
+        const total = Number.isFinite(Number(source.chunk_total)) ? Number(source.chunk_total) : status.length;
+        const failed = Number.isFinite(Number(source.chunk_failed))
+            ? Number(source.chunk_failed)
+            : status.filter((item) => item.status === 'error').length;
+        return { total, failed, status };
+    }
+
+    function setMinutesChunkMeta(source = {}) {
+        state.minutesWorkspace.chunkMeta = normalizeMinutesChunkMeta(source);
+    }
+
+    function renderMinutesPartialWarning() {
+        const warningEl = document.getElementById('minutes-partial-warning');
+        if (!warningEl) return;
+
+        const meta = state.minutesWorkspace.chunkMeta || { total: 0, failed: 0, status: [] };
+        if (meta.failed > 0) {
+            const total = meta.total || meta.status.length || meta.failed;
+            warningEl.textContent = `一部チャンクの生成に失敗しました (${meta.failed}/${total})。該当チャンクを再生成してください。`;
+            warningEl.classList.remove('hidden');
+        } else {
+            warningEl.textContent = '';
+            warningEl.classList.add('hidden');
+        }
+    }
 
     // Past-meeting selector state
     // mode: 'off' (デフォルト: 今回の会議のみ) | 'auto' (直近5件を参照) | 'manual' (チェックで選択)
@@ -177,15 +223,16 @@
             if (isLoading && progress && progress.total > 1) {
                 progressWrap.classList.remove('hidden');
                 progressBar.style.width = `${Math.round(progress.completed / progress.total * 100)}%`;
-                if (loadingText) loadingText.textContent = `議事録を生成中です... (${progress.completed}/${progress.total} チャンク)`;
+                if (loadingText) loadingText.textContent = `${MINUTES_LOADING_TEXT} (${progress.completed}/${progress.total} チャンク)`;
             } else {
                 progressWrap.classList.add('hidden');
-                if (loadingText) loadingText.textContent = '議事録を生成中です...';
+                if (loadingText) loadingText.textContent = MINUTES_LOADING_TEXT;
             }
         }
+        renderMinutesPartialWarning();
 
         if (isLoading) {
-            dom.minutesWorkspaceStatus.innerHTML = '<span class="spinner inline-spinner"></span> 議事録を生成中です...';
+            dom.minutesWorkspaceStatus.innerHTML = `<span class="spinner inline-spinner"></span> ${MINUTES_LOADING_TEXT}`;
             return;
         }
         if (state.minutesWorkspace.progress) state.minutesWorkspace.progress = null;
@@ -212,7 +259,7 @@
         if (minutesButton) minutesButton.innerText = isHost ? '自動調整で議事録を生成' : '議事録を表示';
 
         if (state.meetingInsights.status === 'processing' || state.meetingInsights.loading) {
-            dom.aiWorkspaceStatus.innerHTML = '<span class="spinner inline-spinner"></span> 共有AI結果を生成中です...';
+            dom.aiWorkspaceStatus.innerHTML = `<span class="spinner inline-spinner"></span> ${AI_LOADING_TEXT}`;
             return;
         }
         if (state.meetingInsights.status === 'error') {
@@ -274,15 +321,15 @@
             if (isLoading && progress && progress.total > 1) {
                 progressWrap.classList.remove('hidden');
                 progressBar.style.width = `${Math.round(progress.completed / progress.total * 100)}%`;
-                if (loadingText) loadingText.textContent = `AIが解析中です... (${progress.completed}/${progress.total} チャンク)`;
+                if (loadingText) loadingText.textContent = `${AI_LOADING_TEXT} (${progress.completed}/${progress.total} チャンク)`;
             } else {
                 progressWrap.classList.add('hidden');
-                if (loadingText) loadingText.textContent = 'AIが解析中です...';
+                if (loadingText) loadingText.textContent = AI_LOADING_TEXT;
             }
         }
 
         if (isLoading) {
-            dom.aiWorkspaceStatus.innerHTML = '<span class="spinner inline-spinner"></span> AIが解析中です...';
+            dom.aiWorkspaceStatus.innerHTML = `<span class="spinner inline-spinner"></span> ${AI_LOADING_TEXT}`;
             return;
         }
         if (state.aiWorkspace.progress) state.aiWorkspace.progress = null;
@@ -388,6 +435,7 @@
             state.meetingInsights.updatedAt = data.minutes_updated_at || data.summary_updated_at || data.todo_updated_at || null;
             state.meetingInsights.loading = data.status === 'processing';
             state.minutesWorkspace.updatedAt = data.minutes_updated_at || state.minutesWorkspace.updatedAt;
+            if (!data.minutes || !state.isHost) setMinutesChunkMeta();
             // 定例シリーズ: series_id を state に保持しておく
             state.meetingInsights.seriesId = data.series_id || null;
             syncSharedResultsIntoEditors();
@@ -427,8 +475,8 @@
                     type,
                     instruction,
                     ai_config: {
-                        provider: state.aiProvider || 'gemini',
-                        model: state.aiModel || (state.aiProvider === 'groq' ? 'openai/gpt-oss-120b' : 'gemini-2.5-flash')
+                        provider: state.fixedAiProvider || 'groq',
+                        model: state.fixedAiModel || 'openai/gpt-oss-120b'
                     }
                 }))
             });
@@ -470,7 +518,7 @@
         Object.entries(dom.meetingAiButtons).forEach(([key, button]) => {
             const isLoading = loadingKey === key;
             button.disabled = !!loadingKey && !isLoading;
-            button.innerText = isLoading ? '解析中...' : (
+            button.innerText = isLoading ? AI_LOADING_TEXT : (
                 key === 'summary'
                     ? '要約'
                     : key === 'todo'
@@ -502,7 +550,7 @@
         if (!config) return;
 
         state.liveMeetingAnalysis.loadingKey = key;
-        state.liveMeetingAnalysis.status = `${config.title}を Gemini で解析しています...`;
+        state.liveMeetingAnalysis.status = AI_LOADING_TEXT;
         renderMeetingAnalysis();
 
         try {
@@ -513,8 +561,8 @@
                     type: config.type,
                     instruction: config.instruction || '',
                     ai_config: {
-                        provider: state.aiProvider || 'gemini',
-                        model: state.aiModel || (state.aiProvider === 'groq' ? 'openai/gpt-oss-120b' : 'gemini-2.5-flash')
+                        provider: state.fixedAiProvider || 'groq',
+                        model: state.fixedAiModel || 'openai/gpt-oss-120b'
                     }
                 }))
             });
@@ -630,6 +678,7 @@
         }
 
         state.minutesWorkspace.loading = true;
+        setMinutesChunkMeta();
         renderMinutesWorkspace();
         try {
             const res = await fetch(`/rooms/${state.roomId}/shared-ai/minutes`, {
@@ -650,6 +699,7 @@
             state.minutesWorkspace.updatedAt = data.updated_at || new Date().toISOString();
             state.meetingInsights.minutes = resultText;
             state.editorDirty.minutes = 0;
+            setMinutesChunkMeta(data);
             // Direct DOM write before any async work so the value is visible immediately
             dom.minutesOutputEditor.value = resultText;
             await loadMeetingInsights({ silent: true });
@@ -797,12 +847,29 @@
             }
             const data = await res.json();
             const chunks = Array.isArray(data.chunks) ? data.chunks : [];
+            // /chunks returns aggregate metadata; if an older backend omits it,
+            // derive the same structure from the rows so the warning remains
+            // accurate during local development and partial deployments.
+            setMinutesChunkMeta({
+                chunk_total: data.chunk_total ?? chunks.length,
+                chunk_failed: data.chunk_failed ?? chunks.filter((chunk) => chunk.status === 'error').length,
+                chunk_status: data.chunk_status || chunks.map((chunk) => ({
+                    chunk_index: chunk.chunk_index,
+                    status: chunk.status,
+                    start_ts: chunk.start_ts,
+                    end_ts: chunk.end_ts,
+                    has_result: String(chunk.result_text || '').trim().length > 0
+                }))
+            });
             if (chunks.length === 0) {
                 panel.classList.add('hidden');
+                renderMinutesPartialWarning();
                 return;
             }
             panel.classList.remove('hidden');
+            panel.classList.toggle('has-errors', state.minutesWorkspace.chunkMeta.failed > 0);
             renderChunkList(chunks);
+            renderMinutesPartialWarning();
         } catch (_) {
             panel.classList.add('hidden');
         }
@@ -869,6 +936,7 @@
                 state.meetingInsights.minutes = resultText;
                 state.minutesWorkspace.updatedAt = data.updated_at || new Date().toISOString();
                 state.editorDirty.minutes = 0;
+                setMinutesChunkMeta(data);
                 if (dom.minutesOutputEditor) dom.minutesOutputEditor.value = resultText;
             }
             // (band-aid 撤去) render が server status と分離されたため不要。

@@ -9,6 +9,41 @@ optional follow-up step.
 - If UI and AI/STT both move in the same change, increase regression coverage.
 - Treat mojibake and broken text as real bugs.
 - Remove stale UI, stale branches, and stale wording unless there is a clear reason to keep them.
+- Add detailed intent comments to real code changes so future AI agents can understand the why, invariants, cross-module contracts, and known tradeoffs without rediscovering them from scratch.
+
+## Encoding Policy
+
+All repository text is UTF-8 without BOM unless a tool-specific format requires
+otherwise. `.editorconfig` and `.gitattributes` define the default policy, and
+`npm run check:encoding` enforces it during `npm test`.
+
+Windows PowerShell 5.1 is allowed, but it must be prepared before reading or
+writing project text:
+
+```powershell
+. .\scripts\Set-Utf8PowerShell.ps1
+```
+
+Prefer PowerShell 7 (`pwsh`) for manual terminal work. It defaults to UTF-8 and
+avoids the most common Windows PowerShell 5.1 mojibake path. Use
+`.\scripts\Install-PowerShell7.ps1 -WhatIfOnly` to see the `winget` command
+before installing.
+
+Do not use bare `>` redirection in Windows PowerShell 5.1 for project files.
+Use `Set-Content`, `Out-File`, `apply_patch`, or Node-based tooling with UTF-8
+explicitly set.
+
+## Code Comment Policy
+
+Future production code changes must include comments wherever the behavior would be ambiguous to a later maintainer or AI agent. Prefer comments that explain:
+
+- product decisions and fixed assumptions
+- data ownership and state synchronization boundaries
+- fallback, retry, and failure-mode behavior
+- security, privacy, billing, and external-provider constraints
+- why stale branches or compatibility shims still exist
+
+Do not add mechanical comments that merely restate a line of code. A comment is required when removing it would make a future change riskier or force the next agent to reverse-engineer intent.
 
 ## Three Required Passes
 
@@ -21,7 +56,7 @@ Use after:
 
 Must include:
 
-- mojibake check in touched files
+- `npm run check:encoding` when text files changed, plus a mojibake check in touched files
 - syntax checks
 - representative or full test runs
 - review for dead code, duplicate branches, and stale UI remnants

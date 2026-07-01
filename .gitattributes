@@ -1,0 +1,22 @@
+# Keep repository text normalized so Windows PowerShell, Git, Node, and CI do
+# not each invent their own newline policy. Encoding is enforced by
+# .editorconfig plus scripts/check-encoding.js.
+* text=auto eol=lf
+
+*.ps1 text eol=crlf
+*.psm1 text eol=crlf
+*.psd1 text eol=crlf
+*.bat text eol=crlf
+*.cmd text eol=crlf
+
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.webp binary
+*.ico binary
+*.pdf binary
+*.zip binary
+*.db binary
+*.db-shm binary
+*.db-wal binary

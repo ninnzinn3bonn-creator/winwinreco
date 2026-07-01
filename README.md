@@ -40,10 +40,29 @@ When UI, scroll behavior, or mobile layouts change, also review
 - Frontend: Vanilla JavaScript + CSS
 - Database: SQLite3 (local dev / CI) または Firestore (Cloud Run 本番)。`DB_DRIVER` env で切替
 - Communication: WebSocket
-- STT: Groq Whisper or Google Speech-to-Text
-- AI: Groq or Gemini
+- STT: ElevenLabs Scribe (fixed)
+- AI: Groq `openai/gpt-oss-120b` (fixed)
 
 ## Setup
+
+### Windows PowerShell encoding
+
+Windows PowerShell 5.1 can display or write UTF-8 files incorrectly unless the
+session is pinned to UTF-8. Run this once at the start of a PowerShell session:
+
+```powershell
+. .\scripts\Set-Utf8PowerShell.ps1
+```
+
+PowerShell 7 is preferred for day-to-day work because it defaults to UTF-8:
+
+```powershell
+.\scripts\Install-PowerShell7.ps1 -WhatIfOnly
+.\scripts\Install-PowerShell7.ps1
+```
+
+Avoid bare `>` redirection in Windows PowerShell 5.1; use `Set-Content` or
+`Out-File` after loading `Set-Utf8PowerShell.ps1`.
 
 ### 1. Install
 
@@ -64,10 +83,13 @@ AI_PROVIDER=groq
 GROQ_API_KEY=your_groq_api_key_here
 
 # STT
-STT_PROVIDER=groq
-GROQ_STT_MODEL=whisper-large-v3-turbo
+STT_PROVIDER=elevenlabs
+ELEVENLABS_API_KEY=your_elevenlabs_api_key_here
+ELEVENLABS_STT_MODEL=scribe_v2
+ELEVENLABS_STT_REALTIME_MODEL=scribe_v2_realtime
 
 # Optional
+# Gemini/Google STT code paths are retained for tests or emergency fallback only.
 GEMINI_API_KEY=your_gemini_api_key_here
 GOOGLE_API_KEY=your_google_speech_api_key_here
 ```
@@ -107,14 +129,16 @@ npm run test:all
 
 ## Default Providers
 
-- default AI provider: Groq
-- default STT provider: Groq Whisper
-- Gemini and Google Speech-to-Text remain selectable when needed
+- fixed AI provider: Groq `openai/gpt-oss-120b`
+- fixed STT provider: ElevenLabs Scribe `scribe_v2` / realtime `scribe_v2_realtime`
+- provider selectors are displayed as read-only; stale localStorage or API `ai_config` values are normalized server-side
 
 ## Development Rules
 
+- run `npm run check:encoding` before finishing changes that touch text files
 - run `Closeout Pass` after feature work or bugfixes
 - run `UI Regression Pass` after UI, mobile, scroll, or layout changes
 - run `Doc Sync Pass` after behavior, setup, defaults, or architecture changes
+- add intent-focused comments to production code so future AI agents can understand decisions, invariants, and provider contracts
 
 See [docs/DEVELOPMENT_RULES.md](docs/DEVELOPMENT_RULES.md) for details.

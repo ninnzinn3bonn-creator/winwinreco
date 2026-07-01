@@ -302,14 +302,18 @@ summary / todo を並列生成してから `mergeSummaryChunks()` / `mergeTodoCh
 ### Reduce フェーズ
 
 `aiService.mergeMinutesChunks(chunkResults, roomMeta)` で全チャンクを 1 本の議事録に統合。
+LLM による全面 merge は行わず、隣接 chunk 境界の同一行だけを deterministic に削る。
+これにより、overlap 由来の単純重複は減らしつつ、発言内容の要約・言い換え・削り過ぎを避ける。
 
 ### チャンク結果の永続化 (L9)
 
 - テーブル: `room_chunks` (`room_id`, `chunk_index`, `analysis_type`, `start_ts`, `end_ts`, `result_text`, `status`)
 - 失敗チャンクは `status = 'error'` で保存される。
+- `POST /rooms/:id/shared-ai/minutes`、`GET /rooms/:id/chunks`、`POST /rooms/:id/regenerate-chunk/:index` は `chunk_total` / `chunk_failed` / `chunk_status` を返す。
+- フロントは本文中の placeholder 文字列を解析せず、上記メタ情報だけを部分失敗警告の真実源にする。
 - `GET /rooms/:id/chunks` でホストがチャンク一覧を取得できる。
 - `POST /rooms/:id/regenerate-chunk/:index` で失敗チャンクだけを再生成し、議事録全体を再マージして保存する。
-- フロントの「チャンク別再生成」パネル (議事録タブ下部) からホストが操作できる。
+- フロントの「チャンク別再生成」パネル (議事録タブ下部) からホストが操作できる。失敗 chunk が 1 件以上ある場合は、議事録本文とは別に警告帯を表示する。
 
 ### 実装上の注意
 
@@ -394,14 +398,23 @@ Firestore の `collectionGroup` クエリは、**`where + where` などの複合
 
 ---
 
+## Fixed AI/STT Providers
+
+Production provider selection is fixed as of 2026-06-29:
+
+- AI: Groq `openai/gpt-oss-120b`
+- STT: ElevenLabs Scribe `scribe_v2` for batch and `scribe_v2_realtime` for realtime WebSocket transcription
+
+The UI renders provider controls as read-only. Backend routes still accept the legacy `ai_config` and WebSocket `stt_provider` shapes for compatibility, but normalize them to the fixed providers before creating rooms, generating AI results, or starting STT streams. Gemini / Google / Groq-STT implementations remain in the codebase for tests, historical compatibility, and explicitly confirmed emergency fallback work.
+
 ## STT プロバイダー別 議事録プロンプト
 
 `AIService` は議事録生成時に `roomMeta.stt_provider` または `aiConfig.stt_provider` を読み、編集ルールを切り替える。
 
 | STT | reconstructSentences | 誤認識修正 | フィラー削除 / 段落統合 |
 |---|---|---|---|
-| `google` (default) | 実行する | 許可 | 許可 |
-| `elevenlabs` | スキップ | 禁止 | 許可 |
+| `elevenlabs` (fixed default) | スキップ | 禁止 | 許可 |
+| `google` (legacy/test only) | 実行する | 許可 | 許可 |
 
 切替の唯一の真実源は `AIService._isHighAccuracyStt(roomMeta)` と `_buildMinutesEditingRules(roomMeta)`。
 影響を受けるメソッド:

@@ -1,4 +1,4 @@
-﻿<!DOCTYPE html>
+<!DOCTYPE html>
 <html lang="ja">
 <head>
     <meta charset="UTF-8">
@@ -151,32 +151,14 @@
                 <input type="text" id="room-id" placeholder="例: A7K9Q2" autocomplete="off">
             </div>
 
-            <div id="api-status-container" class="api-status">
-                <p>設定状態を確認しています...</p>
-            </div>
-
             <div class="mic-check-card">
                 <div class="container-label">Mic Check</div>
                 <h3>マイク確認</h3>
-                <p id="mic-check-status" class="mic-check-status">最初に利用シーンを選び、次に「マイクを確認」を押してください。緑の帯が動けば入力できています。</p>
-                <div class="mic-check-steps">
-                    <div class="mic-step">
-                        <strong>1. 利用シーンを選ぶ</strong>
-                        <span>スマホ本体、ピンマイク、反響のある部屋、大人数向けから選べます。</span>
-                    </div>
-                    <div class="mic-step">
-                        <strong>2. マイクを確認</strong>
-                        <span>権限を許可し、入力レベルメーターが動くかを見ます。</span>
-                    </div>
-                    <div class="mic-step">
-                        <strong>3. 必要なら微調整</strong>
-                        <span>小さな音を拾う線と、大きすぎる音を抑える線をスライダーで調整できます。</span>
-                    </div>
-                </div>
+                <p id="mic-check-status" class="mic-check-status">利用シーンを選ぶと推奨値が入ります。緑のメーターが動けば、そのまま会議に参加できます。</p>
                 <div class="mic-preset-section">
                     <div class="mic-preset-header">
-                        <strong>利用シーンに合わせて選ぶ</strong>
-                        <span>ベストプラクティスを元に、推奨の音声設定をまとめています。</span>
+                        <strong>利用シーン</strong>
+                        <span>近いものを選ぶだけで、拾う音量と抑える音量を自動調整します。</span>
                     </div>
                     <div class="mic-preset-grid">
                         <button type="button" class="mic-preset-card" data-mic-preset="smartphone">
@@ -207,7 +189,7 @@
                     </div>
                 </div>
                 <div class="form-group">
-                    <label for="mic-min-threshold">細かいマイク調整</label>
+                    <label for="mic-min-threshold">必要なときだけ微調整</label>
                     <select id="mic-sensitivity" class="visually-hidden" aria-hidden="true">
                         <option value="high">高め</option>
                         <option value="standard" selected>標準</option>
@@ -244,56 +226,6 @@
                     <option value="">なし</option>
                 </select>
                 <p class="mic-check-status">シリーズを選ぶと、この会議が終了後に「次回アジェンダ生成」が使えます。</p>
-            </div>
-
-            <div class="ai-config-group host-only">
-                <h3>AI設定</h3>
-                <div class="form-group-row">
-                    <select id="ai-provider">
-                        <option value="groq">Groq (既定・高速)</option>
-                        <option value="gemini">Gemini (任意で選択)</option>
-                    </select>
-                </div>
-                <p class="mic-check-status">事後処理は基本的に Groq を使います。必要なときだけ Gemini に切り替えられます。</p>
-            </div>
-
-            <div class="dictionary-card host-only">
-                <div class="container-label">Domain Dictionary</div>
-                <h3>専門用語辞書</h3>
-                <p class="mic-check-status">会議前に専門用語や人名を登録すると、文字起こしの精度が向上します。（会議ホストだけが設定してください）</p>
-                <div class="dictionary-form">
-                    <div class="form-group-row compact-row">
-                        <input type="text" id="dict-term" placeholder="用語 (例: 相同組換え)">
-                        <input type="text" id="dict-reading" placeholder="読み (例: ソウドウクミカエ)">
-                    </div>
-                    <div class="dictionary-actions">
-                        <button id="btn-dict-add" class="secondary">辞書に追加</button>
-                    </div>
-                </div>
-
-                <div class="dictionary-bulk-section">
-                    <details>
-                        <summary>資料から一括抽出・登録 (AI解析)</summary>
-                        <div class="bulk-content">
-                            <textarea id="dict-bulk-text" placeholder="会議資料の本文や単語リストをここに貼り付けてください..."></textarea>
-                            <div class="bulk-actions">
-                                <button id="btn-dict-extract" class="secondary-outline">AIで用語を抽出</button>
-                            </div>
-                            <div id="dict-extract-results" class="extract-results hidden">
-                                <div class="results-header">
-                                    <span>抽出された用語 (チェックして追加)</span>
-                                    <button id="btn-dict-add-selected" class="btn-small">選択した用語を追加</button>
-                                </div>
-                                <div id="extract-list" class="extract-list"></div>
-                            </div>
-                        </div>
-                    </details>
-                </div>
-
-                <div id="dictionary-list" class="dictionary-list">
-                    <!-- Terms will be rendered here -->
-                    <span class="placeholder-text">登録された用語はありません。</span>
-                </div>
             </div>
 
             <div class="actions">
@@ -631,7 +563,7 @@
                                 <p class="ai-output-note">解析ボタンを押すと、結果はこのエディターに表示されます。</p>
                                 <div id="ai-output-loading" class="workspace-loading hidden" aria-live="polite">
                                     <span class="spinner"></span>
-                                    <span id="ai-loading-text">AIが解析中です...</span>
+                                    <span id="ai-loading-text">GroqでAI解析中です...</span>
                                     <div class="progress-bar-wrap hidden" id="ai-progress-wrap">
                                         <div class="progress-bar-fill" id="ai-progress-bar"></div>
                                     </div>
@@ -653,7 +585,6 @@
                             <div class="insight-actions">
                                 <button id="btn-minutes-copy" class="secondary">コピー</button>
                                 <button id="btn-minutes-download" class="secondary">ダウンロード</button>
-                                <button id="btn-download-final" class="secondary" title="この会議を Markdown ファイルとしてこの端末にダウンロード">📄 Markdown 保存</button>
                             </div>
                         </div>
                         <div class="ai-workspace-controls">
@@ -666,11 +597,12 @@
                                 <p class="ai-output-note">生成後はこのエディターでそのまま手直しできます。</p>
                                 <div id="minutes-output-loading" class="workspace-loading hidden" aria-live="polite">
                                     <span class="spinner"></span>
-                                    <span id="minutes-loading-text">議事録を生成中です...</span>
+                                    <span id="minutes-loading-text">Groqで議事録を生成中です...</span>
                                     <div class="progress-bar-wrap hidden" id="minutes-progress-wrap">
                                         <div class="progress-bar-fill" id="minutes-progress-bar"></div>
                                     </div>
                                 </div>
+                                <div id="minutes-partial-warning" class="minutes-partial-warning hidden" role="alert"></div>
                                 <textarea id="minutes-output-editor" class="insight-text insight-result-box insight-editor ai-output-editor" placeholder="生成した議事録はここに表示されます。"></textarea>
                             </div>
                             <!-- 定例シリーズ: 次回アジェンダ生成 (series紐付きルームかつホストのみ表示) -->

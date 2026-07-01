@@ -12,7 +12,10 @@ describe('STTService', () => {
             ])
         };
 
-        const service = new STTService({ client: mockSpeechClient });
+        const service = new STTService({
+            provider: 'google',
+            client: mockSpeechClient
+        });
         const audioBuffer = Buffer.from([1, 2, 3]);
         
         const result = await service.recognize(audioBuffer);
@@ -25,7 +28,10 @@ describe('STTService', () => {
         const mockSpeechClient = {
             recognize: jest.fn().mockResolvedValue([{ results: [] }])
         };
-        const service = new STTService({ client: mockSpeechClient });
+        const service = new STTService({
+            provider: 'google',
+            client: mockSpeechClient
+        });
         const result = await service.recognize(Buffer.from([1]));
         expect(result).toBe('');
     });

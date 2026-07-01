@@ -1,8 +1,16 @@
 (function initDictionaryModule() {
     const { state } = window.AppState;
     const { escapeHtml, readApiResponse } = window.AppUtils;
+    // Same wording as live/post-meeting AI loading. The dictionary extractor
+    // runs before the meeting starts, so it is the most visible place where
+    // provider wording can drift if kept as a one-off string.
+    const AI_LOADING_TEXT = 'GroqでAI解析中です...';
 
     async function loadDictionary() {
+        // Dictionary controls are no longer rendered on the setup screen while
+        // ElevenLabs Scribe is the fixed STT provider. When the DOM target is
+        // absent, this module stays idle instead of calling dictionary APIs.
+        if (!window.AppDom?.dictionaryList) return;
         try {
             const res = await fetch('/api/dictionary');
             const data = await readApiResponse(res);
@@ -77,7 +85,7 @@
         const originalText = btn.innerText;
 
         btn.disabled = true;
-        btn.innerText = '解析中...';
+        btn.innerText = AI_LOADING_TEXT;
         resultsArea.classList.add('hidden');
 
         try {

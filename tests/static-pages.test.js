@@ -44,4 +44,26 @@ describe('Static legal pages', () => {
         expect(res.status).toBe(200);
         expect(res.text).toContain('プライバシーポリシー');
     });
+
+    test('setup screen omits fixed-provider AI settings and dictionary cards', async () => {
+        const res = await request(app).get('/');
+
+        expect(res.status).toBe(200);
+        expect(res.text).not.toContain('AI設定');
+        expect(res.text).not.toContain('専門用語辞書');
+        expect(res.text).not.toContain('api-status-container');
+        expect(res.text).not.toContain('mic-check-steps');
+        expect(res.text).toContain('利用シーン');
+        expect(res.text).toContain('必要なときだけ微調整');
+    });
+
+    test('minutes workspace exposes copy and download only', async () => {
+        const res = await request(app).get('/');
+
+        expect(res.status).toBe(200);
+        expect(res.text).toContain('btn-minutes-copy');
+        expect(res.text).toContain('btn-minutes-download');
+        expect(res.text).not.toContain('btn-download-final');
+        expect(res.text).not.toContain('Markdown 保存');
+    });
 });

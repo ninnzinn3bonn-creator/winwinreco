@@ -69,6 +69,40 @@ function formatMinuteTimestamp(start, end) {
     return `${startValue} - ${endValue}`;
 }
 
+function normalizeMinutesBoundaryLine(line) {
+    // Boundary de-duplication must be conservative: we only compare complete
+    // transcript lines, preserving the original text when it is kept. The
+    // normalization removes harmless spacing and terminal punctuation so
+    // "Alice: はい。" and "Alice: はい" count as the same repeated boundary line.
+    return String(line || '')
+        .replace(/[ \t\u3000]+/g, ' ')
+        .trim()
+        .replace(/^[\-*・\s]+/, '')
+        .replace(/[。．.、,，\s]+$/g, '')
+        .toLowerCase();
+}
+
+function removeDuplicateBoundaryLines(previousText, currentText) {
+    const previousLines = String(previousText || '').trim().split(/\r?\n/);
+    const currentLines = String(currentText || '').trim().split(/\r?\n/);
+    if (!previousLines.length || !currentLines.length) return String(currentText || '').trim();
+
+    // Look only at a small boundary window. Longer fuzzy matching would risk
+    // deleting legitimate repeated statements, which is worse than leaving a
+    // minor overlap duplicate in the final minutes.
+    const maxOverlapLines = Math.min(8, previousLines.length, currentLines.length);
+    for (let count = maxOverlapLines; count >= 1; count--) {
+        const previousTail = previousLines.slice(-count).map(normalizeMinutesBoundaryLine);
+        const currentHead = currentLines.slice(0, count).map(normalizeMinutesBoundaryLine);
+        if (previousTail.every(Boolean) &&
+            currentHead.every(Boolean) &&
+            previousTail.join('\n') === currentHead.join('\n')) {
+            return currentLines.slice(count).join('\n').trim();
+        }
+    }
+    return String(currentText || '').trim();
+}
+
 /**
  * [L8] タイムアウト + 指数バックオフリトライ。
  *
@@ -82,12 +116,19 @@ function formatMinuteTimestamp(start, end) {
 async function withTimeoutAndRetry(fn, { timeoutMs = 60000, retries = 3, placeholder = null } = {}) {
     let lastError;
     for (let attempt = 0; attempt <= retries; attempt++) {
+        let timeoutId = null;
         try {
+            // Promise.race does not cancel the losing timeout. In the chunked
+            // minutes path a successful long meeting can start many 60s timers;
+            // if we do not clear them, Jest waits for open handles and the
+            // production process carries unnecessary timer pressure after the
+            // AI call has already completed.
+            const timeoutPromise = new Promise((_, reject) => {
+                timeoutId = setTimeout(() => reject(new Error(`Chunk timeout after ${timeoutMs}ms`)), timeoutMs);
+            });
             return await Promise.race([
-                fn(),
-                new Promise((_, reject) =>
-                    setTimeout(() => reject(new Error(`Chunk timeout after ${timeoutMs}ms`)), timeoutMs)
-                ),
+                Promise.resolve().then(fn),
+                timeoutPromise,
             ]);
         } catch (err) {
             lastError = err;
@@ -95,6 +136,8 @@ async function withTimeoutAndRetry(fn, { timeoutMs = 60000, retries = 3, placeho
                 // 指数バックオフ: 1s, 2s, 4s
                 await new Promise(resolve => setTimeout(resolve, Math.pow(2, attempt) * 1000));
             }
+        } finally {
+            if (timeoutId) clearTimeout(timeoutId);
         }
     }
     if (placeholder !== null) return placeholder;
@@ -391,7 +434,10 @@ class AIService {
     constructor(config = {}) {
         const groqKey = config.groqApiKey || process.env.GROQ_API_KEY;
         const geminiKey = config.apiKey || process.env.GEMINI_API_KEY;
-        const requestedProvider = config.provider || process.env.AI_PROVIDER || (groqKey ? 'groq' : 'gemini');
+        // Product default is Groq. Keep the Gemini implementation for explicit
+        // tests and emergency fallback, but do not auto-select Gemini as the
+        // implicit provider when no provider is supplied.
+        const requestedProvider = config.provider || 'groq';
 
         try {
             if (requestedProvider === 'groq' && groqKey && groqKey !== 'dummy') {
@@ -550,6 +596,28 @@ class AIService {
         return lines.length
             ? `${jp('\u0023 \u500b\u4eba\u30b3\u30f3\u30c6\u30af\u30b9\u30c8')}\n${lines.join('\n\n')}\n`
             : `${jp('\u0023 \u500b\u4eba\u30b3\u30f3\u30c6\u30af\u30b9\u30c8')}\n- ${jp('\u306a\u3057')}\n`;
+    }
+
+    hasPastMeetingContext(aiConfig = {}) {
+        return !!(aiConfig && String(aiConfig.pastContextBlock || '').trim());
+    }
+
+    buildPastMeetingComparisonInstruction(aiConfig = {}) {
+        if (!this.hasPastMeetingContext(aiConfig)) return [];
+        // This section is intentionally conditional. When the host selects
+        // "今回の会議のみ", the summary prompt must keep the older concise shape.
+        // When past summaries are explicitly included, the output should make
+        // that context visible instead of silently blending old and new facts.
+        return [
+            '',
+            '[PAST MEETING COMPARISON]',
+            '過去関連会議サマリがある場合は、通常の要約に加えて以下も必ず出力してください：',
+            '1. 過去会議の要約: 選択された過去会議で重要だった状態・決定・未解決論点',
+            '2. 今回の会議の要約: 今回の議事録だけから分かる状態・決定・未解決論点',
+            '3. 変化・差分コメント: 過去会議から今回にかけて、何が進んだか、何が変わらないか、何が新しく出たか',
+            '4. 差分コメントでは、根拠が弱い推測は避け、「変化なし」「不明」も明記する',
+            ''
+        ];
     }
 
     buildStructuredInsightsPrompt(messages, participants = [], userContexts = []) {
@@ -871,6 +939,7 @@ class AIService {
         const provider = this.getProvider(aiConfig);
 
         const pastBlock = (aiConfig && aiConfig.pastContextBlock) ? `${aiConfig.pastContextBlock}\n\n` : '';
+        const comparisonInstruction = this.buildPastMeetingComparisonInstruction(aiConfig);
         const prompt = [
             '[SYSTEM]',
             'あなたは会議内容を構造的に要約するAIです。',
@@ -887,6 +956,7 @@ class AIService {
             '2. 要点整理',
             '3. 重要な議論のみ抽出',
             '4. 無関係な内容を除外',
+            ...comparisonInstruction,
             '',
             '[FORMAT]',
             '## 要約',
@@ -905,6 +975,21 @@ class AIService {
             '',
             '* ○○の検討',
             '* ○○の意思決定',
+            ...(comparisonInstruction.length ? [
+                '',
+                '## 過去会議との差分',
+                '',
+                '### 過去会議の要約',
+                '* ○○',
+                '',
+                '### 今回の会議の要約',
+                '* ○○',
+                '',
+                '### 変化・差分コメント',
+                '* 進んだ点:',
+                '* 変わっていない点:',
+                '* 新しく出た論点:'
+            ] : []),
             '',
             '[REPEAT]',
             '重要な議論のみ抽出してください。'
@@ -1365,6 +1450,7 @@ class AIService {
             promptLines.push(
                 '[CONTEXT - 前チャンクの末尾。文脈参照のみ、出力には含めないこと]',
                 contextTranscript,
+                '上記 CONTEXT と同じ発話、または同じ内容の言い換えは出力しないでください。',
                 '',
             );
         }
@@ -1404,8 +1490,9 @@ class AIService {
      * [L3] チャンク結果を結合して最終議事録テキストを生成する（LLM呼び出しなし）。
      *
      * overlapWith に含まれる utterance ID はチャンク境界の重複だが、
-     * LLM 出力はテキストのため ID ベースの行単位除去は行わず、
-     * 空行2つで自然につなぐ。
+     * LLM 出力はテキストのため ID ベースでは扱えない。ここでは隣接
+     * chunk の「末尾行」と「先頭行」が同一の場合だけ後続 chunk 側を
+     * 削る。要約や言い換えはしないので、本文改変リスクを低く保つ。
      *
      * @param {Array<{ chunkIndex:number, startTs:string, endTs:string, result:string }>} chunkResults
      * @param {object} roomMeta
@@ -1417,13 +1504,21 @@ class AIService {
 
         const sorted = [...chunkResults].sort((a, b) => a.chunkIndex - b.chunkIndex);
 
+        const dedupedParts = [];
+        for (const chunk of sorted) {
+            const currentText = String(chunk.result || '').trim();
+            if (!currentText) continue;
+            const previousText = dedupedParts[dedupedParts.length - 1] || '';
+            const nextText = previousText
+                ? removeDuplicateBoundaryLines(previousText, currentText)
+                : currentText;
+            if (nextText) dedupedParts.push(nextText);
+        }
+
         // チャンクヘッダーは挿入しない（議事録の読みやすさ優先）。
-        // 空行2つで自然につなぐ。LLM が各チャンクの先頭・末尾を
-        // 自然な段落で終えてくれるため、これで十分につながる。
-        return sorted
-            .map(c => (c.result || '').trim())
-            .filter(Boolean)
-            .join('\n\n');
+        // 空行2つで自然につなぐ。境界の完全重複だけを削った後は、
+        // 各 chunk の自然な段落をそのまま残す。
+        return dedupedParts.filter(Boolean).join('\n\n');
     }
 
     // ──────────────────────────────────────────────────────────────────
@@ -1484,6 +1579,7 @@ class AIService {
 
         const provider = this.getProvider(aiConfig);
         const pastBlock = (aiConfig && aiConfig.pastContextBlock) ? `${aiConfig.pastContextBlock}\n\n` : '';
+        const comparisonInstruction = this.buildPastMeetingComparisonInstruction(aiConfig);
         const combined = partialSummaries
             .map((s, i) => `--- チャンク ${i + 1}/${partialSummaries.length} ---\n${s}`)
             .join('\n\n');
@@ -1504,6 +1600,7 @@ class AIService {
             '1. トピックごとに整理（重複排除）',
             '2. 会議全体の流れが分かる一貫した要約に',
             '3. 次回の重要論点も整理',
+            ...comparisonInstruction,
             '',
             '[FORMAT]',
             '## 要約',
@@ -1517,6 +1614,21 @@ class AIService {
             '## 次回の重要論点',
             '',
             '* ○○の検討',
+            ...(comparisonInstruction.length ? [
+                '',
+                '## 過去会議との差分',
+                '',
+                '### 過去会議の要約',
+                '* ○○',
+                '',
+                '### 今回の会議の要約',
+                '* ○○',
+                '',
+                '### 変化・差分コメント',
+                '* 進んだ点:',
+                '* 変わっていない点:',
+                '* 新しく出た論点:'
+            ] : []),
             '',
             '[REPEAT]',
             '重要な議論のみ抽出してください。',
