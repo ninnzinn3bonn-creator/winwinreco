@@ -66,4 +66,17 @@ describe('Static legal pages', () => {
         expect(res.text).not.toContain('btn-download-final');
         expect(res.text).not.toContain('Markdown 保存');
     });
+
+    test('mobile meeting controls have one clear owner per action', async () => {
+        const res = await request(app).get('/');
+
+        expect(res.status).toBe(200);
+        expect(res.text).toContain('id="btn-dock-share"');
+        expect(res.text).toContain('id="btn-toggle-live-focus"');
+        expect(res.text).toContain('data-analysis-result="summary"');
+        expect(res.text).not.toContain('id="btn-dock-participants"');
+        expect(res.text).not.toContain('id="btn-open-ai-suggestion"');
+        expect(res.text).not.toContain('id="btn-mobile-menu"');
+        expect(res.text).not.toContain('id="mobile-meeting-title-input"');
+    });
 });

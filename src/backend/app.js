@@ -2819,6 +2819,7 @@ function setupWebSocket(server, repositories = {}, options = {}) {
         // Fix B-3: STT 再起動クールダウン（無限ループ防止）
         let sttRestartAttempts = 0;
         let sttRestartLastFail = 0;
+        let lastClientSttRestartAt = 0;
 
         if (!participantId || !ws._preVerifiedParticipant) {
             // Should never happen — upgrade handler above guarantees this — but
@@ -2981,6 +2982,19 @@ function setupWebSocket(server, repositories = {}, options = {}) {
             }
         };
 
+        const endCurrentSttStream = (reason) => {
+            const stream = sttStream;
+            if (!stream) return false;
+            sttStream = null;
+            try {
+                if (typeof stream.end === 'function') stream.end();
+                else if (typeof stream.destroy === 'function') stream.destroy();
+            } catch (error) {
+                logger.error(error, { tag: '[STT] stream shutdown failed', reason, participantId });
+            }
+            return true;
+        };
+
         const startSTTStream = () => {
             // セッション専用インスタンスがあればそちらを優先する
             const activeSttService = ws.sessionSttService || sttService;
@@ -2998,7 +3012,8 @@ function setupWebSocket(server, repositories = {}, options = {}) {
 
             logger.info('[STT] Starting new stream', { participantId, provider: activeSttService.provider, hintCount: ws.speechHints?.length || 0 });
 
-            let newStream;
+            let newStream = null;
+            let failedDuringCreation = false;
             try {
                 newStream = activeSttService.createStream(
                     async (transcript) => {
@@ -3010,12 +3025,18 @@ function setupWebSocket(server, repositories = {}, options = {}) {
                     },
                     (err) => {
                         logger.error(err, { tag: 'STT Stream Error', participantId });
+                        const affectsCurrentStream = !newStream || sttStream === newStream;
+                        if (!affectsCurrentStream) return;
                         sttRestartAttempts++;
                         sttRestartLastFail = Date.now();
                         if (ws.readyState === WebSocket.OPEN) {
                             ws.send(JSON.stringify({ type: 'error', message: '音声認識ストリームでエラーが発生しました' }));
                         }
-                        sttStream = null;
+                        if (newStream) {
+                            if (sttStream === newStream) sttStream = null;
+                        } else {
+                            failedDuringCreation = true;
+                        }
                     },
                     {
                         config: (() => {
@@ -3042,19 +3063,25 @@ function setupWebSocket(server, repositories = {}, options = {}) {
                 return;
             }
 
+            if (!newStream || failedDuringCreation) {
+                try { newStream?.destroy?.(); } catch (_) { /* ignore */ }
+                return;
+            }
+
             sttStream = newStream;
 
             // Important: Handle graceful closure (e.g. Google's 305s limit)
             sttStream.on('end', () => {
                 logger.info('[STT Stream End] Stream closed gracefully by provider', { participantId });
-                sttStream = null;
+                if (sttStream === newStream) sttStream = null;
             });
             sttStream.on('close', () => {
-                sttStream = null;
+                const wasCurrentStream = sttStream === newStream;
+                if (wasCurrentStream) sttStream = null;
                 // ElevenLabs: WS が閉じたら即プリウォーム。次の発言開始時に
                 // 接続確立の待ち時間がなくなる（session_started を先に取得しておく）。
                 const activeSvc = ws.sessionSttService || sttService;
-                if (activeSvc?.provider === 'elevenlabs' && ws.validated && ws.readyState === WebSocket.OPEN) {
+                if (wasCurrentStream && activeSvc?.provider === 'elevenlabs' && ws.validated && ws.readyState === WebSocket.OPEN) {
                     setTimeout(() => {
                         if (!sttStream && ws.readyState === WebSocket.OPEN) {
                             logger.info('[ElevenLabs STT] Pre-warming next connection', { participantId });
@@ -3064,6 +3091,8 @@ function setupWebSocket(server, repositories = {}, options = {}) {
                 }
             });
             sttStream.on('error', (err) => {
+                const affectsCurrentStream = sttStream === newStream;
+                if (!affectsCurrentStream) return;
                 sttRestartAttempts++;
                 sttRestartLastFail = Date.now();
                 logger.error(err, { tag: '[STT] stream error', attempts: sttRestartAttempts, participantId });
@@ -3104,7 +3133,7 @@ function setupWebSocket(server, repositories = {}, options = {}) {
                                 sttStream.write(data);
                             } catch (e) {
                                 logger.error(e, { tag: 'ElevenLabs STT Write Error', participantId });
-                                sttStream = null;
+                                endCurrentSttStream('elevenlabs-write-error');
                             }
                         }
 
@@ -3152,7 +3181,7 @@ function setupWebSocket(server, repositories = {}, options = {}) {
                             sttStream.write(data);
                         } catch (e) {
                             logger.error(e, { tag: 'STT Write Error', participantId });
-                            sttStream = null;
+                            endCurrentSttStream('stream-write-error');
                         }
                     }
                 } else {
@@ -3165,6 +3194,22 @@ function setupWebSocket(server, repositories = {}, options = {}) {
                         // [U-3] last_seen_utterance_id を渡して差分のみ返す
                         if (msg.type === 'hello') {
                             await sendReady(msg.last_seen_utterance_id || null);
+                            return;
+                        }
+
+                        if (msg.type === 'restart_stt') {
+                            if (Date.now() - lastClientSttRestartAt < 10000) return;
+                            lastClientSttRestartAt = Date.now();
+                            if (ws.elevenLabsSilenceTimer) {
+                                clearTimeout(ws.elevenLabsSilenceTimer);
+                                ws.elevenLabsSilenceTimer = null;
+                            }
+                            sttRestartAttempts = 0;
+                            endCurrentSttStream(msg.reason || 'client-request');
+                            startSTTStream();
+                            if (ws.readyState === WebSocket.OPEN) {
+                                ws.send(JSON.stringify({ type: 'stt_status', status: 'restarting' }));
+                            }
                             return;
                         }
 
@@ -3217,8 +3262,7 @@ function setupWebSocket(server, repositories = {}, options = {}) {
                                 clearTimeout(ws.elevenLabsSilenceTimer);
                                 ws.elevenLabsSilenceTimer = null;
                             }
-                            try { if (sttStream && typeof sttStream.end === 'function') sttStream.end(); } catch (_) { /* ignore */ }
-                            sttStream = null;
+                            endCurrentSttStream('mic-preset-change');
                             return;
                         }
 
@@ -3256,8 +3300,7 @@ function setupWebSocket(server, repositories = {}, options = {}) {
                 ws.elevenLabsSilenceTimer = null;
             }
             if (sttStream) {
-                sttStream.end();
-                sttStream = null;
+                endCurrentSttStream('client-disconnect');
             }
             if (audioProcessor) {
                 audioProcessor.clear(participantId);

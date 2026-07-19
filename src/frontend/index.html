@@ -255,7 +255,7 @@
                     type="text"
                     id="meeting-title-input"
                     class="meeting-title-input host-only"
-                    placeholder="会議のタイトル (任意・ホストのみ編集可)"
+                    placeholder="会議タイトル"
                     maxlength="200"
                     autocomplete="off">
                 <div id="meeting-title-readonly" class="meeting-title-readonly"></div>
@@ -268,15 +268,12 @@
                         <img class="g-icon" src="assets/icons/settings-2.svg" alt="">
                         <span>設定</span>
                     </button>
-                    <button id="btn-mobile-menu" class="icon-btn mobile-only" title="会議メニュー" aria-label="会議メニュー" aria-expanded="false" aria-controls="mobile-meeting-menu">
-                        <img src="assets/icons/menu.svg" alt="">
-                    </button>
                     <button id="btn-end" class="danger">終了</button>
                 </div>
             </header>
 
             <div id="mobile-meeting-menu" class="mobile-meeting-menu hidden" aria-hidden="true">
-                <div class="container-label">Quick Controls</div>
+                <div class="container-label">マイク設定</div>
                 <div class="mobile-menu-grid">
                     <div class="meeting-mic-preset-panel">
                         <div class="container-label">Mic Mode</div>
@@ -308,18 +305,6 @@
                                 <strong id="meeting-mic-max-threshold-value">78</strong>
                             </label>
                         </div>
-                    </div>
-                    <button id="btn-toggle-memory-panel" class="secondary">会話メモリを表示</button>
-                    <button id="btn-toggle-ai-panel" class="secondary">会議中AIを表示</button>
-                    <div class="form-group host-only">
-                        <label for="mobile-meeting-title-input">会議のタイトル</label>
-                        <input
-                            type="text"
-                            id="mobile-meeting-title-input"
-                            class="meeting-title-input"
-                            placeholder="タイトル (任意)"
-                            maxlength="200"
-                            autocomplete="off">
                     </div>
                 </div>
             </div>
@@ -367,14 +352,21 @@
                     <section class="live-transcript-focus" aria-labelledby="live-focus-heading" aria-live="polite" aria-atomic="true">
                         <div class="live-focus-kicker">
                             <span id="live-focus-heading">いま話している内容</span>
-                            <span id="live-focus-status" class="live-focus-status">接続待ち</span>
+                            <span class="live-focus-controls">
+                                <span id="live-focus-status" class="live-focus-status">接続待ち</span>
+                                <button type="button" id="btn-toggle-live-focus" class="icon-btn live-focus-toggle mobile-only" title="現在の発言を折りたたむ" aria-label="現在の発言を折りたたむ" aria-expanded="true" aria-controls="live-focus-text live-focus-details">
+                                    <img src="assets/icons/chevron-right.svg" alt="">
+                                </button>
+                            </span>
                         </div>
                         <p id="live-focus-text" class="live-focus-text">会議を開始すると、現在の発言がここに表示されます。</p>
-                        <div class="live-focus-meta">
-                            <span id="live-focus-speaker">話者未確定</span>
-                            <time id="live-focus-time">--:--</time>
+                        <div id="live-focus-details">
+                            <div class="live-focus-meta">
+                                <span id="live-focus-speaker">話者未確定</span>
+                                <time id="live-focus-time">--:--</time>
+                            </div>
+                            <div class="live-focus-meter" aria-hidden="true"><span id="live-focus-level"></span></div>
                         </div>
-                        <div class="live-focus-meter" aria-hidden="true"><span id="live-focus-level"></span></div>
                     </section>
                     <div id="timeline" class="conversation-list">
                         <div class="system-message">接続を待っています...</div>
@@ -424,11 +416,6 @@
                         </div>
                         <button id="btn-jump-latest-floating" class="jump-latest-fab" title="タップ: 最新へ移動／長押し: ジャンプメニュー" aria-haspopup="menu" aria-controls="jump-palette"><span class="jump-fab-label">↓ 最新へ</span><span id="btn-jump-latest-unread" class="jump-fab-unread" aria-live="polite" aria-label="新着件数">0</span></button>
                     </div>
-                    <aside class="meeting-ai-suggestion" aria-label="AIからの提案">
-                        <img src="assets/icons/sparkles.svg" alt="">
-                        <p><strong>AIの提案</strong><span>重要点や次のアクションを整理できます。</span></p>
-                        <button type="button" id="btn-open-ai-suggestion" class="secondary">AIを開く</button>
-                    </aside>
                 </main>
 
                 <aside class="meeting-ai-panel">
@@ -445,22 +432,22 @@
                         <button id="btn-meeting-agreements" class="secondary">合意点と未解決課題</button>
                         <button id="btn-meeting-topics" class="secondary">トークテーマ一覧</button>
                     </div>
-                    <div class="meeting-ai-card">
-                        <div class="container-label">Summary</div>
+                    <details class="meeting-ai-card" data-analysis-result="summary" open>
+                        <summary>要約結果</summary>
                         <textarea id="meeting-ai-summary" class="meeting-ai-editor" placeholder="要約はここに表示されます。"></textarea>
-                    </div>
-                    <div class="meeting-ai-card">
-                        <div class="container-label">Todo</div>
+                    </details>
+                    <details class="meeting-ai-card" data-analysis-result="todo">
+                        <summary>ToDo結果</summary>
                         <textarea id="meeting-ai-todo" class="meeting-ai-editor" placeholder="ToDoはここに表示されます。"></textarea>
-                    </div>
-                    <div class="meeting-ai-card">
-                        <div class="container-label">Agreements & Issues</div>
+                    </details>
+                    <details class="meeting-ai-card" data-analysis-result="agreements">
+                        <summary>合意点と未解決課題</summary>
                         <textarea id="meeting-ai-agreements" class="meeting-ai-editor" placeholder="合意点と未解決課題はここに表示されます。"></textarea>
-                    </div>
-                    <div class="meeting-ai-card">
-                        <div class="container-label">Topics</div>
+                    </details>
+                    <details class="meeting-ai-card" data-analysis-result="topics">
+                        <summary>トークテーマ一覧</summary>
                         <textarea id="meeting-ai-topics" class="meeting-ai-editor" placeholder="トークテーマ一覧はここに表示されます。"></textarea>
-                    </div>
+                    </details>
                 </aside>
             </div>
 
@@ -476,9 +463,9 @@
                     <img src="assets/icons/sticky-note.svg" alt="">
                     <span>メモ</span>
                 </button>
-                <button type="button" id="btn-dock-participants" title="重要発言">
-                    <img src="assets/icons/star.svg" alt="">
-                    <span>重要</span>
+                <button type="button" id="btn-dock-share" title="参加URLを共有" aria-label="参加URLを共有">
+                    <img src="assets/icons/share-2.svg" alt="">
+                    <span>共有</span>
                 </button>
                 <button type="button" id="btn-dock-mic" class="dock-mic" title="マイクを接続" aria-label="マイクを接続">
                     <img src="assets/icons/mic.svg" alt="">

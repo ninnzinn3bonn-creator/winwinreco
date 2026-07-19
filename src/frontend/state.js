@@ -29,6 +29,8 @@ window.AppState = {
         mobileMenuOpen: false,
         mobileMemoryCollapsed: false,
         mobileAiCollapsed: false,
+        mobileMeetingView: 'live',
+        liveFocusCollapsed: false,
         summaryMobileMenuOpen: false,
         summaryStatsCollapsed: false,
         summarySidebarCollapsed: false,
@@ -111,6 +113,7 @@ window.AppState = {
         // Fix B-4: フロント空転検知用タイムスタンプ
         lastAudioSentAt: 0,
         lastTranscriptAt: 0,
+        lastSttRestartAt: 0,
         transcriptStallWatchdog: null
     }
 };

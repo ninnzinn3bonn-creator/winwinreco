@@ -145,8 +145,8 @@
         bindClick('btn-dock-end', () => callHandler('endRoom'));
         bindClick('btn-dock-memo', () => callHandler('addMemo'));
         bindClick('btn-dock-more', () => callHandler('toggleMobileMeetingMenu'));
-        bindClick('btn-dock-participants', () => callHandler('switchMeetingView', 'important'));
-        bindClick('btn-open-ai-suggestion', () => callHandler('switchMeetingView', 'ai'));
+        bindClick('btn-dock-share', () => callHandler('copyRoomId'));
+        bindClick('btn-toggle-live-focus', () => callHandler('toggleLiveFocus'));
         document.querySelectorAll('[data-meeting-view]').forEach((button) => {
             button.addEventListener('click', () => callHandler('switchMeetingView', button.dataset.meetingView));
             button.addEventListener('keydown', (event) => {
@@ -247,6 +247,15 @@
                 const container = dom.timeline;
                 const isMeetingMobile = document.body.classList.contains('meeting-mode')
                     && window.matchMedia('(max-width: 1023px)').matches;
+                if (isMeetingMobile) {
+                    mobileScrollbar.style.top = `${container.offsetTop}px`;
+                    mobileScrollbar.style.bottom = 'auto';
+                    mobileScrollbar.style.height = `${container.clientHeight}px`;
+                } else {
+                    mobileScrollbar.style.removeProperty('top');
+                    mobileScrollbar.style.removeProperty('bottom');
+                    mobileScrollbar.style.removeProperty('height');
+                }
                 const maxScroll = container.scrollHeight - container.clientHeight;
                 if (!isMeetingMobile || maxScroll <= 8 || mobileScrollbar.clientHeight <= 0) {
                     mobileScrollbar.classList.add('is-hidden');

@@ -11,9 +11,63 @@
         presets: MIC_PRESETS = {},
         defaultDesktop: DEFAULT_DESKTOP_PRESET = 'pin_mic'
     } = window.AppMicPresets || {};
+    let audioRecoveryTimer = null;
+    let audioRecoveryPromise = null;
+    let intentionalAudioStop = false;
 
     function getMicPresetConfig(key = state.micPresetKey) {
         return MIC_PRESETS[key] || MIC_PRESETS[DEFAULT_DESKTOP_PRESET] || null;
+    }
+
+    function getLiveAudioTrack() {
+        const track = state.stream?.getAudioTracks?.()[0] || null;
+        return track && track.readyState !== 'ended' ? track : null;
+    }
+
+    function isMeetingActive() {
+        return !!dom.meetingScreen?.classList?.contains('active');
+    }
+
+    function isAudioPipelineHealthy() {
+        const contextState = state.audioContext?.state;
+        return !!(
+            getLiveAudioTrack()
+            && state.processor
+            && contextState
+            && contextState !== 'closed'
+        );
+    }
+
+    function scheduleAudioRecovery(reason, delayMs = 600) {
+        if (intentionalAudioStop || !isMeetingActive()) return;
+        if (audioRecoveryTimer) clearTimeout(audioRecoveryTimer);
+        audioRecoveryTimer = setTimeout(() => {
+            audioRecoveryTimer = null;
+            recoverAudioPipeline({ reason }).catch((error) => {
+                window.AppMain?.AppDebug?.log('warn', 'Audio recovery failed', error?.message || reason);
+            });
+        }, delayMs);
+    }
+
+    function markAudioSent() {
+        const now = Date.now();
+        if (!state.lastAudioSentAt || now - state.lastAudioSentAt > 30000) {
+            state.lastTranscriptAt = now;
+        }
+        state.lastAudioSentAt = now;
+    }
+
+    function sendAudioChunk(chunk) {
+        const socket = state.ws;
+        if (!socket || socket.readyState !== WebSocket.OPEN) return false;
+        try {
+            socket.send(chunk);
+            markAudioSent();
+            return true;
+        } catch (error) {
+            window.AppMain?.AppDebug?.log('warn', 'Audio chunk send failed', error?.message || 'unknown');
+            return false;
+        }
     }
 
     function updateMicStatus(message) {
@@ -214,11 +268,17 @@
         track.onended = () => {
             updateMicStatus('マイク入力が停止しました。端末設定やブラウザ権限を確認してください。');
             window.AppMain?.AppDebug?.log('warn', 'Microphone track ended');
+            if (state.stream === stream) scheduleAudioRecovery('track-ended', 250);
         };
         track.onmute = () => {
             if (!state.isMuted) updateMicStatus('マイク入力が一時的にミュートされました。');
+            if (!state.isMuted && state.stream === stream) scheduleAudioRecovery('track-muted', 1500);
         };
         track.onunmute = () => {
+            if (audioRecoveryTimer) {
+                clearTimeout(audioRecoveryTimer);
+                audioRecoveryTimer = null;
+            }
             updateMicStatus(state.isMuted ? 'ミュート中です。' : 'マイク入力を再開しました。');
         };
     }
@@ -306,11 +366,17 @@
                 throw new Error('マイク利用には HTTPS または localhost が必要です');
             }
             const preset = getMicPresetConfig();
-            if (!state.stream) {
+            const liveTrack = getLiveAudioTrack();
+            if (options.forceNewStream || !liveTrack) {
+                if (state.stream) {
+                    const staleStream = state.stream;
+                    state.stream = null;
+                    staleStream.getTracks().forEach((track) => track.stop());
+                }
                 state.stream = await navigator.mediaDevices.getUserMedia(getPreferredAudioConstraints(preset));
                 bindStreamState(state.stream);
             } else {
-                const [track] = state.stream.getAudioTracks();
+                const track = liveTrack;
                 if (track?.applyConstraints) {
                     try {
                         await track.applyConstraints(getPreferredAudioConstraints(preset).audio);
@@ -322,12 +388,17 @@
             state.stream.getAudioTracks().forEach((track) => {
                 track.enabled = !state.isMuted;
             });
-            if (!state.audioContext) {
+            if (!state.audioContext || state.audioContext.state === 'closed') {
+                state.audioContext = null;
+                state.audioSource = null;
+                state.micAnalyser = null;
+                state.processor = null;
                 state.audioContext = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: 16000 });
                 state.audioContext.onstatechange = () => {
                     const currentState = state.audioContext ? state.audioContext.state : 'closed';
-                    if (currentState === 'interrupted') {
+                    if (currentState === 'interrupted' || currentState === 'suspended') {
                         updateMicStatus('音声入力が端末側で中断されました。復帰後にマイクONで再接続してください。');
+                        scheduleAudioRecovery(`audio-context-${currentState}`, 800);
                     }
                 };
             }
@@ -355,18 +426,20 @@
     }
 
     async function startRecording({ onAudioChunk } = {}) {
-        if (state.audioContext && state.audioContext.state === 'running' && state.stream && state.processor) return;
+        if (isAudioPipelineHealthy() && state.audioContext.state === 'running') return true;
         try {
-            if (!state.stream) state.stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-            if (!state.audioContext) {
-                state.audioContext = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: 16000 });
+            if (!getLiveAudioTrack() || !state.audioContext || state.audioContext.state === 'closed') {
+                const prepared = await prepareAudio({ forceNewStream: !getLiveAudioTrack() });
+                if (!prepared) return false;
             }
-            if (state.audioContext.state === 'suspended') await state.audioContext.resume();
+            if (state.audioContext.state === 'suspended' || state.audioContext.state === 'interrupted') {
+                await state.audioContext.resume();
+            }
             ensureAudioNodes();
         } catch (error) {
             window.AppMain?.AppDebug?.log('error', 'startRecording failed', error.message);
             window.AppMeetingUi?.addSystemMessage?.(`マイク接続エラー: ${error.name}`);
-            return;
+            return false;
         }
         try {
             if (state.processor) {
@@ -433,17 +506,23 @@
                 for (let i = 0; i < mono16k.length; i += 1) {
                     pcm[i] = Math.max(-1, Math.min(1, mono16k[i])) * 0x7fff;
                 }
+                let sent = false;
                 if (typeof onAudioChunk === 'function') {
-                    onAudioChunk(pcm.buffer);
-                } else if (state.ws && state.ws.readyState === WebSocket.OPEN) {
-                    state.ws.send(pcm.buffer);
+                    try {
+                        sent = onAudioChunk(pcm.buffer) !== false;
+                    } catch (error) {
+                        window.AppMain?.AppDebug?.log('warn', 'Audio chunk callback failed', error?.message || 'unknown');
+                    }
+                } else {
+                    sent = sendAudioChunk(pcm.buffer);
                 }
-                // Fix B-4: 音声送信時刻を記録
-                state.lastAudioSentAt = Date.now();
+                if (sent && typeof onAudioChunk === 'function') markAudioSent();
             };
             state.processor = processor;
+            return true;
         } catch (error) {
             window.AppMain?.AppDebug?.log('error', 'audio processor failed', error.message);
+            return false;
         }
     }
 
@@ -460,10 +539,19 @@
             if (state.isMuted) return;
             const transcriptAge = Date.now() - (state.lastTranscriptAt || 0);
             if (transcriptAge > 40000) {
-                window.AppToast?.warn('文字起こしが止まっているようです。再接続を試みます...', { sticky: false });
-                try {
-                    if (state.ws) state.ws.close();
-                } catch (_) { /* ignore */ }
+                const restartAge = Date.now() - (state.lastSttRestartAt || 0);
+                if (restartAge < 30000) return;
+                state.lastSttRestartAt = Date.now();
+                state.lastTranscriptAt = Date.now();
+                window.AppToast?.warn('文字起こしを自動的に再接続しています。', { sticky: false });
+                const socket = state.ws;
+                if (socket?.readyState === WebSocket.OPEN) {
+                    try {
+                        socket.send(JSON.stringify({ type: 'restart_stt', reason: 'client-transcript-stall' }));
+                    } catch (error) {
+                        window.AppMain?.AppDebug?.log('warn', 'STT restart request failed', error?.message || 'unknown');
+                    }
+                }
             }
         }, 30000);
     }
@@ -475,27 +563,73 @@
         }
     }
 
-    function stopRecording() {
-        stopTranscriptStallWatchdog();
-        if (state.watchdogInterval) {
-            clearInterval(state.watchdogInterval);
-            state.watchdogInterval = null;
-        }
-        if (state.processor) {
-            state.processor.onaudioprocess = null;
-            state.processor.disconnect();
-            state.processor = null;
-        }
-        if (state.audioContext) {
-            state.audioContext.close();
-            state.audioContext = null;
-        }
-        state.audioSource = null;
-        state.micAnalyser = null;
-        stopMicMonitor();
-        if (state.stream) {
-            state.stream.getTracks().forEach((track) => track.stop());
+    async function disposeAudioPipeline({ keepTranscriptWatchdog = false } = {}) {
+        intentionalAudioStop = true;
+        try {
+            if (audioRecoveryTimer) {
+                clearTimeout(audioRecoveryTimer);
+                audioRecoveryTimer = null;
+            }
+            if (!keepTranscriptWatchdog) stopTranscriptStallWatchdog();
+            if (state.watchdogInterval) {
+                clearInterval(state.watchdogInterval);
+                state.watchdogInterval = null;
+            }
+            if (state.processor) {
+                state.processor.onaudioprocess = null;
+                try { state.processor.disconnect(); } catch (_) { /* already disconnected */ }
+                state.processor = null;
+            }
+            state.audioSource = null;
+            state.micAnalyser = null;
+            stopMicMonitor();
+            const stream = state.stream;
             state.stream = null;
+            if (stream) stream.getTracks().forEach((track) => track.stop());
+            const context = state.audioContext;
+            state.audioContext = null;
+            if (context && context.state !== 'closed') {
+                try { await context.close(); } catch (_) { /* already closed */ }
+            }
+        } finally {
+            intentionalAudioStop = false;
+        }
+    }
+
+    function stopRecording() {
+        return disposeAudioPipeline();
+    }
+
+    async function recoverAudioPipeline({ reason = 'health-check', force = false } = {}) {
+        if (!isMeetingActive() || intentionalAudioStop) return false;
+        if (!force && !state.stream && !state.audioContext && !state.processor) return false;
+        if (audioRecoveryPromise) return audioRecoveryPromise;
+
+        audioRecoveryPromise = (async () => {
+            const track = getLiveAudioTrack();
+            if (!force && track && state.audioContext && state.audioContext.state !== 'closed') {
+                if (state.audioContext.state === 'suspended' || state.audioContext.state === 'interrupted') {
+                    try { await state.audioContext.resume(); } catch (_) { /* rebuild below */ }
+                }
+                if (state.audioContext.state === 'running' && state.processor) return true;
+            }
+
+            window.AppMain?.AppDebug?.log('info', 'Recovering audio pipeline', reason);
+            await disposeAudioPipeline({ keepTranscriptWatchdog: true });
+            const prepared = await prepareAudio({ forceNewStream: true });
+            if (!prepared) return false;
+            const started = await startRecording();
+            if (started) {
+                updateMicStatus('マイク入力と文字起こしを再接続しました。');
+                syncMuteUi();
+            }
+            return !!started;
+        })();
+
+        try {
+            return await audioRecoveryPromise;
+        } finally {
+            audioRecoveryPromise = null;
         }
     }
 
@@ -512,12 +646,8 @@
 
     async function reconnectMic() {
         try {
-            stopRecording();
-            const ok = await prepareAudio({ updateStatus: true });
+            const ok = await recoverAudioPipeline({ reason: 'manual-reconnect', force: true });
             if (!ok) return;
-            if (state.ws && state.ws.readyState === WebSocket.OPEN) {
-                await startRecording({ onAudioChunk: (pcm) => state.ws.send(pcm) });
-            }
             updateMicStatus('マイクを再接続しました。メーターとログで入力を確認してください。');
             syncMuteUi();
         } catch (error) {
@@ -560,6 +690,10 @@
         ensureAudioNodes,
         requestWakeLock,
         releaseWakeLock,
+        getLiveAudioTrack,
+        isAudioPipelineHealthy,
+        sendAudioChunk,
+        recoverAudioPipeline,
         prepareAudio,
         runMicCheck,
         startRecording,

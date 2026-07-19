@@ -173,6 +173,88 @@ test('mobile meeting log exposes compact scroll affordance when overflowing', as
     expect(after).toBeGreaterThan(before);
 });
 
+test('short mobile viewport keeps transcript and AI views usable', async ({ page, request }) => {
+    const unique = Date.now();
+    await page.setViewportSize({ width: 390, height: 650 });
+    const account = await loginAndReachHostSetup(page, request, unique);
+    await createMeetingFromSetup(page, account.displayName);
+
+    await page.evaluate(() => {
+        const state = window.AppState.state;
+        state.activityItems = Array.from({ length: 36 }, (_, index) => ({
+            type: 'utterance',
+            id: `short-mobile-${index}`,
+            timestamp: new Date(Date.now() + index * 1000).toISOString(),
+            data: {
+                id: `short-mobile-${index}`,
+                participant_id: index % 2 ? 'mobile-guest' : 'mobile-host',
+                display_name: index % 2 ? '佐藤' : '田中',
+                transcript: `短い縦画面でも過去の文字起こしを読み返せることを確認します ${index}`,
+                raw_transcript: `短い縦画面でも過去の文字起こしを読み返せることを確認します ${index}`,
+                timestamp: new Date(Date.now() + index * 1000).toISOString(),
+                is_starred: index === 2,
+                memo_text: '',
+                transcript_source: 'stt'
+            }
+        }));
+        window.AppLogUi.renderAllLogs();
+    });
+
+    const initialMetrics = await page.evaluate(() => {
+        const timeline = document.getElementById('timeline');
+        const screen = document.getElementById('meeting-screen');
+        const dock = document.querySelector('.meeting-mobile-dock');
+        return {
+            viewportHeight: window.innerHeight,
+            screenBottom: Math.round(screen.getBoundingClientRect().bottom),
+            dockTop: Math.round(dock.getBoundingClientRect().top),
+            timelineBottom: Math.round(timeline.getBoundingClientRect().bottom),
+            timelineHeight: Math.round(timeline.getBoundingClientRect().height),
+            timelineScrollable: timeline.scrollHeight > timeline.clientHeight,
+            topbarHidden: getComputedStyle(document.querySelector('.app-topbar')).display === 'none'
+        };
+    });
+
+    expect(initialMetrics.viewportHeight).toBe(650);
+    expect(initialMetrics.screenBottom).toBeLessThanOrEqual(650);
+    expect(initialMetrics.timelineBottom).toBeLessThanOrEqual(initialMetrics.dockTop + 1);
+    expect(initialMetrics.timelineHeight).toBeGreaterThanOrEqual(180);
+    expect(initialMetrics.timelineScrollable).toBe(true);
+    expect(initialMetrics.topbarHidden).toBe(true);
+    await expect(page).toHaveScreenshot('meeting-short-mobile.png', {
+        animations: 'disabled',
+        maxDiffPixelRatio: 0.02
+    });
+
+    const expandedHeight = initialMetrics.timelineHeight;
+    await page.locator('#btn-toggle-live-focus').click();
+    await expect(page.locator('.live-transcript-focus')).toHaveClass(/is-collapsed/);
+    const collapsedHeight = await page.locator('#timeline').evaluate((timeline) => Math.round(timeline.getBoundingClientRect().height));
+    expect(collapsedHeight).toBeGreaterThan(expandedHeight);
+
+    await page.locator('#meeting-view-important').click();
+    await expect(page.locator('.meeting-layout')).toHaveAttribute('data-mobile-view', 'important');
+    await expect(page.locator('#starred-log-list')).toContainText('短い縦画面でも過去の文字起こし');
+    await page.locator('#meeting-view-live').click();
+    await expect(page.locator('#timeline')).toContainText('短い縦画面でも過去の文字起こし');
+
+    await page.locator('#meeting-view-ai').click();
+    await expect(page).toHaveScreenshot('meeting-ai-short-mobile.png', {
+        animations: 'disabled',
+        maxDiffPixelRatio: 0.02
+    });
+    const aiMetrics = await page.locator('.meeting-ai-panel').evaluate((panel) => {
+        const dock = document.querySelector('.meeting-mobile-dock');
+        return {
+            panelBottom: Math.round(panel.getBoundingClientRect().bottom),
+            dockTop: Math.round(dock.getBoundingClientRect().top),
+            scrollable: panel.scrollHeight > panel.clientHeight
+        };
+    });
+    expect(aiMetrics.panelBottom).toBeLessThanOrEqual(aiMetrics.dockTop + 1);
+    expect(aiMetrics.scrollable).toBe(true);
+});
+
 test('host setup screen omits legacy dictionary controls', async ({ page, request }) => {
     const unique = Date.now();
     await loginAndReachHostSetup(page, request, unique);

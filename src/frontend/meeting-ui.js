@@ -2,6 +2,8 @@
     const { state } = window.AppState;
     const dom = window.AppDom;
     const { getJoinUrl, isMobileViewport, readApiResponse } = window.AppUtils;
+    let webSocketReconnectTimer = null;
+    let webSocketReconnectAttempt = 0;
 
     function switchTab(tab) {
         document.querySelectorAll('.tab-btn').forEach((button) => button.classList.remove('active'));
@@ -57,8 +59,31 @@
         renderMobileMeetingControls();
     }
 
+    function renderLiveFocusControl() {
+        const section = document.querySelector('.live-transcript-focus');
+        const button = document.getElementById('btn-toggle-live-focus');
+        const collapsed = !!state.liveFocusCollapsed;
+        if (section) section.classList.toggle('is-collapsed', collapsed);
+        if (button) {
+            const label = collapsed ? '現在の発言を展開する' : '現在の発言を折りたたむ';
+            button.title = label;
+            button.setAttribute('aria-label', label);
+            button.setAttribute('aria-expanded', collapsed ? 'false' : 'true');
+        }
+    }
+
+    function toggleLiveFocus() {
+        state.liveFocusCollapsed = !state.liveFocusCollapsed;
+        renderLiveFocusControl();
+        requestAnimationFrame(() => window.dispatchEvent(new Event('resize')));
+    }
+
     function switchMeetingView(view) {
         const nextView = ['live', 'important', 'ai'].includes(view) ? view : 'live';
+        state.mobileMeetingView = nextView;
+        state.mobileMenuOpen = false;
+        state.mobileMemoryCollapsed = false;
+        state.mobileAiCollapsed = false;
         const layout = document.querySelector('.meeting-layout');
         if (layout) layout.dataset.mobileView = nextView;
         document.querySelectorAll('[data-meeting-view]').forEach((button) => {
@@ -67,6 +92,8 @@
             button.setAttribute('aria-selected', selected ? 'true' : 'false');
             button.tabIndex = selected ? 0 : -1;
         });
+        renderMobileMeetingControls();
+        requestAnimationFrame(() => window.dispatchEvent(new Event('resize')));
     }
 
     function startMeetingElapsedTimer() {
@@ -125,6 +152,7 @@
         if (aiButton) {
             aiButton.innerText = state.mobileAiCollapsed ? '会議中AIを表示' : '会議中AIを折りたたむ';
         }
+        renderLiveFocusControl();
     }
 
     function renderSummaryMobileControls() {
@@ -379,8 +407,10 @@
         if (endBtn) endBtn.hidden = !state.isHost;
         window.AppAudio.syncMuteUi();
         state.mobileMenuOpen = false;
-        state.mobileMemoryCollapsed = true;
-        state.mobileAiCollapsed = true;
+        state.mobileMemoryCollapsed = false;
+        state.mobileAiCollapsed = false;
+        state.liveFocusCollapsed = false;
+        switchMeetingView('live');
         renderMobileMeetingControls();
         window.AppAudio.requestWakeLock();
         autoConnectMicIfPermitted().catch((err) => {
@@ -466,7 +496,33 @@
         }
     }
 
+    function scheduleWebSocketReconnect() {
+        if (webSocketReconnectTimer || !dom.meetingScreen.classList.contains('active')) return;
+        const delay = Math.min(10000, 1000 * (2 ** Math.min(webSocketReconnectAttempt, 3)));
+        webSocketReconnectAttempt += 1;
+        webSocketReconnectTimer = setTimeout(() => {
+            webSocketReconnectTimer = null;
+            if (dom.meetingScreen.classList.contains('active')) initWebSocket();
+        }, delay);
+    }
+
+    function ensureMeetingConnection() {
+        if (!dom.meetingScreen.classList.contains('active')) return null;
+        if (state.ws && (state.ws.readyState === WebSocket.OPEN || state.ws.readyState === WebSocket.CONNECTING)) {
+            return state.ws;
+        }
+        return initWebSocket();
+    }
+
     function initWebSocket() {
+        if (!state.participantId || !state.controlToken) return null;
+        if (state.ws && (state.ws.readyState === WebSocket.OPEN || state.ws.readyState === WebSocket.CONNECTING)) {
+            return state.ws;
+        }
+        if (webSocketReconnectTimer) {
+            clearTimeout(webSocketReconnectTimer);
+            webSocketReconnectTimer = null;
+        }
         const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
         const params = new URLSearchParams({
             participantId: state.participantId || '',
@@ -474,15 +530,28 @@
             roomId: state.roomId || ''
         });
         const wsUrl = `${protocol}//${window.location.host}?${params.toString()}`;
-        state.ws = new WebSocket(wsUrl);
-        state.ws.onopen = () => {
+        const socket = new WebSocket(wsUrl);
+        state.ws = socket;
+        socket.onopen = () => {
+            if (state.ws !== socket) return;
             addSystemMessage('サーバーに接続しました。');
-            state.ws.send(JSON.stringify({ type: 'hello' }));
+            const lastSeen = [...state.activityItems]
+                .reverse()
+                .find((item) => item.type === 'utterance')?.data?.id || null;
+            socket.send(JSON.stringify({ type: 'hello', last_seen_utterance_id: lastSeen }));
             window.AppAudio.sendMicPresetMetadataToServer();
         };
-        state.ws.onmessage = (event) => {
-            const msg = JSON.parse(event.data);
+        socket.onmessage = (event) => {
+            if (state.ws !== socket) return;
+            let msg;
+            try {
+                msg = JSON.parse(event.data);
+            } catch (error) {
+                window.AppMain?.AppDebug?.log('warn', 'Invalid WebSocket message', error?.message || 'unknown');
+                return;
+            }
             if (msg.type === 'transcript_interim') {
+                state.lastTranscriptAt = Date.now();
                 window.AppLogUi.showProvisional(msg);
             } else if (msg.type === 'transcript') {
                 // Fix B-4: transcript 受信時刻を記録
@@ -495,6 +564,8 @@
                 // Fix B-4: 受信時刻を初期化して空転監視を開始
                 state.lastTranscriptAt = Date.now();
                 state.lastAudioSentAt = 0;
+                state.lastSttRestartAt = 0;
+                webSocketReconnectAttempt = 0;
                 window.AppAudio.startTranscriptStallWatchdog();
                 // F4: ホスト指定の STT 設定を state に保存し、mic_preset 送信時に使用する。
                 if (msg.room_stt_provider) {
@@ -510,7 +581,13 @@
                 }
                 (msg.history || []).forEach((entry) => window.AppLogUi.upsertUtterance(entry));
                 window.AppLogUi.renderAllLogs();
-                window.AppAudio.startRecording({ onAudioChunk: (pcm) => state.ws.send(pcm) });
+                window.AppAudio.startRecording().then((started) => {
+                    if (!started && dom.meetingScreen.classList.contains('active')) {
+                        window.AppAudio.recoverAudioPipeline({ reason: 'websocket-ready' });
+                    }
+                });
+            } else if (msg.type === 'stt_status') {
+                window.AppMain?.AppDebug?.log('info', 'STT status', msg.status || 'unknown');
             } else if (msg.type === 'terminated') {
                 addSystemMessage('会議が終了しました。');
                 window.AppAudio.stopRecording();
@@ -526,15 +603,17 @@
                 }
             }
         };
-        state.ws.onclose = () => {
+        socket.onclose = () => {
+            if (state.ws !== socket) return;
+            state.ws = null;
             addSystemMessage('接続が切れました。再接続を試みます...');
-            if (dom.meetingScreen.classList.contains('active')) {
-                setTimeout(initWebSocket, 3000);
-            }
+            scheduleWebSocketReconnect();
         };
-        state.ws.onerror = () => {
+        socket.onerror = () => {
+            if (state.ws !== socket) return;
             window.AppMain?.AppDebug?.log('error', 'WebSocket Error occurred');
         };
+        return socket;
     }
 
     function scrollToPageEdge(direction) {
@@ -570,6 +649,7 @@
         toggleMobileMeetingMenu,
         toggleMobileMemoryPanel,
         toggleMobileAiPanel,
+        toggleLiveFocus,
         switchMeetingView,
         renderMobileMeetingControls,
         renderSummaryMobileControls,
@@ -587,6 +667,7 @@
         showSummaryScreen,
         loadRoomLogs,
         initWebSocket,
+        ensureMeetingConnection,
         scrollToPageEdge,
         endRoom
     };

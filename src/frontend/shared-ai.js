@@ -549,6 +549,9 @@
         const config = configMap[key];
         if (!config) return;
 
+        const resultPanel = dom.meetingAiEditors[key]?.closest('details');
+        if (resultPanel) resultPanel.open = true;
+
         state.liveMeetingAnalysis.loadingKey = key;
         state.liveMeetingAnalysis.status = AI_LOADING_TEXT;
         renderMeetingAnalysis();

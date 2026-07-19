@@ -2957,6 +2957,7 @@ window.AppMain = {
     toggleMobileMeetingMenu: (...args) => window.AppMeetingUi.toggleMobileMeetingMenu(...args),
     toggleMobileMemoryPanel: (...args) => window.AppMeetingUi.toggleMobileMemoryPanel(...args),
     toggleMobileAiPanel: (...args) => window.AppMeetingUi.toggleMobileAiPanel(...args),
+    toggleLiveFocus: (...args) => window.AppMeetingUi.toggleLiveFocus(...args),
     switchMeetingView: (...args) => window.AppMeetingUi.switchMeetingView(...args),
     toggleSummaryMobileMenu: (...args) => window.AppMeetingUi.toggleSummaryMobileMenu(...args),
     toggleSummaryStats: (...args) => window.AppMeetingUi.toggleSummaryStats(...args),
@@ -3525,25 +3526,28 @@ window.addEventListener('resize', () => {
 
 document.addEventListener('visibilitychange', async () => {
     if (document.hidden) return;
-    await requestWakeLock();
-    if (state.audioContext?.state === 'suspended') {
-        try {
-            await state.audioContext.resume();
-        } catch (error) {
-            AppDebug.log('warn', 'AudioContext resume failed', error.message);
-        }
+    await window.AppAudio.requestWakeLock();
+    if (meetingScreen.classList.contains('active')) {
+        window.AppMeetingUi.ensureMeetingConnection();
+        await window.AppAudio.recoverAudioPipeline({ reason: 'visibility-resume' });
     }
 });
 
 window.addEventListener('pageshow', async () => {
-    await requestWakeLock();
+    await window.AppAudio.requestWakeLock();
     if (meetingScreen.classList.contains('active')) {
-        syncMicrophonePermissionState();
+        window.AppMeetingUi.ensureMeetingConnection();
+        window.AppAudio.syncMicrophonePermissionState();
+        await window.AppAudio.recoverAudioPipeline({ reason: 'page-show' });
     }
 });
 
 window.addEventListener('online', () => {
     updateMicStatus('オンラインに復帰しました。必要ならマイクONで再接続してください。');
+    if (meetingScreen.classList.contains('active')) {
+        window.AppMeetingUi.ensureMeetingConnection();
+        window.AppAudio.recoverAudioPipeline({ reason: 'network-online' });
+    }
 });
 
 window.addEventListener('offline', () => {
