@@ -587,6 +587,7 @@ body.summary-mode .summary-log-panel {
     body { font-size: 16px; }
     body.meeting-mode {
         --meeting-dock-height: calc(72px + env(safe-area-inset-bottom));
+        --meeting-browser-toolbar-offset: 0px;
         height: 100vh;
         height: 100dvh;
         overflow: hidden;
@@ -631,7 +632,7 @@ body.summary-mode .summary-log-panel {
         height: 100vh;
         height: 100dvh;
         min-height: 0;
-        padding: 0 0 var(--meeting-dock-height);
+        padding: var(--meeting-browser-toolbar-offset) 0 var(--meeting-dock-height);
         overflow: hidden;
     }
     body.meeting-mode #meeting-screen > header {
@@ -848,4 +849,12 @@ body.summary-mode .summary-log-panel {
     .live-focus-meter { margin-top: 5px; }
     .meeting-mobile-dock button { height: 48px; }
     .meeting-mobile-dock .dock-mic { width: 48px; min-width: 48px; height: 48px; margin-bottom: 2px; }
+}
+
+/* Safari's floating top toolbar overlays the first row because meeting mode
+   scrolls inside panels instead of scrolling the document. */
+@media (max-width: 720px) and (orientation: portrait) {
+    html.ios-safari-browser body.meeting-mode {
+        --meeting-browser-toolbar-offset: 48px;
+    }
 }

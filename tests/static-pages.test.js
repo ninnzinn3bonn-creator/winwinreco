@@ -95,4 +95,15 @@ describe('Static legal pages', () => {
         expect(source).not.toMatch(/\bprompt\s*\(/);
         expect(source).not.toMatch(/\bconfirm\s*\(/);
     });
+
+    test('mobile meeting header avoids the iOS Safari browser toolbar', () => {
+        const mainSource = fs.readFileSync(path.join(__dirname, '../src/frontend/main.js'), 'utf8');
+        const screenStyles = fs.readFileSync(path.join(__dirname, '../src/frontend/styles/apple-screens.css'), 'utf8');
+
+        expect(mainSource).toContain("classList.toggle('ios-safari-browser'");
+        expect(mainSource).toContain("'(display-mode: standalone)'");
+        expect(screenStyles).toContain('html.ios-safari-browser body.meeting-mode');
+        expect(screenStyles).toContain('--meeting-browser-toolbar-offset: 48px');
+        expect(screenStyles).toContain('padding: var(--meeting-browser-toolbar-offset) 0 var(--meeting-dock-height)');
+    });
 });

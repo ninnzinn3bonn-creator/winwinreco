@@ -85,6 +85,19 @@ const AppDebug = {
     }
 };
 
+function configureMobileSafariLayout() {
+    const userAgent = navigator.userAgent || '';
+    const isIpadDesktopMode = navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1;
+    const isIos = /iP(?:hone|ad|od)/.test(userAgent) || isIpadDesktopMode;
+    const isSafari = /AppleWebKit/.test(userAgent)
+        && /Version\/[\d.]+/.test(userAgent)
+        && /Safari\//.test(userAgent);
+    const isStandalone = window.matchMedia?.('(display-mode: standalone)').matches
+        || navigator.standalone === true;
+
+    document.documentElement.classList.toggle('ios-safari-browser', isIos && isSafari && !isStandalone);
+}
+
 function updateMicStatus(message) {
     if (micCheckStatus) {
         micCheckStatus.innerText = message;
@@ -3209,6 +3222,7 @@ async function initAuthAndRender() {
 }
 
 async function bootstrap() {
+    configureMobileSafariLayout();
     initializeSetupUi();
     // Keep the profile context cached for room joins. Editing stays in the
     // account menu instead of occupying the meeting setup flow.
