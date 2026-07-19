@@ -11,16 +11,16 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
         with:
-          node-version: '20'
+          node-version: '22'
           cache: 'npm'
-      - name: Update npm to match lockfile (npm 11.x lockfile)
-        run: npm install -g npm@latest
+      - name: Install pinned npm
+        run: npm install -g npm@11.6.2
       - name: Install dependencies
         # npm ci は package.json と package-lock.json の差分に厳格すぎて
-        # ローカル (npm 11) と CI (Node 20 同梱の npm 10 → 11) で挙動差を起こす。
+        # ローカルと CI の npm 11 間でも挙動差を起こしたため、npm の版を固定し、
         # CI では npm install (--no-audit で audit を別ジョブに任せる) を使う。
         run: npm install --no-audit --no-fund
       - name: Frontend syntax check
@@ -36,15 +36,15 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
         with:
-          node-version: '20'
-      - name: Update npm to match lockfile (npm 11.x lockfile)
-        run: npm install -g npm@latest
+          node-version: '22'
+      - name: Install pinned npm
+        run: npm install -g npm@11.6.2
       - name: Install dependencies
         # npm ci は package.json と package-lock.json の差分に厳格すぎて
-        # ローカル (npm 11) と CI (Node 20 同梱の npm 10 → 11) で挙動差を起こす。
+        # ローカルと CI の npm 11 間でも挙動差を起こしたため、npm の版を固定し、
         # CI では npm install (--no-audit で audit を別ジョブに任せる) を使う。
         run: npm install --no-audit --no-fund
       - name: Security audit (production deps, critical severity)
