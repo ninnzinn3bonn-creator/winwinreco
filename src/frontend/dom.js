@@ -5,6 +5,8 @@
         summaryScreen: document.getElementById('summary-screen'),
         timeline: document.getElementById('timeline'),
         btnJumpLatestFloating: document.getElementById('btn-jump-latest-floating'),
+        mobileLogScrollbar: document.getElementById('mobile-log-scrollbar'),
+        mobileLogScrollThumb: document.getElementById('mobile-log-scroll-thumb'),
         meetingTitleInput: document.getElementById('meeting-title-input'),
         meetingTitleReadonly: document.getElementById('meeting-title-readonly'),
         mobileMeetingTitleInput: document.getElementById('mobile-meeting-title-input'),

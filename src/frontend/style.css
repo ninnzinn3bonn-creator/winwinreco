@@ -1256,11 +1256,33 @@ section > header,
 
 .memory-card-header,
 .utterance-meta,
-.utterance-actions {
+.utterance-footer {
     display: flex;
     align-items: center;
     justify-content: space-between;
     gap: 12px;
+}
+
+.utterance-main-line {
+    display: block;
+    min-width: 0;
+    line-height: 1.55;
+}
+
+.utterance-main-line .text {
+    display: inline;
+}
+
+.utterance-separator {
+    color: var(--muted);
+    font-weight: 700;
+}
+
+.utterance-actions {
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 8px;
 }
 
 .memory-card-header strong,
@@ -1697,6 +1719,10 @@ section > header,
     border-radius: var(--radius-pill);
 }
 
+.mobile-log-scrollbar {
+    display: none;
+}
+
 .utterance {
     padding: 12px 14px;
     box-shadow: none;
@@ -1738,20 +1764,21 @@ section > header,
 }
 
 .text {
-    margin-top: 12px;
     font-size: 0.98rem;
 }
 
-.utterance-actions {
-    margin-top: 14px;
+.utterance-footer {
+    margin-top: 10px;
 }
 
 .icon-toggle {
     padding: 8px 12px;
+    min-height: 34px;
     border-radius: 999px;
     border: 1px solid var(--line);
     background: var(--surface-soft);
     color: var(--muted);
+    line-height: 1;
 }
 
 .icon-toggle.active {
@@ -2915,11 +2942,137 @@ body.summary-mode.summary-sidebar-collapsed .review-main,
     body.meeting-mode .conversation-panel {
         min-height: 50vh;
         min-height: 50dvh;
-        padding: var(--space-3);
+        padding: var(--space-3) 36px var(--space-3) var(--space-3);
     }
     body.meeting-mode #timeline {
-        min-height: 40vh;
-        min-height: 40dvh;
+        height: 58vh;
+        height: 58dvh;
+        min-height: 340px;
+        max-height: 680px;
+        overflow-y: auto;
+        padding-right: 6px;
+        padding-bottom: 96px;
+        scrollbar-width: none;
+        overscroll-behavior: contain;
+    }
+
+    body.meeting-mode #timeline::-webkit-scrollbar {
+        width: 0;
+        height: 0;
+    }
+
+    body.meeting-mode .conversation-list {
+        gap: 6px;
+    }
+
+    body.meeting-mode .mobile-log-scrollbar {
+        position: absolute;
+        top: var(--space-3);
+        right: 8px;
+        bottom: 96px;
+        z-index: 20;
+        display: flex;
+        justify-content: center;
+        width: 24px;
+        min-height: 180px;
+        border-radius: var(--radius-pill);
+        background: rgba(229, 231, 235, 0.72);
+        box-shadow: inset 0 0 0 1px rgba(148, 163, 184, 0.35);
+        touch-action: none;
+        cursor: ns-resize;
+    }
+
+    body.meeting-mode .mobile-log-scrollbar.is-hidden {
+        opacity: 0;
+        pointer-events: none;
+    }
+
+    body.meeting-mode .mobile-log-scrollbar:focus-visible {
+        outline: none;
+        box-shadow:
+            inset 0 0 0 1px rgba(148, 163, 184, 0.35),
+            0 0 0 3px var(--color-accent-ring);
+    }
+
+    body.meeting-mode .mobile-log-scroll-thumb {
+        position: absolute;
+        top: 0;
+        width: 16px;
+        min-height: 54px;
+        border-radius: var(--radius-pill);
+        background: var(--color-accent);
+        box-shadow: 0 3px 10px rgba(20, 120, 115, 0.24);
+        transform: translateY(0);
+    }
+
+    body.meeting-mode .utterance {
+        padding: 7px 9px;
+        border-radius: 10px;
+    }
+
+    body.meeting-mode .utterance-main-line {
+        line-height: 1.45;
+    }
+
+    body.meeting-mode .speaker-name {
+        display: inline-block;
+        max-width: 42%;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        font-size: 0.9rem;
+        line-height: 1.35;
+        white-space: nowrap;
+        vertical-align: baseline;
+    }
+
+    body.meeting-mode .utterance-main-line .text {
+        display: inline;
+        font-size: 0.94rem;
+        line-height: 1.45;
+        overflow-wrap: anywhere;
+    }
+
+    body.meeting-mode .utterance-footer {
+        justify-content: flex-start;
+        gap: 8px;
+        margin-top: 5px;
+    }
+
+    body.meeting-mode .utterance-time,
+    body.meeting-mode .timestamp {
+        font-size: 0.76rem;
+    }
+
+    body.meeting-mode .timestamp {
+        display: none;
+    }
+
+    body.meeting-mode .utterance.provisional .timestamp {
+        display: inline;
+    }
+
+    body.meeting-mode .utterance-actions {
+        margin-left: auto;
+        gap: 5px;
+    }
+
+    body.meeting-mode .icon-toggle {
+        min-height: 26px;
+        padding: 4px 7px;
+        font-size: 0.76rem;
+        background: transparent;
+    }
+
+    body.meeting-mode .utterance-star-toggle {
+        width: 28px;
+        padding-inline: 0;
+        font-size: 0.92rem;
+    }
+
+    body.meeting-mode .note-preview {
+        margin-top: 6px;
+        padding-top: 6px;
+        font-size: 0.8rem;
     }
 
     body.meeting-mode .jump-latest-fab.is-at-bottom:not(.has-unread) {

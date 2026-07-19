@@ -207,7 +207,7 @@
         if (document.activeElement !== dom.minutesOutputEditor && dom.minutesOutputEditor.value !== nextMinutes) {
             dom.minutesOutputEditor.value = nextMinutes;
         }
-        // 「ユーザーが今ボタンを押して生成中」と「サーバーが裏で自動生成中」は別物。
+        // 「ユーザーが今ボタンを押して生成中」と「会議終了後の自動生成中」は別物。
         // ここはユーザー操作 (state.minutesWorkspace.loading) だけを見る。
         // サーバー側の status は別の status 行 (renderMeetingInsights) で表現する。
         const isLoading = !!state.minutesWorkspace.loading;
@@ -236,9 +236,9 @@
             return;
         }
         if (state.minutesWorkspace.progress) state.minutesWorkspace.progress = null;
-        // 結果が無く、サーバー側で自動生成中なら控えめにテキストで通知 (エディタは隠さない)
+        // 結果が無く、会議終了後の自動生成中なら控えめにテキストで通知 (エディタは隠さない)
         if (!state.minutesWorkspace.result && state.meetingInsights.status === 'processing') {
-            dom.minutesWorkspaceStatus.innerText = 'バックグラウンドで自動生成中です... 完了するまでお待ちください。';
+            dom.minutesWorkspaceStatus.innerText = 'ただいま文字起こしをもとに議事録を生成中です。完了までお待ちください。';
             return;
         }
         if (state.minutesWorkspace.updatedAt) {

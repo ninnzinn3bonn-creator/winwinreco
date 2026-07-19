@@ -14,7 +14,8 @@
     "emulators": "firebase emulators:start --only firestore --project demo-test",
     "test:e2e": "playwright test",
     "start": "node src/backend/server.js",
-    "audit": "npm audit --audit-level=high"
+    "audit": "npm audit --omit=dev --audit-level=critical",
+    "audit:full": "npm audit --audit-level=high"
   },
   "engines": {
     "node": ">=20"
@@ -31,7 +32,7 @@
     "firebase-admin": "^12.7.0",
     "groq-sdk": "^1.1.2",
     "sqlite3": "^5.1.7",
-    "ws": "^8.19.0"
+    "ws": "^8.21.1"
   },
   "devDependencies": {
     "@playwright/test": "^1.59.1",

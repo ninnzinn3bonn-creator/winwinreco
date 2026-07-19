@@ -1,5 +1,36 @@
 # プロジェクト進捗メモ (Meeting Minutes App)
 
+## 76. 大規模アップデート前の準備: E2E更新・critical audit解消・モバイルログ回帰 (2026-07-19)
+
+### 実施内容
+
+- 作業ブランチ `codex/pre-upgrade-readiness` を作成し、既存の未コミット UI 差分を保全した。
+- `e2e/meeting-flow.spec.js` の古い専門用語辞書カード前提テストを、現仕様の「セットアップ画面に legacy 辞書 / API status UI が出ない」確認へ更新した。
+- 辞書 CRUD は UI から消えても backend API として維持されるため、`tests/dictionary-api.test.js` を追加して add / list / delete を API レベルで固定した。
+- モバイル会議ログのカスタムスクロールバー差分に対し、モバイル幅でログが overflow したときに scrollbar が表示され、timeline scroll と aria-valuenow が同期する E2E を追加した。
+- `npm audit fix` の非 breaking 範囲を適用し、`websocket-driver` critical と `ws` high などを lockfile 上で更新した。
+- `npm run audit` を CI と同じ `npm audit --omit=dev --audit-level=critical` に揃え、全体把握用に `npm run audit:full` を追加した。
+- `docs/ARCHITECTURE.md` / `docs/PRODUCTION_READINESS.md` の audit 方針を現行 CI に同期した。
+
+### 検証
+
+- `npm run check:encoding`
+- `npm run check:frontend`
+- `npm run check:duplicates`
+- `git diff --check`
+- `npm test -- --runInBand` (32 suites passed, 1 skipped / 246 passed, 9 skipped)
+- `npx playwright test` (6 passed)
+- `npm audit --omit=dev --audit-level=critical` (exit 0)
+- `npm audit --audit-level=critical` (exit 0)
+- `npx -p node@20 node -v` (`v20.20.2`)
+- `npx -p node@20 node --check src/backend/app.js`
+- `npx -p node@20 node node_modules\jest\bin\jest.js tests\dictionary-api.test.js tests\static-pages.test.js --runInBand`
+
+### 残リスク
+
+- `npm run audit:full` では `sqlite3@5.1.7` / `firebase-admin@12.7.0` / `firebase-tools@13.35.1` 経由の high / moderate が残る。解消には `sqlite3@6`、`firebase-admin@14`、`firebase-tools@15` などの major upgrade が必要なため、大規模アップデート本体とは別タスクで扱う。
+- ローカル既定 Node は `v24.13.0` で、`firebase-tools` 系 dev dependency が Node 18/20/22 を要求する engine warning を出す。CI は Node 20 のためサポート範囲内。
+
 ## 75. 文字起こし確定遅延・議事録アクション整理・過去会議差分要約 (2026-07-01)
 
 ### 実施内容

@@ -180,6 +180,9 @@
 
         if (dom.timeline && dom.btnJumpLatestFloating) {
             const unreadBadge = document.getElementById('btn-jump-latest-unread');
+            const mobileScrollbar = dom.mobileLogScrollbar || document.getElementById('mobile-log-scrollbar');
+            const mobileScrollThumb = dom.mobileLogScrollThumb || document.getElementById('mobile-log-scroll-thumb');
+            const clampNumber = (value, min, max) => Math.min(Math.max(value, min), max);
             // FAB の at-bottom 閾値。FAB 自体が 50-70px、下端の余裕も含めて 120px 以内を
             // 「実質的に最下部」と見なす。これより上にいる時に新着が来たら未読バッジを増やす。
             const AT_BOTTOM_THRESHOLD_PX = 120;
@@ -213,6 +216,103 @@
                     }
                 }
             };
+            const syncMobileLogScrollbar = () => {
+                if (!mobileScrollbar || !mobileScrollThumb) return;
+
+                const container = dom.timeline;
+                const isMeetingMobile = document.body.classList.contains('meeting-mode')
+                    && window.matchMedia('(max-width: 1023px)').matches;
+                const maxScroll = container.scrollHeight - container.clientHeight;
+                if (!isMeetingMobile || maxScroll <= 8 || mobileScrollbar.clientHeight <= 0) {
+                    mobileScrollbar.classList.add('is-hidden');
+                    mobileScrollbar.setAttribute('aria-hidden', 'true');
+                    mobileScrollbar.setAttribute('aria-valuenow', '100');
+                    mobileScrollbar.tabIndex = -1;
+                    return;
+                }
+
+                // Custom rail mirrors the hidden native scrollbar on mobile.
+                // It stays large enough for thumb operation and updates from
+                // scroll, DOM mutation, resize, drag, and keyboard input.
+                mobileScrollbar.classList.remove('is-hidden');
+                mobileScrollbar.setAttribute('aria-hidden', 'false');
+                mobileScrollbar.tabIndex = 0;
+                const trackHeight = mobileScrollbar.clientHeight;
+                const rawThumbHeight = Math.round(trackHeight * (container.clientHeight / container.scrollHeight));
+                const thumbHeight = clampNumber(rawThumbHeight, 54, Math.max(54, trackHeight));
+                const travel = Math.max(trackHeight - thumbHeight, 1);
+                const top = Math.round((container.scrollTop / maxScroll) * travel);
+                const percent = Math.round((container.scrollTop / maxScroll) * 100);
+
+                mobileScrollThumb.style.height = `${thumbHeight}px`;
+                mobileScrollThumb.style.transform = `translateY(${top}px)`;
+                mobileScrollbar.setAttribute('aria-valuenow', String(clampNumber(percent, 0, 100)));
+            };
+            const scrollMobileLogByRatio = (clientY, dragOffset = 0) => {
+                if (!mobileScrollbar || !mobileScrollThumb) return;
+                const container = dom.timeline;
+                const maxScroll = container.scrollHeight - container.clientHeight;
+                if (maxScroll <= 0) return;
+
+                const railRect = mobileScrollbar.getBoundingClientRect();
+                const thumbHeight = mobileScrollThumb.offsetHeight || 54;
+                const travel = Math.max(railRect.height - thumbHeight, 1);
+                const nextTop = clampNumber(clientY - railRect.top - dragOffset, 0, travel);
+                container.scrollTop = Math.round((nextTop / travel) * maxScroll);
+                syncMobileLogScrollbar();
+            };
+            if (mobileScrollbar && mobileScrollThumb) {
+                let draggingPointerId = null;
+                let dragOffset = 0;
+
+                mobileScrollbar.addEventListener('pointerdown', (event) => {
+                    if (mobileScrollbar.classList.contains('is-hidden')) return;
+                    const thumbRect = mobileScrollThumb.getBoundingClientRect();
+                    const pressedThumb = event.target === mobileScrollThumb || mobileScrollThumb.contains(event.target);
+                    dragOffset = pressedThumb ? event.clientY - thumbRect.top : thumbRect.height / 2;
+                    draggingPointerId = event.pointerId;
+                    mobileScrollbar.setPointerCapture(event.pointerId);
+                    scrollMobileLogByRatio(event.clientY, dragOffset);
+                    event.preventDefault();
+                });
+
+                mobileScrollbar.addEventListener('pointermove', (event) => {
+                    if (draggingPointerId !== event.pointerId) return;
+                    scrollMobileLogByRatio(event.clientY, dragOffset);
+                    event.preventDefault();
+                });
+
+                const stopDrag = (event) => {
+                    if (draggingPointerId !== event.pointerId) return;
+                    draggingPointerId = null;
+                    dragOffset = 0;
+                    try { mobileScrollbar.releasePointerCapture(event.pointerId); } catch (_) { /* ignore */ }
+                };
+                mobileScrollbar.addEventListener('pointerup', stopDrag);
+                mobileScrollbar.addEventListener('pointercancel', stopDrag);
+                mobileScrollbar.addEventListener('keydown', (event) => {
+                    const container = dom.timeline;
+                    const pageStep = Math.max(container.clientHeight - 60, 120);
+                    const smallStep = 72;
+                    if (event.key === 'ArrowDown') {
+                        container.scrollTop += smallStep;
+                    } else if (event.key === 'ArrowUp') {
+                        container.scrollTop -= smallStep;
+                    } else if (event.key === 'PageDown') {
+                        container.scrollTop += pageStep;
+                    } else if (event.key === 'PageUp') {
+                        container.scrollTop -= pageStep;
+                    } else if (event.key === 'Home') {
+                        container.scrollTop = 0;
+                    } else if (event.key === 'End') {
+                        container.scrollTop = container.scrollHeight;
+                    } else {
+                        return;
+                    }
+                    syncMobileLogScrollbar();
+                    event.preventDefault();
+                });
+            }
             // 未読バッジ反映用 (state.unreadUtterances が他所で更新された時に呼ばれる)
             window.AppLogUiUnreadSync = () => {
                 if (!state) return;
@@ -225,12 +325,16 @@
                     if (unreadBadge) unreadBadge.textContent = '0';
                 }
             };
-            dom.timeline.addEventListener('scroll', updateFabState, { passive: true });
-            window.addEventListener('scroll', updateFabState, { passive: true });
-            window.addEventListener('resize', updateFabState, { passive: true });
-            const mo = new MutationObserver(updateFabState);
+            const updateScrollAffordances = () => {
+                updateFabState();
+                syncMobileLogScrollbar();
+            };
+            dom.timeline.addEventListener('scroll', updateScrollAffordances, { passive: true });
+            window.addEventListener('scroll', updateScrollAffordances, { passive: true });
+            window.addEventListener('resize', updateScrollAffordances, { passive: true });
+            const mo = new MutationObserver(updateScrollAffordances);
             mo.observe(dom.timeline, { childList: true, subtree: true });
-            updateFabState();
+            updateScrollAffordances();
         }
 
         bindClick('btn-clear-search', () => callHandler('clearSearch'));

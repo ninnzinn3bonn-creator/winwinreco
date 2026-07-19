@@ -249,20 +249,21 @@
         const rawDiffers = utterance.raw_transcript && utterance.raw_transcript !== utterance.transcript;
 
         article.innerHTML = `
-            <div class="utterance-meta">
-                <div>
-                    <div class="speaker-name">${escapeHtml(utterance.display_name)}</div>
-                    <div class="utterance-time">${time}</div>
-                </div>
-                <div class="timestamp">${utterance.is_starred ? '★ ' : ''}${sourceLabel}</div>
+            <div class="utterance-main-line">
+                <span class="speaker-name">${escapeHtml(utterance.display_name)}</span>
+                <span class="utterance-separator" aria-hidden="true">:</span>
+                <span class="text">${highlightText(utterance.transcript, state.filters.query)}</span>
             </div>
-            <div class="text">${highlightText(utterance.transcript, state.filters.query)}</div>
             ${rawDiffers ? `<div class="note-preview">RAW: ${highlightText(utterance.raw_transcript, state.filters.query)}</div>` : ''}
             ${utterance.memo_text ? `<div class="note-preview">メモ: ${highlightText(utterance.memo_text, state.filters.query)}</div>` : ''}
-            <div class="utterance-actions">
-                <button class="icon-toggle ${utterance.is_starred ? 'active' : ''}" data-action="star">${utterance.is_starred ? '★ 重要' : '☆ 重要'}</button>
-                <button class="icon-toggle" data-action="note">メモ</button>
-                <button class="icon-toggle" data-action="edit">編集</button>
+            <div class="utterance-footer">
+                <span class="utterance-time">${time}</span>
+                <span class="timestamp">${sourceLabel}</span>
+                <div class="utterance-actions" aria-label="ログ操作">
+                    <button class="icon-toggle utterance-star-toggle ${utterance.is_starred ? 'active' : ''}" data-action="star" aria-label="${utterance.is_starred ? '重要を解除' : '重要にする'}">${utterance.is_starred ? '★' : '☆'}</button>
+                    <button class="icon-toggle utterance-note-toggle" data-action="note">メモ</button>
+                    <button class="icon-toggle utterance-edit-toggle" data-action="edit">編集</button>
+                </div>
             </div>
         `;
 
@@ -361,13 +362,14 @@
         article.className = `utterance provisional${provisional.participant_id === state.participantId ? ' self' : ''}`;
         article.dataset.provisionalParticipant = provisional.participant_id;
         article.innerHTML = `
-            <div class="utterance-meta">
-                <div>
-                    <div class="speaker-name">${escapeHtml(provisional.display_name || '')}</div>
-                </div>
-                <div class="timestamp">認識中…</div>
+            <div class="utterance-main-line">
+                <span class="speaker-name">${escapeHtml(provisional.display_name || '')}</span>
+                <span class="utterance-separator" aria-hidden="true">:</span>
+                <span class="text">${escapeHtml(provisional.text)}</span>
             </div>
-            <div class="text">${escapeHtml(provisional.text)}</div>
+            <div class="utterance-footer">
+                <span class="timestamp">認識中…</span>
+            </div>
         `;
         return article;
     }

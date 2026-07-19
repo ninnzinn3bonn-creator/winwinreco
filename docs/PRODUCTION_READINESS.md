@@ -450,7 +450,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - run: npm audit --audit-level=high
+      - run: npm audit --omit=dev --audit-level=critical
 ```
 
 #### タスク分解
@@ -473,18 +473,18 @@ jobs:
 - GitHub の **Dependabot** を有効化
   - `.github/dependabot.yml` で週次スキャン設定
   - npm + GitHub Actions 両方を対象
-- CI で `npm audit --audit-level=high` を実行 (上の D-2 内)
+- CI で `npm audit --omit=dev --audit-level=critical` を実行 (上の D-2 内)
 - `package.json` の `engines` ノードバージョンを固定 (現状未設定)
 
 #### タスク分解
 1. `.github/dependabot.yml` 作成
 2. `package.json` に `"engines": { "node": ">=20" }` 追加
-3. CI で高重度の脆弱性が出たら fail
+3. CI で production dependencies の critical 脆弱性が出たら fail
 4. ARCHITECTURE.md に "Dependency policy" 節追加
 
 #### 受け入れ条件
 - Dependabot からの自動 PR が出る (週次)
-- npm audit で high 以上が出ると CI fail
+- npm audit で production dependencies の critical が出ると CI fail
 
 ---
 

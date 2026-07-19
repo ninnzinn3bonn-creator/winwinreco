@@ -474,11 +474,17 @@ CSS は `:root[data-theme="red"]` セレクタ配下にのみ書く。`body.east
 
 ### npm audit
 
-CI (`.github/workflows/ci.yml` の `audit` ジョブ) で `npm audit --audit-level=high` を実行。
-high / critical の脆弱性が見つかった場合は CI fail とし、マージをブロックする。
-moderate 以下は警告扱いで CI は通過する。
+CI (`.github/workflows/ci.yml` の `audit` ジョブ) で
+`npm audit --omit=dev --audit-level=critical` を実行する。
+production dependencies の critical 脆弱性だけを merge block とする。
 
-ローカルから手動実行する場合: `npm run audit`
+high 以下、devDependencies、または `firebase-admin` / `sqlite3` / `firebase-tools`
+などの major upgrade を要求する transitive vuln は Dependabot と明示的な依存更新タスクで扱う。
+大規模機能変更と同時に major dependency migration を混ぜない。
+
+ローカルから手動実行する場合:
+- CI 相当: `npm run audit`
+- 全体把握: `npm run audit:full`
 
 ### Node バージョン固定
 

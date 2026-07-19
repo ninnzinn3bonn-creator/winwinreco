@@ -128,25 +128,62 @@ test('guest can join via share url and sees meeting room', async ({ browser, pag
     await guestContext.close();
 });
 
-test('dictionary add and delete flow works for host', async ({ page, request }) => {
+test('mobile meeting log exposes compact scroll affordance when overflowing', async ({ page, request }) => {
+    const unique = Date.now();
+    await page.setViewportSize({ width: 390, height: 844 });
+    const account = await loginAndReachHostSetup(page, request, unique);
+    await createMeetingFromSetup(page, account.displayName);
+
+    await page.evaluate(() => {
+        const timeline = document.getElementById('timeline');
+        timeline.innerHTML = '';
+        for (let i = 0; i < 80; i += 1) {
+            const item = document.createElement('article');
+            item.className = 'utterance';
+            item.innerHTML = `
+                <div class="utterance-main-line">
+                    <span class="speaker-name">User ${i}</span>
+                    <span class="utterance-separator" aria-hidden="true">:</span>
+                    <span class="text">モバイルログのスクロール確認 ${i}</span>
+                </div>
+                <div class="utterance-footer">
+                    <span class="utterance-time">00:${String(i).padStart(2, '0')}</span>
+                    <div class="utterance-actions" aria-label="ログ操作">
+                        <button class="icon-toggle utterance-star-toggle" data-action="star" aria-label="重要にする">☆</button>
+                    </div>
+                </div>
+            `;
+            timeline.appendChild(item);
+        }
+        timeline.scrollTop = 0;
+    });
+
+    const scrollbar = page.locator('#mobile-log-scrollbar');
+    await expect(scrollbar).toBeVisible();
+    await expect(scrollbar).not.toHaveClass(/is-hidden/);
+
+    const before = Number(await scrollbar.getAttribute('aria-valuenow'));
+    await page.locator('#timeline').evaluate((timeline) => {
+        timeline.scrollTop = timeline.scrollHeight;
+        timeline.dispatchEvent(new Event('scroll', { bubbles: true }));
+    });
+    await expect.poll(async () => Number(await scrollbar.getAttribute('aria-valuenow'))).toBe(100);
+    const after = Number(await scrollbar.getAttribute('aria-valuenow'));
+
+    expect(after).toBeGreaterThan(before);
+});
+
+test('host setup screen omits legacy dictionary controls', async ({ page, request }) => {
     const unique = Date.now();
     await loginAndReachHostSetup(page, request, unique);
 
-    const term = `専門用語${unique}`;
-    const reading = `センモンヨウゴ${unique}`;
-
-    await page.locator('#dict-term').fill(term);
-    await page.locator('#dict-reading').fill(reading);
-    await page.locator('#btn-dict-add').click();
-
-    const dictionaryList = page.locator('#dictionary-list');
-    await expect(dictionaryList).toContainText(term);
-    await expect(dictionaryList).toContainText(reading);
-
-    page.once('dialog', (dialog) => dialog.accept());
-    await dictionaryList.locator('.btn-dict-del').first().click();
-
-    await expect(dictionaryList).not.toContainText(term);
+    await expect(page.locator('#setup-screen.active')).toBeVisible();
+    await expect(page.locator('#dict-term')).toHaveCount(0);
+    await expect(page.locator('#dict-reading')).toHaveCount(0);
+    await expect(page.locator('#dictionary-list')).toHaveCount(0);
+    await expect(page.locator('#api-status-container')).toHaveCount(0);
+    await expect(page.locator('#setup-screen')).toContainText('利用シーン');
+    await expect(page.locator('#setup-screen')).toContainText('必要なときだけ微調整');
 });
 
 test('summary tabs switch and base panels render', async ({ page, request }) => {
