@@ -84,6 +84,7 @@
         theme: 'system',           // system | light | dark
         defaultAiProvider: FIXED_AI_PROVIDER,
         defaultMicPreset: '',       // empty → fall back to device default
+        reverberantRoom: false,
         autoBackfill: true,         // automatically link anonymous joins on login
         sttProvider: FIXED_STT_PROVIDER
     };
@@ -96,9 +97,14 @@
         }
     }
     function normalizeSettings(settings) {
+        const legacyEcho = settings.defaultMicPreset === 'echo_room';
+        const normalizedMicPreset = window.AppMicPresets?.normalizePresetKey?.(settings.defaultMicPreset)
+            || (settings.defaultMicPreset ? '' : settings.defaultMicPreset);
         return {
             ...settings,
             defaultAiProvider: FIXED_AI_PROVIDER,
+            defaultMicPreset: normalizedMicPreset,
+            reverberantRoom: legacyEcho || !!settings.reverberantRoom,
             sttProvider: FIXED_STT_PROVIDER
         };
     }
@@ -136,6 +142,7 @@
         if (s.defaultMicPreset) {
             try { localStorage.setItem('mic_preset', s.defaultMicPreset); } catch (_) { /* ignore */ }
         }
+        try { localStorage.setItem('mic_reverberant', s.reverberantRoom ? '1' : '0'); } catch (_) { /* ignore */ }
         // セットアップ画面の状態カードを再描画して選択を即座に反映する。
         try { if (typeof window._refreshApiStatus === 'function') window._refreshApiStatus(); } catch (_) { /* ignore */ }
     }
@@ -749,12 +756,13 @@
         const micSelect = el('select', {}, [
             el('option', { value: '' }, '自動 (デバイス推奨)'),
             el('option', { value: 'smartphone' }, 'スマホ本体'),
-            el('option', { value: 'pin_mic' }, 'ピンマイク'),
-            el('option', { value: 'echo_room' }, '反響のある部屋'),
-            el('option', { value: 'large_group' }, '大人数'),
-            el('option', { value: 'wired_headset' }, '有線ヘッドセット')
+            el('option', { value: 'personal' }, 'ピン・ヘッドセット'),
+            el('option', { value: 'tabletop' }, '卓上マイク')
         ]);
         micSelect.value = settings.defaultMicPreset;
+
+        const reverberantCheckbox = el('input', { type: 'checkbox' });
+        reverberantCheckbox.checked = !!settings.reverberantRoom;
 
         const backfillCheckbox = el('input', { type: 'checkbox' });
         if (settings.autoBackfill) backfillCheckbox.checked = true;
@@ -765,6 +773,7 @@
                 theme: themeSelect.value,
                 defaultAiProvider: FIXED_AI_PROVIDER,
                 defaultMicPreset: micSelect.value,
+                reverberantRoom: !!reverberantCheckbox.checked,
                 autoBackfill: !!backfillCheckbox.checked,
                 sttProvider: FIXED_STT_PROVIDER
             });
@@ -773,6 +782,7 @@
         }
         themeSelect.addEventListener('change', persist);
         micSelect.addEventListener('change', persist);
+        reverberantCheckbox.addEventListener('change', persist);
         backfillCheckbox.addEventListener('change', persist);
 
         const localUserId = (() => {
@@ -796,7 +806,11 @@
                 el('label', {}, ['表示テーマ', themeSelect]),
                 el('label', {}, ['既定の AI プロバイダ', aiSelect]),
                 el('label', {}, ['音声認識エンジン', sttSelect]),
-                el('label', {}, ['既定のマイクプリセット', micSelect]),
+                el('label', {}, ['既定のマイク', micSelect]),
+                el('label', { className: 'profile-settings-checkbox' }, [
+                    reverberantCheckbox,
+                    el('span', {}, '通常は音が響く部屋で使う')
+                ]),
                 el('label', { className: 'profile-settings-checkbox' }, [
                     backfillCheckbox,
                     el('span', {}, 'ログイン時に過去の匿名参加を自動でアカウントに紐付ける')
@@ -883,23 +897,14 @@
     }
 
     // -------- Public API ---------------------------------------------------
-    /**
-     * Mirror the logged-in account's profile_text into the setup-screen input.
-     * アカウント名 (accounts.display_name) と会議用の表示名 (#display-name) は
-     * 別フィールドのため、ここでは profile_text のみを同期する。
-     */
+    /** Cache profile context for room joins; editing lives in the account menu. */
     async function hydrateSetupProfile({ force = false } = {}) {
         if (!window.AppAuth?.state?.account) return;
         try {
             const data = await loadProfile();
             const accountProfile = data.profile_text || '';
-            const profileInput = document.getElementById('profile-text');
-            if (profileInput && accountProfile) {
-                const empty = !profileInput.value.trim();
-                if (force || empty) {
-                    profileInput.value = accountProfile;
-                    try { localStorage.setItem('profile_text', accountProfile); } catch (_) { /* ignore */ }
-                }
+            if (force || accountProfile || !localStorage.getItem('profile_text')) {
+                try { localStorage.setItem('profile_text', accountProfile); } catch (_) { /* ignore */ }
             }
         } catch (_err) {
             // ignore

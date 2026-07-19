@@ -269,7 +269,7 @@
 
     async function joinRoom() {
         const displayName = document.getElementById('display-name').value.trim();
-        const profileText = document.getElementById('profile-text').value.trim();
+        const profileText = localStorage.getItem('profile_text') || '';
         const roomId = document.getElementById('room-id').value.trim().toUpperCase();
         if (!displayName || !roomId) return window.AppToast.warn('表示名とルームIDを入力してください');
         if (!await showRecordingConsentIfNeeded()) return;
@@ -285,7 +285,7 @@
     }
 
     async function createRoom() {
-        const profileText = document.getElementById('profile-text').value.trim();
+        const profileText = localStorage.getItem('profile_text') || '';
         let account = window.AppAuth ? window.AppAuth.state.account : null;
         if (!account && window.AppAuth) {
             account = await window.AppAuth.requireLogin();

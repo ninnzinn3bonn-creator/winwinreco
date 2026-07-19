@@ -3,20 +3,67 @@
     const dom = window.AppDom;
     const {
         isSecureContextForMedia,
-        clampThresholdPair,
         getPreferredAudioConstraints,
         resampleToTargetRate
     } = window.AppUtils;
     const {
         presets: MIC_PRESETS = {},
-        defaultDesktop: DEFAULT_DESKTOP_PRESET = 'pin_mic'
+        defaultDesktop: DEFAULT_DESKTOP_PRESET = 'personal',
+        normalizePresetKey = (key) => key,
+        resolvePreset = (key) => MIC_PRESETS[key] || MIC_PRESETS[DEFAULT_DESKTOP_PRESET] || null
     } = window.AppMicPresets || {};
     let audioRecoveryTimer = null;
     let audioRecoveryPromise = null;
     let intentionalAudioStop = false;
 
     function getMicPresetConfig(key = state.micPresetKey) {
-        return MIC_PRESETS[key] || MIC_PRESETS[DEFAULT_DESKTOP_PRESET] || null;
+        return resolvePreset(key, !!state.micReverberant);
+    }
+
+    function getBrowserAudioConstraints(preset = getMicPresetConfig()) {
+        const preferred = getPreferredAudioConstraints(preset);
+        const requested = preferred?.audio;
+        if (!requested || typeof requested !== 'object') return preferred;
+
+        const supported = navigator.mediaDevices?.getSupportedConstraints?.();
+        if (!supported) return preferred;
+        const audio = {};
+        Object.entries(requested).forEach(([name, value]) => {
+            if (supported[name]) audio[name] = value;
+        });
+        return { audio: Object.keys(audio).length ? audio : true };
+    }
+
+    function applyVoiceGatePreset(preset = getMicPresetConfig()) {
+        if (!preset) return;
+        const thresholds = preset.thresholds || {};
+        const vad = preset.vad || {};
+        state.voiceGate.threshold = Number.isFinite(thresholds.min) ? thresholds.min : 0.008;
+        state.voiceGate.maxThreshold = Number.isFinite(thresholds.max) ? thresholds.max : 0.9;
+        state.voiceGate.attackFrames = Number.isFinite(vad.attackFrames) ? vad.attackFrames : 1;
+        state.voiceGate.minActiveFrames = Number.isFinite(vad.minActiveFrames) ? vad.minActiveFrames : 1;
+        state.voiceGate.releaseFrames = Number.isFinite(vad.releaseFrames) ? vad.releaseFrames : 6;
+        state.voiceGate.crestMin = Number.isFinite(vad.crestMin) ? vad.crestMin : 1;
+        state.voiceGate.crestMax = Number.isFinite(vad.crestMax) ? vad.crestMax : 30;
+        state.voiceGate.noiseFloor = 0;
+        state.voiceGate.remainingFrames = 0;
+        state.voiceGate.activeFrames = 0;
+        state.voiceGate.attackCounter = 0;
+    }
+
+    function adaptVoiceGateToNoise(rms) {
+        const preset = getMicPresetConfig();
+        const thresholds = preset?.thresholds;
+        if (!thresholds || state.voiceGate.speaking || !Number.isFinite(rms)) return;
+        if (rms > Math.max(state.voiceGate.threshold * 1.5, thresholds.adaptiveCeiling || 0.02)) return;
+
+        const previous = state.voiceGate.noiseFloor;
+        const noiseFloor = previous > 0 ? (previous * 0.92) + (rms * 0.08) : rms;
+        const floor = thresholds.adaptiveFloor ?? thresholds.min;
+        const ceiling = thresholds.adaptiveCeiling ?? thresholds.min;
+        const multiplier = thresholds.noiseMultiplier ?? 2.5;
+        state.voiceGate.noiseFloor = noiseFloor;
+        state.voiceGate.threshold = Math.max(floor, Math.min(ceiling, noiseFloor * multiplier));
     }
 
     function getLiveAudioTrack() {
@@ -83,25 +130,21 @@
         const preset = getMicPresetConfig();
         if (dom.micPresetSummary) {
             dom.micPresetSummary.innerText = preset
-                ? `${preset.label}向けの設定を使います。${preset.description}`
-                : 'マイクの利用シーンを選んでください。';
+                ? `${preset.label}: ${preset.description}`
+                : 'マイクの種類を選んでください。';
         }
         if (dom.meetingMicPresetSummary) {
             dom.meetingMicPresetSummary.innerText = preset
-                ? `現在のプリセット: ${preset.label}`
-                : '現在のプリセット: 未設定';
-        }
-        if (dom.micPresetTips) {
-            dom.micPresetTips.innerHTML = '';
-            (preset?.bestPractices || []).forEach((tip) => {
-                const li = document.createElement('li');
-                li.innerText = tip;
-                dom.micPresetTips.appendChild(li);
-            });
+                ? `現在のマイク: ${preset.label}`
+                : '現在のマイク: 未設定';
         }
         document.querySelectorAll('[data-mic-preset]').forEach((button) => {
-            button.classList.toggle('is-active', button.dataset.micPreset === state.micPresetKey);
+            const selected = button.dataset.micPreset === state.micPresetKey;
+            button.classList.toggle('is-active', selected);
+            button.setAttribute('aria-checked', selected ? 'true' : 'false');
         });
+        if (dom.setupMicReverberant) dom.setupMicReverberant.checked = !!state.micReverberant;
+        if (dom.meetingMicReverberant) dom.meetingMicReverberant.checked = !!state.micReverberant;
     }
 
     function sendMicPresetMetadataToServer(preset) {
@@ -173,92 +216,81 @@
         }
     }
 
-    function setMicSensitivity(level) {
-        const normalized = ['high', 'standard', 'strict'].includes(level) ? level : 'standard';
-        state.micSensitivity = normalized;
-        state.voiceGate.threshold = normalized === 'high'
-            ? 0.008
-            : normalized === 'strict'
-                ? 0.018
-                : 0.012;
-        state.voiceGate.maxThreshold = normalized === 'high'
-            ? 0.88
-            : normalized === 'strict'
-                ? 0.68
-                : 0.78;
-        localStorage.setItem('mic_sensitivity', normalized);
-        if (dom.setupMicSensitivity) dom.setupMicSensitivity.value = normalized;
-        if (dom.meetingMicSensitivity) dom.meetingMicSensitivity.value = normalized;
-        updateMicThresholdControls();
+    function persistMicConfiguration() {
+        localStorage.setItem('mic_preset', state.micPresetKey);
+        localStorage.setItem('mic_reverberant', state.micReverberant ? '1' : '0');
+        localStorage.removeItem?.('mic_sensitivity');
+        localStorage.removeItem?.('mic_threshold_min');
+        localStorage.removeItem?.('mic_threshold_max');
+
+        if (window.AppProfile?.saveSettings) {
+            try {
+                window.AppProfile.saveSettings({
+                    defaultMicPreset: state.micPresetKey,
+                    reverberantRoom: !!state.micReverberant
+                });
+            } catch (_) { /* ignore */ }
+        }
+    }
+
+    function logAppliedTrackSettings(track, preset) {
+        if (!track?.getSettings) return;
+        const settings = track.getSettings();
+        window.AppMain?.AppDebug?.log('info', 'Microphone settings applied', {
+            mode: preset?.key,
+            reverberant: !!preset?.reverberant,
+            sampleRate: settings.sampleRate,
+            channelCount: settings.channelCount,
+            echoCancellation: settings.echoCancellation,
+            noiseSuppression: settings.noiseSuppression,
+            autoGainControl: settings.autoGainControl
+        });
+    }
+
+    async function applyConstraintsToLiveTrack(preset) {
+        const track = getLiveAudioTrack();
+        if (!track?.applyConstraints) return false;
+        try {
+            await track.applyConstraints(getBrowserAudioConstraints(preset).audio);
+            logAppliedTrackSettings(track, preset);
+            return true;
+        } catch (error) {
+            window.AppMain?.AppDebug?.log('warn', 'Mic configuration applyConstraints failed', error.message);
+            return false;
+        }
     }
 
     async function applyMicPreset(key, options = {}) {
-        const preset = getMicPresetConfig(key);
+        const normalizedKey = normalizePresetKey(key) || DEFAULT_DESKTOP_PRESET;
+        if (key === 'echo_room') state.micReverberant = true;
+        state.micPresetKey = normalizedKey;
+        const preset = getMicPresetConfig(normalizedKey);
         if (!preset) return;
 
-        state.micPresetKey = preset.key;
-        state.voiceGate.threshold = preset.thresholds.min;
-        state.voiceGate.maxThreshold = preset.thresholds.max;
-        localStorage.setItem('mic_preset', preset.key);
-        localStorage.setItem('mic_threshold_min', String(state.voiceGate.threshold));
-        localStorage.setItem('mic_threshold_max', String(state.voiceGate.maxThreshold));
-        if (window.AppProfile?.saveSettings) {
-            try { window.AppProfile.saveSettings({ defaultMicPreset: preset.key }); } catch (_) { /* ignore */ }
-        }
-        updateMicThresholdControls();
+        applyVoiceGatePreset(preset);
+        persistMicConfiguration();
         renderMicPresetUi();
-
-        if (state.stream) {
-            const [track] = state.stream.getAudioTracks();
-            if (track?.applyConstraints) {
-                try {
-                    await track.applyConstraints(getPreferredAudioConstraints(preset).audio);
-                } catch (error) {
-                    window.AppMain?.AppDebug?.log('warn', 'Mic preset applyConstraints failed', error.message);
-                }
-            }
-        }
-
+        await applyConstraintsToLiveTrack(preset);
         sendMicPresetMetadataToServer(preset);
 
         if (!options.silent) {
-            updateMicStatus(`${preset.label}モードを適用しました。${preset.recommendedFor} に向いています。`);
+            updateMicStatus(`${preset.label}に切り替えました。音量は自動調整します。`);
         }
     }
 
-    function updateMicThresholdControls() {
-        const minPercent = Math.round(state.voiceGate.threshold * 1000);
-        const maxPercent = Math.round(state.voiceGate.maxThreshold * 100);
-
-        if (dom.setupMicMinThreshold) dom.setupMicMinThreshold.value = String(minPercent);
-        if (dom.setupMicMaxThreshold) dom.setupMicMaxThreshold.value = String(maxPercent);
-        if (dom.meetingMicMinThreshold) dom.meetingMicMinThreshold.value = String(minPercent);
-        if (dom.meetingMicMaxThreshold) dom.meetingMicMaxThreshold.value = String(maxPercent);
-
-        if (dom.setupMicMinThresholdValue) dom.setupMicMinThresholdValue.innerText = String(minPercent);
-        if (dom.setupMicMaxThresholdValue) dom.setupMicMaxThresholdValue.innerText = String(maxPercent);
-        if (dom.meetingMicMinThresholdValue) dom.meetingMicMinThresholdValue.innerText = String(minPercent);
-        if (dom.meetingMicMaxThresholdValue) dom.meetingMicMaxThresholdValue.innerText = String(maxPercent);
-
-        if (dom.micMeterShell) {
-            dom.micMeterShell.style.setProperty('--mic-min-line', `${Math.min(96, Math.max(2, minPercent / 10))}%`);
-            dom.micMeterShell.style.setProperty('--mic-max-line', `${Math.min(98, Math.max(8, maxPercent))}%`);
+    async function setMicEnvironment(reverberant, options = {}) {
+        state.micReverberant = !!reverberant;
+        const preset = getMicPresetConfig();
+        applyVoiceGatePreset(preset);
+        persistMicConfiguration();
+        renderMicPresetUi();
+        await applyConstraintsToLiveTrack(preset);
+        sendMicPresetMetadataToServer(preset);
+        if (!options.silent) {
+            updateMicStatus(state.micReverberant
+                ? '反響を抑える設定にしました。語尾を長めに保持します。'
+                : '通常の部屋向けの設定に戻しました。');
         }
-    }
-
-    function syncMicThresholdsFromUi(source) {
-        const minControl = source === 'meeting' ? dom.meetingMicMinThreshold : dom.setupMicMinThreshold;
-        const maxControl = source === 'meeting' ? dom.meetingMicMaxThreshold : dom.setupMicMaxThreshold;
-        if (!minControl || !maxControl) return;
-
-        const nextMin = Number(minControl.value) / 1000;
-        const nextMax = Number(maxControl.value) / 100;
-        const normalized = clampThresholdPair(nextMin, nextMax);
-        state.voiceGate.threshold = normalized.min;
-        state.voiceGate.maxThreshold = normalized.max;
-        localStorage.setItem('mic_threshold_min', String(state.voiceGate.threshold));
-        localStorage.setItem('mic_threshold_max', String(state.voiceGate.maxThreshold));
-        updateMicThresholdControls();
     }
 
     function bindStreamState(stream) {
@@ -308,10 +340,23 @@
                 sum += normalized * normalized;
             }
             const rms = Math.sqrt(sum / buffer.length);
+            adaptVoiceGateToNoise(rms);
             const width = Math.max(4, Math.min(100, Math.round(rms * 320)));
             dom.micLevelBar.style.width = `${width}%`;
             dom.micLevelBar.classList.toggle('clipped', rms >= state.voiceGate.maxThreshold);
+            if (dom.micMeterShell) dom.micMeterShell.setAttribute('aria-valuenow', String(width));
             if (dom.liveFocusLevel) dom.liveFocusLevel.style.width = `${width}%`;
+            const now = Date.now();
+            if (!isMeetingActive() && now - (state.lastMicGuidanceAt || 0) > 1400) {
+                state.lastMicGuidanceAt = now;
+                if (rms >= state.voiceGate.maxThreshold) {
+                    updateMicStatus('声が大きすぎます。マイクを少し離してください。');
+                } else if (rms >= state.voiceGate.threshold) {
+                    updateMicStatus('声を確認できました。このまま会議を始められます。');
+                } else {
+                    updateMicStatus('マイクに向かって普段の声で話してください。');
+                }
+            }
             state.micMonitorFrame = requestAnimationFrame(tick);
         };
 
@@ -368,22 +413,16 @@
             const preset = getMicPresetConfig();
             const liveTrack = getLiveAudioTrack();
             if (options.forceNewStream || !liveTrack) {
-                if (state.stream) {
-                    const staleStream = state.stream;
-                    state.stream = null;
-                    staleStream.getTracks().forEach((track) => track.stop());
+                const previousStream = state.stream;
+                const nextStream = await navigator.mediaDevices.getUserMedia(getBrowserAudioConstraints(preset));
+                state.stream = nextStream;
+                bindStreamState(nextStream);
+                logAppliedTrackSettings(nextStream.getAudioTracks?.()[0], preset);
+                if (previousStream && previousStream !== nextStream) {
+                    previousStream.getTracks().forEach((track) => track.stop());
                 }
-                state.stream = await navigator.mediaDevices.getUserMedia(getPreferredAudioConstraints(preset));
-                bindStreamState(state.stream);
             } else {
-                const track = liveTrack;
-                if (track?.applyConstraints) {
-                    try {
-                        await track.applyConstraints(getPreferredAudioConstraints(preset).audio);
-                    } catch (constraintError) {
-                        window.AppMain?.AppDebug?.log('warn', 'Failed to refresh audio constraints', constraintError.message);
-                    }
-                }
+                await applyConstraintsToLiveTrack(preset);
             }
             state.stream.getAudioTracks().forEach((track) => {
                 track.enabled = !state.isMuted;
@@ -407,13 +446,13 @@
             if (options.updateStatus) {
                 const actualRate = Math.round(state.audioContext?.sampleRate || 0);
                 const resampleNote = actualRate && actualRate !== 16000 ? ` 実入力 ${actualRate}Hz を 16000Hz に変換して送ります。` : '';
-                const presetLabel = preset?.label ? `現在は ${preset.label} モードです。` : '';
-                updateMicStatus(`マイクの許可が取れました。${presetLabel} メーターが動いて、緑の帯が最小線を越えれば入力できています。${resampleNote}`);
+                const presetLabel = preset?.label ? `現在は ${preset.label} です。` : '';
+                updateMicStatus(`マイクを接続しました。${presetLabel}普段の声で話してください。${resampleNote}`);
             }
             return true;
         } catch (error) {
             window.AppMain?.AppDebug?.log('error', 'prepareAudio failed', error.message);
-            if (options.updateStatus) updateMicStatus(`マイク確認に失敗しました: ${error.message}`);
+            if (options.updateStatus) updateMicStatus(`マイク設定に失敗しました: ${error.message}`);
             window.AppToast.error('マイクの許可に失敗しました', { detail: error.message });
             return false;
         }
@@ -422,7 +461,7 @@
     async function runMicCheck() {
         const ok = await prepareAudio({ updateStatus: true });
         if (!ok) return;
-        updateMicStatus('マイク入力を確認中です。緑の帯が最小線を越え、赤い線を少し超える程度なら適正です。');
+        updateMicStatus('マイクに向かって普段の声で話してください。音量は自動調整します。');
     }
 
     async function startRecording({ onAudioChunk } = {}) {
@@ -451,12 +490,6 @@
             state.audioSource = source;
             source.connect(processor);
             processor.connect(state.audioContext.destination);
-            const presetCfg = getMicPresetConfig() || {};
-            const presetVad = presetCfg.vad || {};
-            const ATTACK_FRAMES = Number.isFinite(presetVad.attackFrames) ? presetVad.attackFrames : 1;
-            const MIN_ACTIVE_FRAMES = Number.isFinite(presetVad.minActiveFrames) ? presetVad.minActiveFrames : 1;
-            const CREST_MIN = Number.isFinite(presetVad.crestMin) ? presetVad.crestMin : 1.0;
-            const CREST_MAX = Number.isFinite(presetVad.crestMax) ? presetVad.crestMax : 30;
             if (typeof state.voiceGate.activeFrames !== 'number') state.voiceGate.activeFrames = 0;
             if (typeof state.voiceGate.attackCounter !== 'number') state.voiceGate.attackCounter = 0;
 
@@ -476,16 +509,20 @@
                 }
                 const rms = Math.sqrt(energy / clippedInput.length);
                 const gate = state.voiceGate;
+                const attackFrames = Number.isFinite(gate.attackFrames) ? gate.attackFrames : 1;
+                const minActiveFrames = Number.isFinite(gate.minActiveFrames) ? gate.minActiveFrames : 1;
+                const crestMin = Number.isFinite(gate.crestMin) ? gate.crestMin : 1;
+                const crestMax = Number.isFinite(gate.crestMax) ? gate.crestMax : 30;
                 const crest = rms > 0.0001 ? peak / rms : 0;
-                const isSpeechLike = rms >= gate.threshold && crest >= CREST_MIN && crest <= CREST_MAX;
+                const isSpeechLike = rms >= gate.threshold && crest >= crestMin && crest <= crestMax;
 
                 if (isSpeechLike) {
-                    gate.attackCounter = Math.min(gate.attackCounter + 1, ATTACK_FRAMES + 1);
+                    gate.attackCounter = Math.min(gate.attackCounter + 1, attackFrames + 1);
                 } else {
                     gate.attackCounter = 0;
                 }
 
-                const gateOpen = gate.attackCounter >= ATTACK_FRAMES;
+                const gateOpen = gate.attackCounter >= attackFrames;
                 if (gateOpen) {
                     gate.remainingFrames = gate.releaseFrames;
                     gate.speaking = true;
@@ -498,7 +535,7 @@
                     return;
                 }
 
-                if (MIN_ACTIVE_FRAMES > 1 && gate.activeFrames < MIN_ACTIVE_FRAMES) return;
+                if (minActiveFrames > 1 && gate.activeFrames < minActiveFrames) return;
 
                 const sourceRate = state.audioContext.sampleRate || 16000;
                 const mono16k = resampleToTargetRate(clippedInput, sourceRate, 16000);
@@ -680,10 +717,10 @@
         sendMicPresetMetadataToServer,
         updateMuteButton,
         syncMuteUi,
-        setMicSensitivity,
         applyMicPreset,
-        updateMicThresholdControls,
-        syncMicThresholdsFromUi,
+        setMicEnvironment,
+        applyVoiceGatePreset,
+        getBrowserAudioConstraints,
         bindStreamState,
         stopMicMonitor,
         startMicMonitor,

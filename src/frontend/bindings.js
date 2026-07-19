@@ -33,12 +33,8 @@
             customAiInstruction,
             aiOutputEditor,
             minutesOutputEditor,
-            setupMicSensitivity,
-            meetingMicSensitivity,
-            setupMicMinThreshold,
-            setupMicMaxThreshold,
-            meetingMicMinThreshold,
-            meetingMicMaxThreshold,
+            setupMicReverberant,
+            meetingMicReverberant,
             meetingAiEditors,
             meetingAiButtons,
             filterInputs,
@@ -380,12 +376,8 @@
         bindClick('btn-cancel-memo-modal', () => callHandler('closeMemoModal'));
         bindClick('btn-save-memo-modal', () => callHandler('saveMemoFromModal'));
 
-        bindEvent(setupMicSensitivity, 'change', (event) => callHandler('setMicSensitivity', event.target.value));
-        bindEvent(meetingMicSensitivity, 'change', (event) => callHandler('setMicSensitivity', event.target.value));
-        bindEvent(setupMicMinThreshold, 'input', () => callHandler('syncMicThresholdsFromUi', 'setup'));
-        bindEvent(setupMicMaxThreshold, 'input', () => callHandler('syncMicThresholdsFromUi', 'setup'));
-        bindEvent(meetingMicMinThreshold, 'input', () => callHandler('syncMicThresholdsFromUi', 'meeting'));
-        bindEvent(meetingMicMaxThreshold, 'input', () => callHandler('syncMicThresholdsFromUi', 'meeting'));
+        bindEvent(setupMicReverberant, 'change', (event) => callHandler('setMicEnvironment', event.target.checked));
+        bindEvent(meetingMicReverberant, 'change', (event) => callHandler('setMicEnvironment', event.target.checked));
         document.querySelectorAll('[data-mic-preset]').forEach((button) => {
             bindEvent(button, 'click', () => callHandler('applyMicPreset', button.dataset.micPreset));
         });

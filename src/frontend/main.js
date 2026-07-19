@@ -22,18 +22,7 @@ const {
     micCheckStatus,
     micLevelBar,
     micPresetSummary,
-    micPresetTips,
     micRequirements,
-    setupMicSensitivity,
-    meetingMicSensitivity,
-    setupMicMinThreshold,
-    setupMicMaxThreshold,
-    setupMicMinThresholdValue,
-    setupMicMaxThresholdValue,
-    meetingMicMinThreshold,
-    meetingMicMaxThreshold,
-    meetingMicMinThresholdValue,
-    meetingMicMaxThresholdValue,
     meetingMicPresetSummary,
     micMeterShell,
     mobileMeetingMenu,
@@ -59,7 +48,6 @@ const {
     getJoinUrl,
     isSecureContextForMedia,
     isMobileViewport,
-    clampThresholdPair,
     getPreferredAudioConstraints,
     resampleToTargetRate,
     formatTime,
@@ -72,7 +60,9 @@ const {
     presets: MIC_PRESETS = {},
     requirements: MIC_REQUIREMENTS = [],
     defaultMobile: DEFAULT_MOBILE_PRESET = 'smartphone',
-    defaultDesktop: DEFAULT_DESKTOP_PRESET = 'pin_mic'
+    defaultDesktop: DEFAULT_DESKTOP_PRESET = 'personal',
+    normalizePresetKey = (key) => key,
+    resolvePreset = (key) => MIC_PRESETS[key] || MIC_PRESETS[DEFAULT_DESKTOP_PRESET] || null
 } = window.AppMicPresets || {};
 
 // Product decision (2026-06-29): provider selection is locked. main.js still
@@ -127,31 +117,25 @@ function sendMicPresetMetadataToServer(preset) {
 }
 
 function getMicPresetConfig(key = state.micPresetKey) {
-    return MIC_PRESETS[key] || MIC_PRESETS[DEFAULT_DESKTOP_PRESET] || null;
+    return resolvePreset(key, !!state.micReverberant);
 }
 
 function renderMicPresetUi() {
     const preset = getMicPresetConfig();
     if (micPresetSummary) {
         micPresetSummary.innerText = preset
-            ? `${preset.label}向けの設定を使います。${preset.description}`
-            : 'マイクの利用シーンを選んでください。';
+            ? `${preset.label}: ${preset.description}`
+            : 'マイクの種類を選んでください。';
     }
     if (meetingMicPresetSummary) {
         meetingMicPresetSummary.innerText = preset
-            ? `現在のプリセット: ${preset.label}`
-            : '現在のプリセット: 未設定';
-    }
-    if (micPresetTips) {
-        micPresetTips.innerHTML = '';
-        (preset?.bestPractices || []).forEach((tip) => {
-            const li = document.createElement('li');
-            li.innerText = tip;
-            micPresetTips.appendChild(li);
-        });
+            ? `現在のマイク: ${preset.label}`
+            : '現在のマイク: 未設定';
     }
     document.querySelectorAll('[data-mic-preset]').forEach((button) => {
-        button.classList.toggle('is-active', button.dataset.micPreset === state.micPresetKey);
+        const selected = button.dataset.micPreset === state.micPresetKey;
+        button.classList.toggle('is-active', selected);
+        button.setAttribute('aria-checked', selected ? 'true' : 'false');
     });
 }
 
@@ -596,98 +580,6 @@ function toggleSummaryAiControls() {
     renderSummaryMobileControls();
 }
 
-function setMicSensitivity(level) {
-    const normalized = ['high', 'standard', 'strict'].includes(level) ? level : 'standard';
-    state.micSensitivity = normalized;
-    state.voiceGate.threshold = normalized === 'high'
-        ? 0.008
-        : normalized === 'strict'
-            ? 0.018
-            : 0.012;
-    state.voiceGate.maxThreshold = normalized === 'high'
-        ? 0.88
-        : normalized === 'strict'
-            ? 0.68
-            : 0.78;
-    localStorage.setItem('mic_sensitivity', normalized);
-    if (setupMicSensitivity) setupMicSensitivity.value = normalized;
-    if (meetingMicSensitivity) meetingMicSensitivity.value = normalized;
-    updateMicThresholdControls();
-}
-
-async function applyMicPreset(key, options = {}) {
-    const preset = getMicPresetConfig(key);
-    if (!preset) return;
-
-    state.micPresetKey = preset.key;
-    state.voiceGate.threshold = preset.thresholds.min;
-    state.voiceGate.maxThreshold = preset.thresholds.max;
-    localStorage.setItem('mic_preset', preset.key);
-    localStorage.setItem('mic_threshold_min', String(state.voiceGate.threshold));
-    localStorage.setItem('mic_threshold_max', String(state.voiceGate.maxThreshold));
-    // Keep Profile → 設定 in sync so users see the same value either place.
-    if (window.AppProfile?.saveSettings) {
-        try { window.AppProfile.saveSettings({ defaultMicPreset: preset.key }); }
-        catch (_) { /* ignore */ }
-    }
-    updateMicThresholdControls();
-    renderMicPresetUi();
-
-    if (state.stream) {
-        const [track] = state.stream.getAudioTracks();
-        if (track?.applyConstraints) {
-            try {
-                await track.applyConstraints(getPreferredAudioConstraints(preset).audio);
-            } catch (error) {
-                AppDebug.log('warn', 'Mic preset applyConstraints failed', error.message);
-            }
-        }
-    }
-
-    // Tell the server to rebuild its STT config with the new microphone
-    // distance / device type. The next utterance picks up the change.
-    sendMicPresetMetadataToServer(preset);
-
-    if (!options.silent) {
-        updateMicStatus(`${preset.label}モードを適用しました。${preset.recommendedFor} に向いています。`);
-    }
-}
-
-function updateMicThresholdControls() {
-    const minPercent = Math.round(state.voiceGate.threshold * 1000);
-    const maxPercent = Math.round(state.voiceGate.maxThreshold * 100);
-
-    if (setupMicMinThreshold) setupMicMinThreshold.value = String(minPercent);
-    if (setupMicMaxThreshold) setupMicMaxThreshold.value = String(maxPercent);
-    if (meetingMicMinThreshold) meetingMicMinThreshold.value = String(minPercent);
-    if (meetingMicMaxThreshold) meetingMicMaxThreshold.value = String(maxPercent);
-
-    if (setupMicMinThresholdValue) setupMicMinThresholdValue.innerText = String(minPercent);
-    if (setupMicMaxThresholdValue) setupMicMaxThresholdValue.innerText = String(maxPercent);
-    if (meetingMicMinThresholdValue) meetingMicMinThresholdValue.innerText = String(minPercent);
-    if (meetingMicMaxThresholdValue) meetingMicMaxThresholdValue.innerText = String(maxPercent);
-
-    if (micMeterShell) {
-        micMeterShell.style.setProperty('--mic-min-line', `${Math.min(96, Math.max(2, minPercent / 10))}%`);
-        micMeterShell.style.setProperty('--mic-max-line', `${Math.min(98, Math.max(8, maxPercent))}%`);
-    }
-}
-
-function syncMicThresholdsFromUi(source) {
-    const minControl = source === 'meeting' ? meetingMicMinThreshold : setupMicMinThreshold;
-    const maxControl = source === 'meeting' ? meetingMicMaxThreshold : setupMicMaxThreshold;
-    if (!minControl || !maxControl) return;
-
-    const nextMin = Number(minControl.value) / 1000;
-    const nextMax = Number(maxControl.value) / 100;
-    const normalized = clampThresholdPair(nextMin, nextMax);
-    state.voiceGate.threshold = normalized.min;
-    state.voiceGate.maxThreshold = normalized.max;
-    localStorage.setItem('mic_threshold_min', String(state.voiceGate.threshold));
-    localStorage.setItem('mic_threshold_max', String(state.voiceGate.maxThreshold));
-    updateMicThresholdControls();
-}
-
 function bindStreamState(stream) {
     const [track] = stream.getAudioTracks();
     if (!track) return;
@@ -784,7 +676,7 @@ async function releaseWakeLock() {
 async function runMicCheck() {
     const ok = await prepareAudio({ updateStatus: true });
     if (!ok) return;
-    updateMicStatus('マイク入力を確認中です。緑の帯が最小線を越え、赤い線を少し超える程度なら適正です。');
+    updateMicStatus('マイクに向かって普段の声で話してください。音量は自動調整します。');
 }
 
 async function reconnectMic() {
@@ -2083,12 +1975,12 @@ async function prepareAudio(options = {}) {
             const actualRate = Math.round(state.audioContext?.sampleRate || 0);
             const resampleNote = actualRate && actualRate !== 16000 ? ` 実入力 ${actualRate}Hz を 16000Hz に変換して送ります。` : '';
             const presetLabel = preset?.label ? `現在は ${preset.label} モードです。` : '';
-            updateMicStatus(`マイクの許可が取れました。${presetLabel} メーターが動いて、緑の帯が最小線を越えれば入力できています。${resampleNote}`);
+            updateMicStatus(`マイクを接続しました。${presetLabel}普段の声で話してください。${resampleNote}`);
         }
         return true;
     } catch (error) {
         AppDebug.log('error', 'prepareAudio failed', error.message);
-        if (options.updateStatus) updateMicStatus(`マイク確認に失敗しました: ${error.message}`);
+        if (options.updateStatus) updateMicStatus(`マイク設定に失敗しました: ${error.message}`);
         window.AppToast.error('マイクの許可に失敗しました', { detail: error.message });
         return false;
     }
@@ -2096,7 +1988,7 @@ async function prepareAudio(options = {}) {
 
 async function joinRoom() {
     const displayName = document.getElementById('display-name').value.trim();
-    const profileText = document.getElementById('profile-text').value.trim();
+    const profileText = localStorage.getItem('profile_text') || '';
     const roomId = document.getElementById('room-id').value.trim().toUpperCase();
     if (!displayName || !roomId) return window.AppToast.warn('表示名とルームIDを入力してください');
     if (!await prepareAudio()) return;
@@ -2104,7 +1996,7 @@ async function joinRoom() {
 }
 
 async function createRoom() {
-    const profileText = document.getElementById('profile-text').value.trim();
+    const profileText = localStorage.getItem('profile_text') || '';
 
     // Host must be logged in. If not, show the login modal first and abort on
     // cancel. After login we fall through with the account's display_name
@@ -2875,15 +2767,11 @@ window._refreshApiStatus = () => checkApiStatus();
 function initializeSetupUi() {
     ensureLocalUserId();
     const savedDisplayName = localStorage.getItem('display_name');
-    const savedProfileText = localStorage.getItem('profile_text');
-    const savedSensitivity = localStorage.getItem('mic_sensitivity');
     const savedMicPreset = localStorage.getItem('mic_preset');
+    const savedReverberant = localStorage.getItem('mic_reverberant');
     const savedUsePastMeetings = localStorage.getItem('use_past_meetings');
-    const savedMinThreshold = Number(localStorage.getItem('mic_threshold_min'));
-    const savedMaxThreshold = Number(localStorage.getItem('mic_threshold_max'));
     
     if (savedDisplayName) document.getElementById('display-name').value = savedDisplayName;
-    if (savedProfileText) document.getElementById('profile-text').value = savedProfileText;
     if (savedUsePastMeetings != null) {
         state.usePastMeetings = savedUsePastMeetings !== '0';
     }
@@ -2913,24 +2801,17 @@ function initializeSetupUi() {
         updateMicStatus(`共有URLからルーム ${roomIdFromUrl.toUpperCase()} を読み込みました。表示名を入れれば参加できます。`);
     }
     document.body.classList.add('setup-mode');
-    setMicSensitivity(savedSensitivity || 'standard');
     const defaultPreset = isMobileViewport() ? DEFAULT_MOBILE_PRESET : DEFAULT_DESKTOP_PRESET;
-    state.micPresetKey = savedMicPreset || defaultPreset;
-    const initialPreset = getMicPresetConfig();
-    if (initialPreset) {
-        state.voiceGate.threshold = initialPreset.thresholds.min;
-        state.voiceGate.maxThreshold = initialPreset.thresholds.max;
-    }
-    if (!Number.isNaN(savedMinThreshold)) {
-        state.voiceGate.threshold = savedMinThreshold;
-    }
-    if (!Number.isNaN(savedMaxThreshold)) {
-        state.voiceGate.maxThreshold = savedMaxThreshold;
-    }
-    const normalized = clampThresholdPair(state.voiceGate.threshold, state.voiceGate.maxThreshold);
-    state.voiceGate.threshold = normalized.min;
-    state.voiceGate.maxThreshold = normalized.max;
-    updateMicThresholdControls();
+    state.micPresetKey = normalizePresetKey(savedMicPreset) || defaultPreset;
+    state.micReverberant = savedReverberant == null
+        ? savedMicPreset === 'echo_room'
+        : savedReverberant === '1';
+    window.AppAudio.applyVoiceGatePreset();
+    localStorage.setItem('mic_preset', state.micPresetKey);
+    localStorage.setItem('mic_reverberant', state.micReverberant ? '1' : '0');
+    localStorage.removeItem('mic_sensitivity');
+    localStorage.removeItem('mic_threshold_min');
+    localStorage.removeItem('mic_threshold_max');
     window.AppAudio.renderMicPresetUi();
     window.AppAudio.updateMuteButton();
     window.AppLogUi.syncFilterControls();
@@ -2983,9 +2864,8 @@ window.AppMain = {
     saveTranscriptFromModal: (...args) => window.AppLogUi.saveTranscriptFromModal(...args),
     closeMemoModal: (...args) => window.AppLogUi.closeMemoModal(...args),
     saveMemoFromModal: (...args) => window.AppLogUi.saveMemoFromModal(...args),
-    setMicSensitivity: (...args) => window.AppAudio.setMicSensitivity(...args),
     applyMicPreset: (...args) => window.AppAudio.applyMicPreset(...args),
-    syncMicThresholdsFromUi: (...args) => window.AppAudio.syncMicThresholdsFromUi(...args),
+    setMicEnvironment: (...args) => window.AppAudio.setMicEnvironment(...args),
     runMeetingAnalysis: (...args) => window.AppSharedAi.runMeetingAnalysis(...args),
     syncFilterControls: (...args) => window.AppLogUi.syncFilterControls(...args),
     renderAllLogs: (...args) => window.AppLogUi.renderAllLogs(...args),
@@ -3105,13 +2985,13 @@ async function autoStartMicCheckOnSetup() {
         const status = await navigator.permissions.query({ name: 'microphone' });
         if (status.state !== 'granted') return;
         autoMicCheckRan = true;
-        const ok = await prepareAudio({ updateStatus: false });
+        const ok = await window.AppAudio.prepareAudio({ updateStatus: false });
         if (!ok) {
             // Show the fallback "再確認" button so the user can retry.
             const retryBtn = document.getElementById('btn-mic-check');
             if (retryBtn) retryBtn.removeAttribute('hidden');
         } else {
-            updateMicStatus('マイクを自動で確認中です。緑の帯が動けば入力できています。');
+            updateMicStatus('マイクを自動で確認中です。普段の声で話してください。');
         }
     } catch (error) {
         AppDebug.log('info', 'autoStartMicCheckOnSetup failed', error && error.message);
@@ -3354,14 +3234,11 @@ async function initAuthAndRender() {
 
 async function bootstrap() {
     initializeSetupUi();
-    // app:profile-updated はプロフィールページの保存後に発火する。
-    // アカウント名 (display_name) と会議用表示名は別管理のため、
-    // ここでは profile_text (AI プロンプト用) のみを同期する。
+    // Keep the profile context cached for room joins. Editing stays in the
+    // account menu instead of occupying the meeting setup flow.
     window.addEventListener('app:profile-updated', (event) => {
         const profile = event.detail || {};
-        const profileInput = document.getElementById('profile-text');
-        if (profileInput && typeof profile.profile_text === 'string') {
-            profileInput.value = profile.profile_text;
+        if (typeof profile.profile_text === 'string') {
             localStorage.setItem('profile_text', profile.profile_text);
         }
     });
@@ -3383,8 +3260,7 @@ async function bootstrap() {
     refreshHomeButtonHint();
     if (window.AppAuth?.onChange) {
         window.AppAuth.onChange(refreshHomeButtonHint);
-        // ログイン/アカウント切り替え時に profile_text を #profile-text へ同期。
-        // 表示名 (#display-name) はアカウント名と独立しているため触れない。
+        // Refresh the cached profile context when the active account changes.
         window.AppAuth.onChange((account) => {
             notifySetupModeChanged();
             if (account && window.AppProfile?.hydrateSetupProfile) {

@@ -18,14 +18,15 @@ window.AppState = {
         isMuted: false,
         wakeLockSentinel: null,
         voiceGate: {
-            threshold: 0.012,
-            maxThreshold: 0.78,
+            threshold: 0.008,
+            maxThreshold: 0.9,
             releaseFrames: 6,
             remainingFrames: 0,
-            speaking: false
+            speaking: false,
+            noiseFloor: 0
         },
-        micPresetKey: 'pin_mic',
-        micSensitivity: 'standard',
+        micPresetKey: 'personal',
+        micReverberant: false,
         mobileMenuOpen: false,
         mobileMemoryCollapsed: false,
         mobileAiCollapsed: false,

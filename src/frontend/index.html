@@ -146,90 +146,63 @@
                 <input type="text" id="display-name" placeholder="例: 田中">
             </div>
             <div class="form-group">
-                <label for="profile-text">得意なこと・スキル・担当プロジェクト</label>
-                <textarea id="profile-text" placeholder="例: 音声処理が得意。LLM評価を担当。研究テーマは会議支援UIの改善。"></textarea>
-            </div>
-            <div class="form-group">
                 <label for="room-id">ルームID</label>
                 <input type="text" id="room-id" placeholder="例: A7K9Q2" autocomplete="off">
             </div>
 
             <div class="mic-check-card">
-                <div class="container-label">Mic Check</div>
-                <h3>マイク確認</h3>
-                <p id="mic-check-status" class="mic-check-status">利用シーンを選ぶと推奨値が入ります。緑のメーターが動けば、そのまま会議に参加できます。</p>
+                <div class="container-label">Audio</div>
+                <h3>マイク設定</h3>
+                <p id="mic-check-status" class="mic-check-status">収録方法を選んでください。音量は環境に合わせて自動調整します。</p>
                 <div class="mic-preset-section">
                     <div class="mic-preset-header">
-                        <strong>利用シーン</strong>
-                        <span>近いものを選ぶだけで、拾う音量と抑える音量を自動調整します。</span>
+                        <strong>どのマイクで録りますか</strong>
+                        <span>使い方に一番近いものを選びます。</span>
                     </div>
-                    <div class="mic-preset-grid">
-                        <button type="button" class="mic-preset-card" data-mic-preset="smartphone">
+                    <div class="mic-preset-grid" role="radiogroup" aria-label="マイクの種類">
+                        <button type="button" class="mic-preset-card" data-mic-preset="smartphone" role="radio" aria-checked="false">
                             <strong>スマホ本体</strong>
-                            <span>iPhone / Android の内蔵マイク</span>
+                            <span>内蔵マイク</span>
                         </button>
-                        <button type="button" class="mic-preset-card" data-mic-preset="pin_mic">
-                            <strong>ピンマイク</strong>
-                            <span>口元マイク / ヘッドセット向け</span>
+                        <button type="button" class="mic-preset-card" data-mic-preset="personal" role="radio" aria-checked="false">
+                            <strong>ピン・ヘッドセット</strong>
+                            <span>1人用・口元</span>
                         </button>
-                        <button type="button" class="mic-preset-card" data-mic-preset="echo_room">
-                            <strong>反響のある部屋</strong>
-                            <span>会議室や壁の硬い部屋向け</span>
-                        </button>
-                        <button type="button" class="mic-preset-card" data-mic-preset="large_group">
-                            <strong>大人数</strong>
-                            <span>卓上マイクややや遠めの声向け</span>
-                        </button>
-                        <button type="button" class="mic-preset-card" data-mic-preset="wired_headset">
-                            <strong>有線ヘッドセット</strong>
-                            <span>スマホ / PC の有線イヤホンマイク向け</span>
+                        <button type="button" class="mic-preset-card" data-mic-preset="tabletop" role="radio" aria-checked="false">
+                            <strong>卓上マイク</strong>
+                            <span>複数人・全体</span>
                         </button>
                     </div>
+                    <label class="mic-environment-toggle" for="mic-reverberant">
+                        <span class="mic-environment-copy">
+                            <strong>音が響く部屋</strong>
+                            <span>会議室や壁の硬い部屋ではオン</span>
+                        </span>
+                        <input type="checkbox" id="mic-reverberant">
+                        <span class="g-switch" aria-hidden="true"></span>
+                    </label>
                     <div class="mic-preset-summary-card">
-                        <div class="container-label">Current Mode</div>
-                        <strong id="mic-preset-summary">ピンマイクを推奨設定で使います。</strong>
-                        <ul id="mic-preset-tips" class="mic-tip-list"></ul>
+                        <strong id="mic-preset-summary">マイク設定を自動調整します。</strong>
                     </div>
                 </div>
-                <div class="form-group">
-                    <label for="mic-min-threshold">必要なときだけ微調整</label>
-                    <select id="mic-sensitivity" class="visually-hidden" aria-hidden="true">
-                        <option value="high">高め</option>
-                        <option value="standard" selected>標準</option>
-                        <option value="strict">被り抑制</option>
-                    </select>
-                    <div class="mic-threshold-grid">
-                        <label class="threshold-field" for="mic-min-threshold">
-                            <span>最小音量閾値</span>
-                            <input type="range" id="mic-min-threshold" min="1" max="40" step="1" value="12">
-                            <strong id="mic-min-threshold-value">12</strong>
-                        </label>
-                        <label class="threshold-field" for="mic-max-threshold">
-                            <span>最大音量閾値</span>
-                            <input type="range" id="mic-max-threshold" min="30" max="100" step="1" value="78">
-                            <strong id="mic-max-threshold-value">78</strong>
-                        </label>
-                    </div>
-                </div>
-                <div class="mic-meter meter-with-guides" id="mic-meter-shell" aria-hidden="true">
-                    <div id="mic-min-line" class="mic-threshold-line min-line"></div>
-                    <div id="mic-max-line" class="mic-threshold-line max-line"></div>
+                <div class="mic-meter" id="mic-meter-shell" role="meter" aria-label="マイク入力レベル" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0">
                     <div id="mic-level-bar" class="mic-meter-bar"></div>
                 </div>
-                <!-- マイクは setup 画面に来た時点で自動でレベルメーターが動きます。
-                     失敗時だけ「再確認」ボタンが表示されます。 -->
-                <div class="actions">
-                    <button id="btn-mic-check" class="secondary" hidden>マイクを再確認</button>
+                <div class="actions mic-check-actions">
+                    <button id="btn-mic-check" class="secondary">マイクをテスト</button>
                 </div>
             </div>
 
-            <div class="form-group host-only" id="series-picker" style="display:none">
-                <label for="series-id">定例シリーズ (オプション)</label>
-                <select id="series-id">
-                    <option value="">なし</option>
-                </select>
-                <p class="mic-check-status">シリーズを選ぶと、この会議が終了後に「次回アジェンダ生成」が使えます。</p>
-            </div>
+            <details class="setup-details host-only" id="series-picker" style="display:none">
+                <summary>会議の詳細</summary>
+                <div class="setup-details-body">
+                    <label for="series-id">定例シリーズ</label>
+                    <select id="series-id">
+                        <option value="">なし</option>
+                    </select>
+                    <p class="mic-check-status">シリーズ管理は右上のアカウントメニューから行えます。</p>
+                </div>
+            </details>
 
             <div class="actions">
                 <!-- Single primary CTA. Behavior is decided at click time:
@@ -264,7 +237,7 @@
                         <img class="g-icon" src="assets/icons/mic.svg" alt="">
                         <span class="mic-state-label">マイク ON</span>
                     </button>
-                    <button id="btn-meeting-mic-settings" class="secondary" title="マイク・感度設定" aria-label="マイク・感度設定" aria-expanded="false" aria-controls="mobile-meeting-menu">
+                    <button id="btn-meeting-mic-settings" class="secondary" title="マイク設定" aria-label="マイク設定" aria-expanded="false" aria-controls="mobile-meeting-menu">
                         <img class="g-icon" src="assets/icons/settings-2.svg" alt="">
                         <span>設定</span>
                     </button>
@@ -276,35 +249,20 @@
                 <div class="container-label">マイク設定</div>
                 <div class="mobile-menu-grid">
                     <div class="meeting-mic-preset-panel">
-                        <div class="container-label">Mic Mode</div>
-                        <strong id="meeting-mic-preset-summary">現在のプリセット: -</strong>
-                        <div class="meeting-mic-preset-list">
-                            <button type="button" class="secondary compact" data-mic-preset="smartphone">スマホ</button>
-                            <button type="button" class="secondary compact" data-mic-preset="pin_mic">ピンマイク</button>
-                            <button type="button" class="secondary compact" data-mic-preset="echo_room">反響室</button>
-                            <button type="button" class="secondary compact" data-mic-preset="large_group">大人数</button>
-                            <button type="button" class="secondary compact" data-mic-preset="wired_headset">有線</button>
+                        <strong id="meeting-mic-preset-summary">現在のマイク: -</strong>
+                        <div class="meeting-mic-preset-list" role="radiogroup" aria-label="会議中のマイクの種類">
+                            <button type="button" class="secondary compact" data-mic-preset="smartphone" role="radio" aria-checked="false">スマホ本体</button>
+                            <button type="button" class="secondary compact" data-mic-preset="personal" role="radio" aria-checked="false">ピン・ヘッドセット</button>
+                            <button type="button" class="secondary compact" data-mic-preset="tabletop" role="radio" aria-checked="false">卓上マイク</button>
                         </div>
-                    </div>
-                    <div class="form-group">
-                        <label for="meeting-mic-min-threshold">マイク調整</label>
-                        <select id="meeting-mic-sensitivity" class="visually-hidden" aria-hidden="true">
-                            <option value="high">高め</option>
-                            <option value="standard" selected>標準</option>
-                            <option value="strict">被り抑制</option>
-                        </select>
-                        <div class="mic-threshold-grid compact-threshold-grid">
-                            <label class="threshold-field" for="meeting-mic-min-threshold">
-                                <span>最小</span>
-                                <input type="range" id="meeting-mic-min-threshold" min="1" max="40" step="1" value="12">
-                                <strong id="meeting-mic-min-threshold-value">12</strong>
-                            </label>
-                            <label class="threshold-field" for="meeting-mic-max-threshold">
-                                <span>最大</span>
-                                <input type="range" id="meeting-mic-max-threshold" min="30" max="100" step="1" value="78">
-                                <strong id="meeting-mic-max-threshold-value">78</strong>
-                            </label>
-                        </div>
+                        <label class="mic-environment-toggle" for="meeting-mic-reverberant">
+                            <span class="mic-environment-copy">
+                                <strong>音が響く部屋</strong>
+                                <span>反響と語尾切れを抑えます</span>
+                            </span>
+                            <input type="checkbox" id="meeting-mic-reverberant">
+                            <span class="g-switch" aria-hidden="true"></span>
+                        </label>
                     </div>
                 </div>
             </div>

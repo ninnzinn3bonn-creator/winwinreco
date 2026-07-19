@@ -53,8 +53,14 @@ describe('Static legal pages', () => {
         expect(res.text).not.toContain('専門用語辞書');
         expect(res.text).not.toContain('api-status-container');
         expect(res.text).not.toContain('mic-check-steps');
-        expect(res.text).toContain('利用シーン');
-        expect(res.text).toContain('必要なときだけ微調整');
+        expect(res.text).toContain('どのマイクで録りますか');
+        expect(res.text).toContain('音が響く部屋');
+        expect(res.text).toContain('data-mic-preset="tabletop"');
+        expect(res.text).toContain('会議の詳細');
+        expect(res.text).not.toContain('必要なときだけ微調整');
+        expect(res.text).not.toContain('最小音量閾値');
+        expect(res.text).not.toContain('id="profile-text"');
+        expect(res.text).not.toContain('data-mic-preset="echo_room"');
     });
 
     test('minutes workspace exposes copy and download only', async () => {

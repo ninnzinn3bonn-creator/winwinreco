@@ -10,6 +10,13 @@ function createTrack(readyState = 'live') {
         enabled: true,
         stop: jest.fn(function stop() { this.readyState = 'ended'; }),
         applyConstraints: jest.fn().mockResolvedValue(undefined),
+        getSettings: jest.fn(() => ({
+            sampleRate: 48000,
+            channelCount: 1,
+            echoCancellation: true,
+            noiseSuppression: true,
+            autoGainControl: false
+        })),
         onended: null,
         onmute: null,
         onunmute: null
@@ -61,7 +68,8 @@ function loadAudioModule(overrides = {}) {
         processor: null,
         isMuted: false,
         ws: null,
-        micPresetKey: 'pin_mic',
+        micPresetKey: 'personal',
+        micReverberant: false,
         voiceGate: {
             threshold: 0.01,
             maxThreshold: 0.8,
@@ -97,14 +105,36 @@ function loadAudioModule(overrides = {}) {
             resampleToTargetRate: (input) => input
         },
         AppMicPresets: {
-            defaultDesktop: 'pin_mic',
+            defaultDesktop: 'personal',
+            normalizePresetKey: (key) => ({
+                pin_mic: 'personal',
+                personal: 'personal',
+                tabletop: 'tabletop',
+                smartphone: 'smartphone'
+            })[key] || null,
+            resolvePreset: (key, reverberant) => {
+                const preset = {
+                    personal: {
+                        key: 'personal', label: 'Personal',
+                        thresholds: { min: 0.008, max: 0.9 },
+                        vad: { releaseFrames: 6 }, stt: {}, constraints: {}
+                    },
+                    tabletop: {
+                        key: 'tabletop', label: 'Tabletop',
+                        thresholds: { min: 0.005, max: 0.88 },
+                        vad: { releaseFrames: reverberant ? 14 : 10 }, stt: {}, constraints: {}
+                    }
+                }[key] || null;
+                return preset ? { ...preset, reverberant: !!reverberant } : null;
+            },
             presets: {
-                pin_mic: {
-                    key: 'pin_mic',
-                    label: 'Pin mic',
-                    thresholds: { min: 0.01, max: 0.8 },
-                    vad: {},
-                    stt: {}
+                personal: {
+                    key: 'personal',
+                    label: 'Personal',
+                    thresholds: { min: 0.008, max: 0.9 },
+                    vad: { releaseFrames: 6 },
+                    stt: {},
+                    constraints: {}
                 }
             }
         },
@@ -121,7 +151,7 @@ function loadAudioModule(overrides = {}) {
             mediaDevices: { getUserMedia },
             permissions: { query: jest.fn() }
         },
-        localStorage: { getItem: jest.fn(), setItem: jest.fn() },
+        localStorage: { getItem: jest.fn(), setItem: jest.fn(), removeItem: jest.fn() },
         WebSocket: { OPEN: 1 },
         Float32Array,
         Int16Array,
@@ -192,6 +222,34 @@ describe('frontend audio recovery', () => {
             type: 'restart_stt',
             reason: 'client-transcript-stall'
         }));
+    });
+
+    test('switches capture mode without stopping the active microphone track', async () => {
+        const activeTrack = createTrack('live');
+        const { audio, state } = loadAudioModule({
+            state: { stream: createStream(activeTrack) }
+        });
+
+        await audio.applyMicPreset('tabletop');
+
+        expect(state.micPresetKey).toBe('tabletop');
+        expect(state.voiceGate.releaseFrames).toBe(10);
+        expect(activeTrack.applyConstraints).toHaveBeenCalledTimes(1);
+        expect(activeTrack.stop).not.toHaveBeenCalled();
+    });
+
+    test('applies reverberant-room processing without replacing the stream', async () => {
+        const activeTrack = createTrack('live');
+        const { audio, state } = loadAudioModule({
+            state: { stream: createStream(activeTrack), micPresetKey: 'tabletop' }
+        });
+
+        await audio.setMicEnvironment(true);
+
+        expect(state.micReverberant).toBe(true);
+        expect(state.voiceGate.releaseFrames).toBe(14);
+        expect(activeTrack.applyConstraints).toHaveBeenCalledTimes(1);
+        expect(activeTrack.stop).not.toHaveBeenCalled();
     });
 
     test('reacquires an ended microphone track and rebuilds the processor', async () => {
