@@ -518,7 +518,8 @@
         Object.entries(dom.meetingAiButtons).forEach(([key, button]) => {
             const isLoading = loadingKey === key;
             button.disabled = !!loadingKey && !isLoading;
-            button.innerText = isLoading ? AI_LOADING_TEXT : (
+            button.setAttribute('aria-busy', isLoading ? 'true' : 'false');
+            button.innerText = isLoading ? '生成中...' : (
                 key === 'summary'
                     ? '要約'
                     : key === 'todo'

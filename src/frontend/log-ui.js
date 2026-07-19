@@ -112,6 +112,7 @@
     function openTranscriptModal(id) {
         const utterance = getUtteranceById(id);
         if (!utterance) return;
+        window.AppMeetingUi?.closeMobileMeetingMenu?.();
         closeMemoModal({ preserveDraft: true });
         state.activeModalUtteranceId = id;
         state.transcriptDrafts[id] = utterance.transcript || '';
@@ -131,6 +132,7 @@
     function openMemoModal(id) {
         const utterance = getUtteranceById(id);
         if (!utterance) return;
+        window.AppMeetingUi?.closeMobileMeetingMenu?.();
         closeTranscriptModal();
         state.activeMemoUtteranceId = id;
         state.noteDrafts[id] = utterance.memo_text || utterance.memory_note || '';
@@ -301,6 +303,7 @@
     function startInlineUtteranceEdit(article, utterance) {
         const textEl = article.querySelector('.text');
         if (!textEl || textEl.classList.contains('is-editing')) return;
+        window.AppMeetingUi?.closeMobileMeetingMenu?.();
         const original = utterance.transcript || '';
         textEl.classList.add('is-editing');
         textEl.setAttribute('contenteditable', 'true');

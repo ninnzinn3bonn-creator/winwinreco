@@ -421,12 +421,6 @@ function updateLogWorkState() {
     state.isWorkingOnLog = !!state.activeModalUtteranceId || !!state.activeMemoUtteranceId;
 }
 
-function addMemo() {
-    const memo = prompt('\u5168\u4f53\u30e1\u30e2\u3092\u5165\u529b\u3057\u3066\u304f\u3060\u3055\u3044:');
-    if (memo) addSystemMessage(`\u5168\u4f53\u30e1\u30e2: ${memo}`);
-}
-
-
 function toggleMobileMeetingMenu() {
     state.mobileMenuOpen = !state.mobileMenuOpen;
     renderMobileMeetingControls();
@@ -474,7 +468,6 @@ function syncMuteUi() {
 
 function renderMobileMeetingControls() {
     const mobile = isMobileViewport();
-    const menuButton = document.getElementById('btn-mobile-menu');
     const settingsButton = document.getElementById('btn-meeting-mic-settings');
     const memoryButton = document.getElementById('btn-toggle-memory-panel');
     const aiButton = document.getElementById('btn-toggle-ai-panel');
@@ -496,10 +489,6 @@ function renderMobileMeetingControls() {
         mobileMeetingMenu.classList.toggle('active', drawerOpen);
         mobileMeetingMenu.classList.toggle('hidden', !drawerOpen);
         mobileMeetingMenu.setAttribute('aria-hidden', drawerOpen ? 'false' : 'true');
-    }
-    if (menuButton) {
-        menuButton.setAttribute('aria-expanded', drawerOpen ? 'true' : 'false');
-        menuButton.innerText = drawerOpen ? '\u2715' : '\u2630';
     }
     if (settingsButton) {
         settingsButton.setAttribute('aria-expanded', drawerOpen ? 'true' : 'false');
@@ -1046,7 +1035,8 @@ function renderMeetingAnalysis() {
     Object.entries(meetingAiButtons).forEach(([key, button]) => {
         const isLoading = loadingKey === key;
         button.disabled = !!loadingKey && !isLoading;
-        button.innerText = isLoading ? AI_LOADING_TEXT : (
+        button.setAttribute('aria-busy', isLoading ? 'true' : 'false');
+        button.innerText = isLoading ? '生成中...' : (
             key === 'summary'
                 ? '要約'
                 : key === 'todo'
@@ -2709,25 +2699,6 @@ function toggleMute() {
     addSystemMessage(state.isMuted ? 'この端末の文字起こしを停止しました。' : 'この端末の文字起こしを再開しました。');
 }
 
-async function endRoom() {
-    if (!confirm('会議を終了しますか？')) return;
-    try {
-        const res = await fetch(`/rooms/${state.roomId}/end`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ participant_id: state.participantId, control_token: state.controlToken })
-        });
-        const data = await readApiResponse(res);
-        if (!res.ok) throw new Error(data.error || '終了に失敗しました');
-        stopRecording();
-        // Just-ended path: jump to 議事録 tab so the auto-generated minutes
-        // are front-and-center while the user wraps up.
-        showSummaryScreen({ justEnded: true });
-    } catch (error) {
-        window.AppToast.error('終了処理に失敗しました', { detail: error.message });
-    }
-}
-
 async function checkApiStatus() {
     const container = document.getElementById('api-status-container');
     if (!container) return;
@@ -2836,6 +2807,7 @@ window.AppMain = {
     toggleMute: (...args) => window.AppAudio.toggleMute(...args),
     reconnectMic: (...args) => window.AppAudio.reconnectMic(...args),
     toggleMobileMeetingMenu: (...args) => window.AppMeetingUi.toggleMobileMeetingMenu(...args),
+    closeMobileMeetingMenu: (...args) => window.AppMeetingUi.closeMobileMeetingMenu(...args),
     toggleMobileMemoryPanel: (...args) => window.AppMeetingUi.toggleMobileMemoryPanel(...args),
     toggleMobileAiPanel: (...args) => window.AppMeetingUi.toggleMobileAiPanel(...args),
     toggleLiveFocus: (...args) => window.AppMeetingUi.toggleLiveFocus(...args),
@@ -2847,6 +2819,10 @@ window.AppMain = {
     copyRoomId: (...args) => window.AppMeetingUi.copyRoomId(...args),
     downloadMinutes: (...args) => window.AppMeetingUi.downloadMinutes(...args),
     addMemo: (...args) => window.AppMeetingUi.addMemo(...args),
+    saveMeetingMemo: (...args) => window.AppMeetingUi.saveMeetingMemo(...args),
+    closeMeetingMemoModal: (...args) => window.AppMeetingUi.closeMeetingMemoModal(...args),
+    confirmEndRoom: (...args) => window.AppMeetingUi.confirmEndRoom(...args),
+    closeEndRoomModal: (...args) => window.AppMeetingUi.closeEndRoomModal(...args),
     scrollLogToLatest: (...args) => window.AppLogUi.scrollLogToLatest(...args),
     switchTab: (...args) => window.AppMeetingUi.switchTab(...args),
     copyAiWorkspaceResult: (...args) => window.AppSharedAi.copyAiWorkspaceResult(...args),
@@ -3370,6 +3346,18 @@ function setupGlobalModalEscape() {
         const overlay = document.querySelector('.auth-modal-overlay');
         if (overlay && overlay.parentNode) {
             overlay.remove();
+            event.preventDefault();
+            return;
+        }
+        const meetingEndOverlay = document.getElementById('meeting-end-modal-overlay');
+        if (meetingEndOverlay && !meetingEndOverlay.classList.contains('hidden')) {
+            window.AppMeetingUi.closeEndRoomModal();
+            event.preventDefault();
+            return;
+        }
+        const meetingMemoOverlay = document.getElementById('meeting-memo-modal-overlay');
+        if (meetingMemoOverlay && !meetingMemoOverlay.classList.contains('hidden')) {
+            window.AppMeetingUi.closeMeetingMemoModal();
             event.preventDefault();
             return;
         }

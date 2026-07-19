@@ -151,6 +151,15 @@
 .meeting-mic-preset-list { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
 .meeting-mic-preset-list .compact { min-width: 0; min-height: 52px; padding: 6px; white-space: normal; line-height: 1.25; }
 .meeting-mic-preset-list .compact[aria-checked="true"] { border-color: var(--g-accent); background: var(--g-accent-soft); color: var(--g-accent); }
+.meeting-settings-header { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.meeting-settings-header > strong { color: var(--g-text); font-size: 15px; }
+.meeting-settings-header .icon-btn { width: 36px; min-width: 36px; min-height: 36px; padding: 7px; border-radius: 50%; }
+.meeting-settings-header .icon-btn img { width: 18px; height: 18px; }
+
+.meeting-action-modal-card { width: min(460px, 100%); }
+.meeting-action-modal-card .edit-modal-header { flex-direction: row; align-items: flex-start; }
+.meeting-action-modal-card textarea { min-height: 120px; resize: vertical; }
+.meeting-action-modal-copy { margin: 12px 0 0; color: var(--g-text-secondary); line-height: 1.55; }
 
 #setup-screen > .actions {
     position: sticky;
@@ -577,6 +586,7 @@ body.summary-mode .summary-log-panel {
 @media (max-width: 720px) {
     body { font-size: 16px; }
     body.meeting-mode {
+        --meeting-dock-height: calc(72px + env(safe-area-inset-bottom));
         height: 100vh;
         height: 100dvh;
         overflow: hidden;
@@ -616,7 +626,6 @@ body.summary-mode .summary-log-panel {
     }
 
     body.meeting-mode #meeting-screen {
-        --meeting-dock-height: calc(72px + env(safe-area-inset-bottom));
         display: grid;
         grid-template-rows: auto auto minmax(0, 1fr);
         height: 100vh;
@@ -718,7 +727,42 @@ body.summary-mode .summary-log-panel {
     .jump-fab-wrap { bottom: calc(var(--meeting-dock-height) + 8px); }
     .meeting-ai-suggestion { display: none; }
     .meeting-ai-actions { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+    .meeting-ai-status { min-height: 44px; }
+    .meeting-ai-actions button { height: 58px; min-height: 58px; padding: 7px 8px; line-height: 1.25; overflow-wrap: anywhere; }
     .meeting-ai-card .meeting-ai-editor { min-height: 112px; resize: none; }
+
+    body.meeting-mode .mobile-meeting-menu {
+        position: fixed;
+        right: 12px;
+        bottom: calc(var(--meeting-dock-height) + 8px);
+        left: 12px;
+        z-index: 88;
+        max-height: min(220px, calc(100dvh - var(--meeting-dock-height) - 68px));
+        padding: 10px 12px 12px;
+        overflow-y: auto;
+        border: 1px solid var(--g-separator);
+        border-radius: 8px;
+        background: color-mix(in srgb, var(--g-surface) 97%, transparent);
+        box-shadow: 0 12px 30px rgba(20, 28, 27, 0.18);
+        backdrop-filter: blur(20px) saturate(180%);
+    }
+    body.meeting-mode .mobile-meeting-menu .mobile-menu-grid { gap: 8px; }
+    body.meeting-mode .meeting-mic-preset-panel { padding: 0; border: 0; border-radius: 0; background: transparent; }
+    body.meeting-mode .meeting-mic-preset-panel > strong { margin: 0 0 7px; font-size: 12px; line-height: 1.35; }
+    body.meeting-mode .meeting-mic-preset-list { gap: 6px; }
+    body.meeting-mode .meeting-mic-preset-list .compact { min-height: 42px; padding: 5px 4px; font-size: 12px; }
+    body.meeting-mode .mobile-meeting-menu .mic-environment-toggle { min-height: 44px; padding: 7px 10px; }
+    body.meeting-mode .mobile-meeting-menu .mic-environment-copy > span { display: none; }
+    body.meeting-mode #app-toast-container { bottom: calc(var(--meeting-dock-height) + 8px); }
+
+    .meeting-action-modal-overlay {
+        align-items: flex-end;
+        padding: 12px 12px max(12px, env(safe-area-inset-bottom));
+    }
+    .meeting-action-modal-card { max-height: calc(100dvh - 24px); padding: 18px; border-radius: 14px; }
+    .meeting-action-modal-card .edit-modal-header { flex-direction: row; align-items: flex-start; }
+    .meeting-action-modal-card .edit-modal-actions { display: grid; grid-template-columns: 1fr; }
+    .meeting-action-modal-card .edit-modal-actions button { width: 100%; }
 
     .meeting-mobile-dock {
         position: fixed;
@@ -794,7 +838,7 @@ body.summary-mode .summary-log-panel {
 }
 
 @media (max-width: 720px) and (max-height: 700px) {
-    body.meeting-mode #meeting-screen { --meeting-dock-height: calc(66px + env(safe-area-inset-bottom)); }
+    body.meeting-mode { --meeting-dock-height: calc(66px + env(safe-area-inset-bottom)); }
     body.meeting-mode #meeting-screen > header { min-height: 42px; padding-top: max(2px, env(safe-area-inset-top)); padding-bottom: 2px; }
     .meeting-view-switcher { padding-block: 2px; }
     .meeting-view-switcher .g-segmented button { min-height: var(--g-target); }

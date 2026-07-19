@@ -245,8 +245,13 @@
                 </div>
             </header>
 
-            <div id="mobile-meeting-menu" class="mobile-meeting-menu hidden" aria-hidden="true">
-                <div class="container-label">マイク設定</div>
+            <div id="mobile-meeting-menu" class="mobile-meeting-menu hidden" role="dialog" aria-label="マイク設定" aria-hidden="true">
+                <div class="meeting-settings-header">
+                    <strong>マイク設定</strong>
+                    <button id="btn-close-meeting-settings" class="icon-btn" type="button" title="マイク設定を閉じる" aria-label="マイク設定を閉じる">
+                        <img src="assets/icons/x.svg" alt="">
+                    </button>
+                </div>
                 <div class="mobile-menu-grid">
                     <div class="meeting-mic-preset-panel">
                         <strong id="meeting-mic-preset-summary">現在のマイク: -</strong>
@@ -429,7 +434,7 @@
                     <img src="assets/icons/mic.svg" alt="">
                     <span class="visually-hidden">マイク</span>
                 </button>
-                <button type="button" id="btn-dock-more" title="会議設定">
+                <button type="button" id="btn-dock-more" title="会議設定" aria-label="会議設定" aria-expanded="false" aria-controls="mobile-meeting-menu">
                     <img src="assets/icons/sliders-horizontal.svg" alt="">
                     <span>設定</span>
                 </button>
@@ -693,6 +698,41 @@
             <div class="edit-modal-actions">
                 <button id="btn-save-memo-modal" class="primary" type="button">保存</button>
                 <button id="btn-cancel-memo-modal" class="secondary" type="button">キャンセル</button>
+            </div>
+        </div>
+    </div>
+    <div id="meeting-memo-modal-overlay" class="edit-modal-overlay meeting-action-modal-overlay hidden" aria-hidden="true">
+        <div class="edit-modal-card meeting-action-modal-card" role="dialog" aria-modal="true" aria-labelledby="meeting-memo-modal-title">
+            <div class="edit-modal-header">
+                <div>
+                    <div class="container-label">Meeting Memo</div>
+                    <h2 id="meeting-memo-modal-title">会議メモ</h2>
+                </div>
+                <button id="btn-close-meeting-memo" class="ghost-btn" type="button">閉じる</button>
+            </div>
+            <div class="edit-modal-section">
+                <label class="container-label" for="meeting-memo-textarea">メモ</label>
+                <textarea id="meeting-memo-textarea" placeholder="決定事項、補足、気づきを記録できます。"></textarea>
+            </div>
+            <div class="edit-modal-actions">
+                <button id="btn-save-meeting-memo" class="primary" type="button">保存</button>
+                <button id="btn-cancel-meeting-memo" class="secondary" type="button">キャンセル</button>
+            </div>
+        </div>
+    </div>
+    <div id="meeting-end-modal-overlay" class="edit-modal-overlay meeting-action-modal-overlay hidden" aria-hidden="true">
+        <div class="edit-modal-card meeting-action-modal-card" role="alertdialog" aria-modal="true" aria-labelledby="meeting-end-modal-title" aria-describedby="meeting-end-modal-description">
+            <div class="edit-modal-header">
+                <div>
+                    <div class="container-label">End Meeting</div>
+                    <h2 id="meeting-end-modal-title">会議を終了しますか</h2>
+                </div>
+                <button id="btn-close-meeting-end" class="ghost-btn" type="button">閉じる</button>
+            </div>
+            <p id="meeting-end-modal-description" class="meeting-action-modal-copy">文字起こしを停止し、議事録の確認画面へ移動します。</p>
+            <div class="edit-modal-actions">
+                <button id="btn-confirm-meeting-end" class="danger" type="button">終了して議事録へ</button>
+                <button id="btn-cancel-meeting-end" class="secondary" type="button">会議を続ける</button>
             </div>
         </div>
     </div>

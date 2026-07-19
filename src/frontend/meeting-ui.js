@@ -39,14 +39,54 @@
         window.AppLogUi?.renderAllLogs?.();
     }
 
+    function setMeetingModalVisibility(overlay, visible) {
+        if (!overlay) return;
+        overlay.classList.toggle('hidden', !visible);
+        overlay.setAttribute('aria-hidden', visible ? 'false' : 'true');
+    }
+
+    function closeMobileMeetingMenu() {
+        if (!state.mobileMenuOpen) return;
+        state.mobileMenuOpen = false;
+        renderMobileMeetingControls();
+    }
+
+    function closeMeetingMemoModal() {
+        setMeetingModalVisibility(dom.meetingMemoModalOverlay, false);
+    }
+
     function addMemo() {
-        const memo = prompt('全体メモを入力してください:');
-        if (memo) addSystemMessage(`全体メモ: ${memo}`);
+        closeMobileMeetingMenu();
+        setMeetingModalVisibility(dom.meetingEndModalOverlay, false);
+        if (dom.meetingMemoTextarea) {
+            dom.meetingMemoTextarea.value = '';
+            dom.meetingMemoTextarea.setCustomValidity('');
+        }
+        setMeetingModalVisibility(dom.meetingMemoModalOverlay, true);
+        requestAnimationFrame(() => dom.meetingMemoTextarea?.focus());
+    }
+
+    function saveMeetingMemo() {
+        const textarea = dom.meetingMemoTextarea;
+        const memo = textarea?.value.trim() || '';
+        if (!memo) {
+            textarea?.setCustomValidity('メモを入力してください');
+            textarea?.reportValidity();
+            textarea?.focus();
+            return;
+        }
+        textarea?.setCustomValidity('');
+        addSystemMessage(`全体メモ: ${memo}`);
+        closeMeetingMemoModal();
+        window.AppToast.success('会議メモを追加しました');
     }
 
     function toggleMobileMeetingMenu() {
         state.mobileMenuOpen = !state.mobileMenuOpen;
         renderMobileMeetingControls();
+        if (state.mobileMenuOpen) {
+            requestAnimationFrame(() => document.getElementById('btn-close-meeting-settings')?.focus());
+        }
     }
 
     function toggleMobileMemoryPanel() {
@@ -119,8 +159,8 @@
 
     function renderMobileMeetingControls() {
         const mobile = isMobileViewport();
-        const menuButton = document.getElementById('btn-mobile-menu');
         const settingsButton = document.getElementById('btn-meeting-mic-settings');
+        const dockSettingsButton = document.getElementById('btn-dock-more');
         const memoryButton = document.getElementById('btn-toggle-memory-panel');
         const aiButton = document.getElementById('btn-toggle-ai-panel');
 
@@ -138,14 +178,8 @@
             dom.mobileMeetingMenu.classList.toggle('hidden', !drawerOpen);
             dom.mobileMeetingMenu.setAttribute('aria-hidden', drawerOpen ? 'false' : 'true');
         }
-        if (menuButton) {
-            menuButton.setAttribute('aria-expanded', drawerOpen ? 'true' : 'false');
-            const icon = menuButton.querySelector('img');
-            if (icon) icon.src = drawerOpen ? 'assets/icons/x.svg' : 'assets/icons/menu.svg';
-            menuButton.title = drawerOpen ? '会議メニューを閉じる' : '会議メニュー';
-            menuButton.setAttribute('aria-label', menuButton.title);
-        }
         if (settingsButton) settingsButton.setAttribute('aria-expanded', drawerOpen ? 'true' : 'false');
+        if (dockSettingsButton) dockSettingsButton.setAttribute('aria-expanded', drawerOpen ? 'true' : 'false');
         if (memoryButton) {
             memoryButton.innerText = state.mobileMemoryCollapsed ? '会話メモリを表示' : '会話メモリを折りたたむ';
         }
@@ -623,8 +657,23 @@
         target.scrollTo({ top, behavior: 'smooth' });
     }
 
-    async function endRoom() {
-        if (!confirm('会議を終了しますか？')) return;
+    function requestEndRoom() {
+        closeMobileMeetingMenu();
+        closeMeetingMemoModal();
+        setMeetingModalVisibility(dom.meetingEndModalOverlay, true);
+        requestAnimationFrame(() => document.getElementById('btn-cancel-meeting-end')?.focus());
+    }
+
+    function closeEndRoomModal() {
+        setMeetingModalVisibility(dom.meetingEndModalOverlay, false);
+    }
+
+    async function confirmEndRoom() {
+        const confirmButton = document.getElementById('btn-confirm-meeting-end');
+        if (confirmButton) {
+            confirmButton.disabled = true;
+            confirmButton.innerText = '終了中...';
+        }
         try {
             const res = await fetch(`/rooms/${state.roomId}/end`, {
                 method: 'POST',
@@ -633,11 +682,22 @@
             });
             const data = await readApiResponse(res);
             if (!res.ok) throw new Error(data.error || '終了に失敗しました');
+            closeEndRoomModal();
             window.AppAudio.stopRecording();
             showSummaryScreen({ justEnded: true });
         } catch (error) {
+            closeEndRoomModal();
             window.AppToast.error('終了処理に失敗しました', { detail: error.message });
+        } finally {
+            if (confirmButton) {
+                confirmButton.disabled = false;
+                confirmButton.innerText = '終了して議事録へ';
+            }
         }
+    }
+
+    function endRoom() {
+        requestEndRoom();
     }
 
     window.AppMeetingUi = {
@@ -646,7 +706,10 @@
         updateLogWorkState,
         addSystemMessage,
         addMemo,
+        saveMeetingMemo,
+        closeMeetingMemoModal,
         toggleMobileMeetingMenu,
+        closeMobileMeetingMenu,
         toggleMobileMemoryPanel,
         toggleMobileAiPanel,
         toggleLiveFocus,
@@ -669,6 +732,8 @@
         initWebSocket,
         ensureMeetingConnection,
         scrollToPageEdge,
-        endRoom
+        endRoom,
+        confirmEndRoom,
+        closeEndRoomModal
     };
 })();

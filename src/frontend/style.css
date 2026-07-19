@@ -954,9 +954,7 @@ section > header,
     display: block;
 }
 
-/* The new "⚙ マイク設定" button in the meeting header is desktop-first;
-   hide it on small screens since the existing ☰ already opens the same
-   panel (with extra mobile actions). */
+/* The desktop header owns this control; mobile uses the fixed bottom dock. */
 @media (max-width: 1023px) {
     #btn-meeting-mic-settings { display: none; }
 }
@@ -3114,10 +3112,6 @@ body.summary-mode.summary-sidebar-collapsed .review-main,
         overflow: hidden;
         text-overflow: ellipsis;
         white-space: nowrap;
-    }
-
-    body.meeting-mode #btn-mobile-menu {
-        padding-inline: 0;
     }
 
     body.summary-mode .insight-actions {

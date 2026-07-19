@@ -132,6 +132,7 @@
         }
 
         bindClick('btn-dock-mic', () => {
+            callHandler('closeMobileMeetingMenu');
             if (!state.stream) {
                 callHandler('reconnectMic');
             } else {
@@ -141,7 +142,10 @@
         bindClick('btn-dock-end', () => callHandler('endRoom'));
         bindClick('btn-dock-memo', () => callHandler('addMemo'));
         bindClick('btn-dock-more', () => callHandler('toggleMobileMeetingMenu'));
-        bindClick('btn-dock-share', () => callHandler('copyRoomId'));
+        bindClick('btn-dock-share', () => {
+            callHandler('closeMobileMeetingMenu');
+            callHandler('copyRoomId');
+        });
         bindClick('btn-toggle-live-focus', () => callHandler('toggleLiveFocus'));
         document.querySelectorAll('[data-meeting-view]').forEach((button) => {
             button.addEventListener('click', () => callHandler('switchMeetingView', button.dataset.meetingView));
@@ -156,8 +160,8 @@
             });
         });
 
-        bindClick('btn-mobile-menu', () => callHandler('toggleMobileMeetingMenu'));
         bindClick('btn-meeting-mic-settings', () => callHandler('toggleMobileMeetingMenu'));
+        bindClick('btn-close-meeting-settings', () => callHandler('closeMobileMeetingMenu'));
         bindClick('btn-toggle-memory-panel', () => callHandler('toggleMobileMemoryPanel'));
         bindClick('btn-toggle-ai-panel', () => callHandler('toggleMobileAiPanel'));
         bindClick('btn-summary-mobile-menu', () => callHandler('toggleSummaryMobileMenu'));
@@ -375,6 +379,12 @@
         bindClick('btn-close-memo-modal', () => callHandler('closeMemoModal'));
         bindClick('btn-cancel-memo-modal', () => callHandler('closeMemoModal'));
         bindClick('btn-save-memo-modal', () => callHandler('saveMemoFromModal'));
+        bindClick('btn-close-meeting-memo', () => callHandler('closeMeetingMemoModal'));
+        bindClick('btn-cancel-meeting-memo', () => callHandler('closeMeetingMemoModal'));
+        bindClick('btn-save-meeting-memo', () => callHandler('saveMeetingMemo'));
+        bindClick('btn-close-meeting-end', () => callHandler('closeEndRoomModal'));
+        bindClick('btn-cancel-meeting-end', () => callHandler('closeEndRoomModal'));
+        bindClick('btn-confirm-meeting-end', () => callHandler('confirmEndRoom'));
 
         bindEvent(setupMicReverberant, 'change', (event) => callHandler('setMicEnvironment', event.target.checked));
         bindEvent(meetingMicReverberant, 'change', (event) => callHandler('setMicEnvironment', event.target.checked));

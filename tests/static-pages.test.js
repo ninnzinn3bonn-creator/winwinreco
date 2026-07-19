@@ -79,10 +79,20 @@ describe('Static legal pages', () => {
         expect(res.status).toBe(200);
         expect(res.text).toContain('id="btn-dock-share"');
         expect(res.text).toContain('id="btn-toggle-live-focus"');
+        expect(res.text).toContain('id="btn-close-meeting-settings"');
+        expect(res.text).toContain('id="meeting-memo-modal-overlay"');
+        expect(res.text).toContain('id="meeting-end-modal-overlay"');
         expect(res.text).toContain('data-analysis-result="summary"');
         expect(res.text).not.toContain('id="btn-dock-participants"');
         expect(res.text).not.toContain('id="btn-open-ai-suggestion"');
         expect(res.text).not.toContain('id="btn-mobile-menu"');
         expect(res.text).not.toContain('id="mobile-meeting-title-input"');
+    });
+
+    test('meeting actions use in-app dialogs instead of browser prompts', () => {
+        const source = fs.readFileSync(path.join(__dirname, '../src/frontend/meeting-ui.js'), 'utf8');
+
+        expect(source).not.toMatch(/\bprompt\s*\(/);
+        expect(source).not.toMatch(/\bconfirm\s*\(/);
     });
 });
