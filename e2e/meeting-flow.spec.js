@@ -228,3 +228,206 @@ test('normal signup explains email verification before room creation', async ({ 
     await expect(page.locator('#welcome-pending')).toBeVisible();
     await expect(page.locator('#setup-screen.active')).toHaveCount(0);
 });
+
+test('mobile-first core screens match visual baselines', async ({ page, request }) => {
+    await page.setViewportSize({ width: 390, height: 844 });
+    await page.goto('/');
+    await expect(page.locator('#welcome-screen')).toHaveClass(/active/);
+    await expect(page).toHaveScreenshot('welcome-mobile.png', {
+        animations: 'disabled',
+        maxDiffPixelRatio: 0.015
+    });
+
+    await page.locator('#welcome-btn-login').click();
+    await expect(page.locator('#setup-screen.active')).toBeVisible();
+    await expect(page).toHaveScreenshot('setup-mobile.png', {
+        animations: 'disabled',
+        maxDiffPixelRatio: 0.015
+    });
+
+    const unique = Date.now();
+    const account = await loginAndReachHostSetup(page, request, unique);
+    await createMeetingFromSetup(page, account.displayName);
+
+    await page.evaluate(() => {
+        const state = window.AppState.state;
+        state.activityItems = [
+            {
+                type: 'utterance',
+                id: 'visual-1',
+                timestamp: '2026-07-19T09:00:00+09:00',
+                data: {
+                    id: 'visual-1',
+                    participant_id: 'visual-host',
+                    display_name: '田中',
+                    transcript: '本日のリリース範囲と、残っている確認事項を整理します。',
+                    raw_transcript: '本日のリリース範囲と、残っている確認事項を整理します。',
+                    timestamp: '2026-07-19T09:00:00+09:00',
+                    is_starred: true,
+                    memo_text: '',
+                    transcript_source: 'stt'
+                }
+            },
+            {
+                type: 'utterance',
+                id: 'visual-2',
+                timestamp: '2026-07-19T09:01:00+09:00',
+                data: {
+                    id: 'visual-2',
+                    participant_id: 'visual-guest',
+                    display_name: '佐藤',
+                    transcript: 'モバイル表示の最終確認は今日中に完了できます。',
+                    raw_transcript: 'モバイル表示の最終確認は今日中に完了できます。',
+                    timestamp: '2026-07-19T09:01:00+09:00',
+                    is_starred: false,
+                    memo_text: '確認担当を決める',
+                    transcript_source: 'user'
+                }
+            }
+        ];
+        state.provisionalCards = {
+            'visual-live': {
+                participant_id: 'visual-live',
+                display_name: '鈴木',
+                text: 'アクセシビリティと操作導線も合わせて確認しています。'
+            }
+        };
+        const title = document.getElementById('meeting-title-input');
+        if (title) title.value = '週次プロダクト会議';
+        const roomInfo = document.getElementById('room-info');
+        if (roomInfo) roomInfo.textContent = 'ルーム: ABC123';
+        const authBadge = document.getElementById('auth-badge');
+        if (authBadge) authBadge.textContent = '田中';
+        if (state.micMonitorFrame) cancelAnimationFrame(state.micMonitorFrame);
+        state.micMonitorFrame = null;
+        if (state.meetingElapsedTimer) clearInterval(state.meetingElapsedTimer);
+        state.meetingElapsedTimer = null;
+        const elapsed = document.getElementById('meeting-elapsed');
+        if (elapsed) elapsed.textContent = '12:47';
+        window.AppLogUi.renderAllLogs();
+        const level = document.getElementById('live-focus-level');
+        if (level) level.style.width = '38%';
+    });
+
+    await expect(page).toHaveScreenshot('meeting-mobile.png', {
+        animations: 'disabled',
+        maxDiffPixelRatio: 0.02
+    });
+
+    const undersizedMeetingTargets = await page.evaluate(() => (
+        [...document.querySelectorAll('button, a[href]')]
+            .filter((element) => {
+                const style = getComputedStyle(element);
+                const rect = element.getBoundingClientRect();
+                return style.display !== 'none'
+                    && style.visibility !== 'hidden'
+                    && rect.width > 0
+                    && rect.height > 0
+                    && (rect.width < 44 || rect.height < 44);
+            })
+            .map((element) => ({
+                id: element.id || null,
+                text: (element.textContent || '').trim().slice(0, 30),
+                width: Math.round(element.getBoundingClientRect().width),
+                height: Math.round(element.getBoundingClientRect().height)
+            }))
+    ));
+    expect(undersizedMeetingTargets).toEqual([]);
+
+    await page.locator('#meeting-view-live').press('ArrowRight');
+    await expect(page.locator('#meeting-view-important')).toHaveAttribute('aria-selected', 'true');
+    await expect(page.locator('.meeting-layout')).toHaveAttribute('data-mobile-view', 'important');
+    await page.locator('#meeting-view-live').click();
+    await expect(page.locator('.meeting-layout')).toHaveAttribute('data-mobile-view', 'live');
+
+    for (const viewport of [
+        { width: 768, height: 1024 },
+        { width: 1280, height: 800 }
+    ]) {
+        await page.setViewportSize(viewport);
+        const metrics = await page.evaluate(() => ({
+            clientWidth: document.documentElement.clientWidth,
+            scrollWidth: document.documentElement.scrollWidth,
+            liveFocusVisible: document.querySelector('.live-transcript-focus')?.getBoundingClientRect().height > 0
+        }));
+        expect(metrics.scrollWidth).toBeLessThanOrEqual(metrics.clientWidth);
+        expect(metrics.liveFocusVisible).toBe(true);
+    }
+    await page.setViewportSize({ width: 390, height: 844 });
+
+    await page.evaluate(() => {
+        window.AppState.state.provisionalCards = {};
+        window.AppLogUi.renderAllLogs();
+    });
+    const summaryLogsLoaded = page.waitForResponse((response) => (
+        response.request().method() === 'GET'
+        && /\/rooms\/[^/]+\/logs(?:\?|$)/.test(response.url())
+    ));
+    page.once('dialog', (dialog) => dialog.accept());
+    await page.locator('#btn-dock-end').click();
+    await expect(page.locator('#summary-screen.active')).toBeVisible();
+    await summaryLogsLoaded;
+    await page.waitForTimeout(500);
+    await page.locator('#tab-log').click();
+    await expect(page.locator('#panel-log.active')).toBeVisible();
+    await page.evaluate(() => {
+        const state = window.AppState.state;
+        if (state.ws && state.ws.readyState < WebSocket.CLOSING) state.ws.close();
+        state.activityItems = [
+            {
+                type: 'utterance',
+                id: 'summary-1',
+                timestamp: '2026-07-19T09:00:00+09:00',
+                data: {
+                    id: 'summary-1',
+                    participant_id: 'summary-host',
+                    display_name: '田中',
+                    transcript: '本日のリリース範囲と、残っている確認事項を整理します。',
+                    raw_transcript: '本日のリリース範囲と、残っている確認事項を整理します。',
+                    timestamp: '2026-07-19T09:00:00+09:00',
+                    is_starred: true,
+                    memo_text: '',
+                    transcript_source: 'stt'
+                }
+            },
+            {
+                type: 'utterance',
+                id: 'summary-2',
+                timestamp: '2026-07-19T09:01:00+09:00',
+                data: {
+                    id: 'summary-2',
+                    participant_id: 'summary-guest',
+                    display_name: '佐藤',
+                    transcript: 'モバイル表示の最終確認は今日中に完了できます。',
+                    raw_transcript: 'モバイル表示の最終確認は今日中に完了できます。',
+                    timestamp: '2026-07-19T09:01:00+09:00',
+                    is_starred: false,
+                    memo_text: '確認担当を決める',
+                    transcript_source: 'user'
+                }
+            }
+        ];
+        window.AppLogUi.renderAllLogs();
+        const summaryInfo = document.getElementById('summary-info');
+        if (summaryInfo) summaryInfo.textContent = 'ルーム: ABC123';
+        const authBadge = document.getElementById('auth-badge');
+        if (authBadge) authBadge.textContent = '田中';
+    });
+    await expect(page.locator('#summary-log')).toContainText('本日のリリース範囲');
+    await expect(page).toHaveScreenshot('summary-mobile.png', {
+        animations: 'disabled',
+        maxDiffPixelRatio: 0.005
+    });
+
+    for (const viewport of [
+        { width: 768, height: 1024 },
+        { width: 1280, height: 800 }
+    ]) {
+        await page.setViewportSize(viewport);
+        const metrics = await page.evaluate(() => ({
+            clientWidth: document.documentElement.clientWidth,
+            scrollWidth: document.documentElement.scrollWidth
+        }));
+        expect(metrics.scrollWidth).toBeLessThanOrEqual(metrics.clientWidth);
+    }
+});

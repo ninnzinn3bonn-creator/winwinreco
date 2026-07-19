@@ -260,9 +260,9 @@
                 <span class="utterance-time">${time}</span>
                 <span class="timestamp">${sourceLabel}</span>
                 <div class="utterance-actions" aria-label="ログ操作">
-                    <button class="icon-toggle utterance-star-toggle ${utterance.is_starred ? 'active' : ''}" data-action="star" aria-label="${utterance.is_starred ? '重要を解除' : '重要にする'}">${utterance.is_starred ? '★' : '☆'}</button>
-                    <button class="icon-toggle utterance-note-toggle" data-action="note">メモ</button>
-                    <button class="icon-toggle utterance-edit-toggle" data-action="edit">編集</button>
+                    <button class="icon-toggle utterance-star-toggle ${utterance.is_starred ? 'active' : ''}" data-action="star" title="${utterance.is_starred ? '重要を解除' : '重要にする'}" aria-label="${utterance.is_starred ? '重要を解除' : '重要にする'}"><img src="assets/icons/star.svg" alt=""></button>
+                    <button class="icon-toggle utterance-note-toggle" data-action="note" title="メモを追加" aria-label="メモを追加"><img src="assets/icons/sticky-note.svg" alt=""></button>
+                    <button class="icon-toggle utterance-edit-toggle" data-action="edit" title="発言を編集" aria-label="発言を編集"><img src="assets/icons/pencil.svg" alt=""></button>
                 </div>
             </div>
         `;
@@ -391,6 +391,7 @@
                 scrollLogToLatest(container);
             }
         });
+        syncLiveFocus();
     }
 
     function clearProvisional(participantId) {
@@ -400,6 +401,28 @@
             const existing = container.querySelector(`[data-provisional-participant="${participantId}"]`);
             if (existing) existing.remove();
         });
+        syncLiveFocus();
+    }
+
+    function syncLiveFocus() {
+        const provisional = Object.values(state.provisionalCards).at(-1);
+        const utterances = getAllUtterances();
+        const latest = utterances.at(-1);
+        const active = provisional || latest;
+        if (!dom.liveFocusText || !dom.liveFocusSpeaker || !dom.liveFocusStatus || !dom.liveFocusTime) return;
+
+        if (!active) {
+            dom.liveFocusText.textContent = '会議を開始すると、現在の発言がここに表示されます。';
+            dom.liveFocusSpeaker.textContent = '話者未確定';
+            dom.liveFocusStatus.textContent = '接続待ち';
+            dom.liveFocusTime.textContent = '--:--';
+            return;
+        }
+
+        dom.liveFocusText.textContent = active.text || active.transcript || '';
+        dom.liveFocusSpeaker.textContent = active.display_name || '話者未確定';
+        dom.liveFocusStatus.textContent = provisional ? '認識中' : '最新の発言';
+        dom.liveFocusTime.textContent = provisional ? 'いま' : formatTime(active.timestamp);
     }
 
     function renderConversationList(container, includeSystemMessages) {
@@ -478,6 +501,7 @@
         window.AppMeetingUi?.updateLogWorkState?.();
         renderConversationList(dom.timeline, true);
         renderConversationList(dom.summaryLog, false);
+        syncLiveFocus();
         renderStarredLogs(document.getElementById('starred-log-list'));
         renderStarredLogs(document.getElementById('summary-starred-log-list'));
         renderEditModal();

@@ -1,5 +1,33 @@
 # プロジェクト進捗メモ (Meeting Minutes App)
 
+## 77. Apple HIG原則に沿ったモバイルファーストUI刷新 (2026-07-19)
+
+### 実施内容
+
+- 390 x 844の3案から選定した会議UIを基準に、Welcome / Setup / Meeting / Summary / Admin / Progress / Reset / Verify / Terms / Privacy を共通デザイントークンへ移行した。
+- Apple公式HIGは設計原則の参照に限定し、Apple UI Kit、SF Symbols、SF Proファイルを取り込まないソース方針を `docs/design/` に固定した。
+- ISCライセンスの `lucide-static@1.25.0` を固定し、確認済みアイコンとライセンスをローカル配信する構成にした。実行時CDN依存はない。
+- 会議画面に現在発言のライブフォーカス、Live / 重要 / AI セグメント、safe-area対応の下部操作ドックを追加した。既存の会議状態とハンドラを再利用し、文字起こしの状態源は増やしていない。
+- システムフォント、44px操作領域、可視フォーカス、reduced-motion、ダークモード、safe-area、狭幅時の横スクロール防止を共通層で定義した。
+- Welcome / Setup / Meeting / Summary の390 x 844画像基準を追加し、`npm run test:visual` で再現できるようにした。
+
+### 検証
+
+- `npm run check:encoding`
+- `npm run check:frontend`
+- `npm run check:duplicates`
+- `npm run test:visual`
+- `npx playwright test`
+- `npm test -- --runInBand`
+- in-app browser: 390 x 844で主要画面、補助画面、横幅、固定CTA、認証画面のルート配下アセットを確認
+
+### 設計資料
+
+- `docs/design/SOURCE_POLICY.md`
+- `docs/design/APPLE_MOBILE_PRINCIPLES.md`
+- `docs/design/GIJIRO_DESIGN_SYSTEM.md`
+- `docs/design/selected-mobile-direction.png`
+
 ## 76. 大規模アップデート前の準備: E2E更新・critical audit解消・モバイルログ回帰 (2026-07-19)
 
 ### 実施内容

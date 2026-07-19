@@ -96,17 +96,26 @@
         .modal-close { background: none; border: none; font-size: 1.4rem; cursor: pointer; color: #57606a; }
         .modal-close:hover { color: #cf222e; }
     </style>
+    <link rel="stylesheet" href="styles/apple-tokens.css">
+    <link rel="stylesheet" href="styles/apple-components.css">
+    <link rel="stylesheet" href="styles/apple-screens.css">
 </head>
-<body>
+<body class="admin-page">
+    <header class="admin-mobile-header">
+        <a class="topbar-brand" href="/" aria-label="GIJIRO ホームへ">
+            <span class="topbar-title">GIJIRO</span>
+        </a>
+        <span class="container-label">OWNER CONSOLE</span>
+    </header>
     <div id="admin-app">
         <div id="login-section">
             <h1>管理画面 (オーナー専用)</h1>
             <p>オーナーのアカウントでログインしてください。</p>
-            <p><a href="/">← トップへ戻る</a></p>
+            <p><a href="/">トップへ戻る</a></p>
         </div>
         <div id="admin-section" hidden>
             <h1>管理画面</h1>
-            <p>ログイン中: <span id="current-user-email"></span> &nbsp;|&nbsp; <a href="/">← トップへ戻る</a></p>
+            <p>ログイン中: <span id="current-user-email"></span> &nbsp;|&nbsp; <a href="/">トップへ戻る</a></p>
 
             <div class="admin-tabs">
                 <button class="admin-tab-btn active" data-tab="approval">承認管理 <span id="pending-badge" class="pending-badge zero">0</span></button>
@@ -185,7 +194,7 @@
             <div class="modal-box">
                 <div class="modal-header">
                     <h3 id="modal-title">会議履歴</h3>
-                    <button class="modal-close" id="modal-close-btn">&times;</button>
+                    <button class="modal-close icon-btn" id="modal-close-btn" title="閉じる" aria-label="閉じる"><img src="assets/icons/x.svg" alt=""></button>
                 </div>
                 <table id="modal-meetings-table">
                     <thead>

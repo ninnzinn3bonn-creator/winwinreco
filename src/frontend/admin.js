@@ -285,7 +285,7 @@ function renderBootstrapScreen(me) {
         <p style="color:#666; font-size:0.9rem;">⚠ 一度設定すると、ここから他のユーザーを承認・拒否できる管理権限を持ちます。</p>
         <div style="margin-top:20px; display:flex; gap:12px;">
             <button id="bootstrap-btn" class="approve" style="padding:10px 22px; font-size:1rem;">このアカウントをオーナーにする</button>
-            <a href="/" style="align-self:center;">← トップへ戻る</a>
+            <a href="/" style="align-self:center;">トップへ戻る</a>
         </div>
         <pre id="error-output" style="color:#c00; margin-top:8px;"></pre>
     `;
@@ -307,7 +307,7 @@ function renderNoPermissionScreen(me) {
         <h1>権限がありません</h1>
         <p>現在のアカウント <strong>${escapeHtml(me.account.email)}</strong> には管理者権限がありません。</p>
         <p>オーナーアカウントでログインしてください。</p>
-        <p><a href="/">← トップへ戻る</a></p>
+        <p><a href="/">トップへ戻る</a></p>
     `;
 }
 
@@ -316,7 +316,7 @@ function renderNotLoggedInScreen() {
     root.innerHTML = `
         <h1>管理画面</h1>
         <p>ログインしてください。</p>
-        <p><a href="/">← トップへ戻り、画面右上から「ログイン」してください。</a></p>
+        <p><a href="/">トップへ戻り、画面右上から「ログイン」してください。</a></p>
     `;
 }
 

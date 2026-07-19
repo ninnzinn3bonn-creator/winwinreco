@@ -1,5 +1,33 @@
 # Architecture Notes
 
+## Mobile design system
+
+The 2026 mobile refresh keeps the legacy `style.css` layer for behavioral
+compatibility and applies owned UI layers afterward:
+
+1. `styles/apple-tokens.css` defines semantic color, type, geometry, focus,
+   dark-mode, and safe-area tokens.
+2. `styles/apple-components.css` defines shared controls, icons, segmented
+   controls, top bars, dialogs, and grouped surfaces.
+3. `styles/apple-screens.css` defines welcome, setup, meeting, summary,
+   admin, progress, account-task, and legal layouts.
+
+New UI must use the `--g-*` tokens and keep interactive targets at least
+44 x 44 CSS pixels. The approved visual direction and source restrictions are
+documented in `docs/design/`. Apple UI kits, SF Symbols, and Apple font files
+are not project dependencies; the app uses version-pinned Lucide Static icons
+and system fonts.
+
+On narrow meeting screens, `.meeting-layout[data-mobile-view]` selects Live,
+Important, or AI without duplicating application state. The fixed
+`.meeting-mobile-dock` delegates to the same handlers as desktop controls.
+`AppLogUi.syncLiveFocus()` derives the live-focus region from provisional or
+latest utterance state, so it does not create a second transcript source.
+
+Core mobile states are protected by screenshot baselines in
+`e2e/meeting-flow.spec.js-snapshots/` and can be run with
+`npm run test:visual`.
+
 ## Frontend modes
 
 - `setup-mode`

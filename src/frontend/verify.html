@@ -53,10 +53,13 @@
         }
         a.home-link:hover { background: #0d47a1; }
     </style>
+    <link rel="stylesheet" href="/styles/apple-tokens.css">
+    <link rel="stylesheet" href="/styles/apple-components.css">
+    <link rel="stylesheet" href="/styles/apple-screens.css">
 </head>
-<body>
+<body class="verify-page">
     <div class="card" id="card">
-        <div class="icon loading" id="icon">&#9696;</div>
+        <div class="icon loading" id="icon"><img src="/assets/icons/loader-circle.svg" alt=""></div>
         <h1 id="title">メールアドレスを確認中...</h1>
         <p id="message">しばらくお待ちください。</p>
     </div>
@@ -71,12 +74,12 @@
             function showResult(ok) {
                 if (ok) {
                     icon.className = 'icon success';
-                    icon.textContent = '✔';
+                    icon.innerHTML = '<img src="/assets/icons/circle-check.svg" alt="">';
                     title.textContent = 'メールアドレスを確認しました';
                     message.textContent = '登録が完了しました。管理者の承認をお待ちください。承認後にログインできます。';
                 } else {
                     icon.className = 'icon error';
-                    icon.textContent = '✖';
+                    icon.innerHTML = '<img src="/assets/icons/x.svg" alt="">';
                     title.textContent = 'リンクが無効または期限切れです';
                     message.textContent = '確認リンクが無効か、有効期限 (24 時間) が切れています。再度サインアップするか、サポートにお問い合わせください。';
                 }

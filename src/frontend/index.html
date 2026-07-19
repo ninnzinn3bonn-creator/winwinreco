@@ -5,8 +5,11 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>GIJIRO</title>
     <link rel="stylesheet" href="style.css">
+    <link rel="stylesheet" href="styles/apple-tokens.css">
+    <link rel="stylesheet" href="styles/apple-components.css">
+    <link rel="stylesheet" href="styles/apple-screens.css">
 </head>
-<body>
+<body class="app-page">
     <div id="debug-monitor" class="debug-monitor hidden">
         <div class="debug-header">
             <div class="debug-stats">
@@ -105,7 +108,7 @@
                         </span>
                     </label>
                     <div class="welcome-form-actions">
-                        <button type="button" id="welcome-form-back" class="ghost-btn">← 戻る</button>
+                        <button type="button" id="welcome-form-back" class="ghost-btn"><img class="g-icon" src="assets/icons/arrow-left.svg" alt="">戻る</button>
                         <button type="submit" id="welcome-form-submit" class="primary">ログイン</button>
                     </div>
                 </form>
@@ -243,7 +246,10 @@
                 <div class="status">
                     <span class="recording-indicator"></span>
                     <span id="room-info">ルーム: ---</span>
-                    <button id="btn-copy-room" class="icon-btn" title="参加URLをコピー">Share</button>
+                    <time id="meeting-elapsed" class="meeting-elapsed" datetime="PT0S">00:00</time>
+                    <button id="btn-copy-room" class="icon-btn" title="参加URLをコピー" aria-label="参加URLをコピー">
+                        <img src="assets/icons/share-2.svg" alt="">
+                    </button>
                 </div>
                 <input
                     type="text"
@@ -254,11 +260,17 @@
                     autocomplete="off">
                 <div id="meeting-title-readonly" class="meeting-title-readonly"></div>
                 <div class="header-actions">
-                    <!-- Single mic state button. Click cycles through:
-                         🎙 OFF → 🔴 録音中 → 🔇 ミュート中 → 🔴 録音中 → … -->
-                    <button id="btn-mic-state" class="secondary" type="button">🎙 マイク ON</button>
-                    <button id="btn-meeting-mic-settings" class="secondary" title="マイク・感度設定" aria-expanded="false" aria-controls="mobile-meeting-menu">⚙ 設定</button>
-                    <button id="btn-mobile-menu" class="secondary mobile-only" aria-expanded="false" aria-controls="mobile-meeting-menu">☰</button>
+                    <button id="btn-mic-state" class="secondary mic-state-off" type="button" aria-label="マイクを接続">
+                        <img class="g-icon" src="assets/icons/mic.svg" alt="">
+                        <span class="mic-state-label">マイク ON</span>
+                    </button>
+                    <button id="btn-meeting-mic-settings" class="secondary" title="マイク・感度設定" aria-label="マイク・感度設定" aria-expanded="false" aria-controls="mobile-meeting-menu">
+                        <img class="g-icon" src="assets/icons/settings-2.svg" alt="">
+                        <span>設定</span>
+                    </button>
+                    <button id="btn-mobile-menu" class="icon-btn mobile-only" title="会議メニュー" aria-label="会議メニュー" aria-expanded="false" aria-controls="mobile-meeting-menu">
+                        <img src="assets/icons/menu.svg" alt="">
+                    </button>
                     <button id="btn-end" class="danger">終了</button>
                 </div>
             </header>
@@ -312,7 +324,15 @@
                 </div>
             </div>
 
-            <div class="meeting-layout">
+            <nav class="meeting-view-switcher" aria-label="会議ビュー">
+                <div class="g-segmented" role="tablist" aria-label="表示する会議情報">
+                    <button type="button" id="meeting-view-live" class="active" role="tab" aria-selected="true" data-meeting-view="live">ライブ</button>
+                    <button type="button" id="meeting-view-important" role="tab" aria-selected="false" data-meeting-view="important">重要</button>
+                    <button type="button" id="meeting-view-ai" role="tab" aria-selected="false" data-meeting-view="ai">AI</button>
+                </div>
+            </nav>
+
+            <div class="meeting-layout" data-mobile-view="live">
                 <aside class="memory-panel">
                     <div class="panel-header">
                         <div>
@@ -344,6 +364,18 @@
                 </aside>
 
                 <main class="conversation-panel">
+                    <section class="live-transcript-focus" aria-labelledby="live-focus-heading" aria-live="polite" aria-atomic="true">
+                        <div class="live-focus-kicker">
+                            <span id="live-focus-heading">いま話している内容</span>
+                            <span id="live-focus-status" class="live-focus-status">接続待ち</span>
+                        </div>
+                        <p id="live-focus-text" class="live-focus-text">会議を開始すると、現在の発言がここに表示されます。</p>
+                        <div class="live-focus-meta">
+                            <span id="live-focus-speaker">話者未確定</span>
+                            <time id="live-focus-time">--:--</time>
+                        </div>
+                        <div class="live-focus-meter" aria-hidden="true"><span id="live-focus-level"></span></div>
+                    </section>
                     <div id="timeline" class="conversation-list">
                         <div class="system-message">接続を待っています...</div>
                     </div>
@@ -370,28 +402,33 @@
                                  over the FAB) so they're well-separated and
                                  easy to thumb-tap. -->
                             <button type="button" class="jump-palette-item" data-jump="top" style="--ang:180deg;" role="menuitem" title="会話の先頭へ">
-                                <span class="jump-palette-icon" aria-hidden="true">⇞</span>
+                                <img class="jump-palette-icon" src="assets/icons/arrow-up.svg" alt="">
                                 <span class="jump-palette-label">先頭</span>
                             </button>
                             <button type="button" class="jump-palette-item" data-jump="star-prev" style="--ang:215deg;" role="menuitem" title="前の★へ">
-                                <span class="jump-palette-icon" aria-hidden="true">★↑</span>
+                                <img class="jump-palette-icon" src="assets/icons/star.svg" alt="">
                                 <span class="jump-palette-label">★ 前</span>
                             </button>
                             <button type="button" class="jump-palette-item" data-jump="minus-10" style="--ang:250deg;" role="menuitem" title="10分前へ">
-                                <span class="jump-palette-icon" aria-hidden="true">−10</span>
+                                <img class="jump-palette-icon" src="assets/icons/arrow-left.svg" alt="">
                                 <span class="jump-palette-label">10分前</span>
                             </button>
                             <button type="button" class="jump-palette-item" data-jump="plus-10" style="--ang:290deg;" role="menuitem" title="10分後へ">
-                                <span class="jump-palette-icon" aria-hidden="true">+10</span>
+                                <img class="jump-palette-icon" src="assets/icons/chevron-right.svg" alt="">
                                 <span class="jump-palette-label">10分後</span>
                             </button>
                             <button type="button" class="jump-palette-item" data-jump="star-next" style="--ang:325deg;" role="menuitem" title="次の★へ">
-                                <span class="jump-palette-icon" aria-hidden="true">★↓</span>
+                                <img class="jump-palette-icon" src="assets/icons/star.svg" alt="">
                                 <span class="jump-palette-label">★ 次</span>
                             </button>
                         </div>
                         <button id="btn-jump-latest-floating" class="jump-latest-fab" title="タップ: 最新へ移動／長押し: ジャンプメニュー" aria-haspopup="menu" aria-controls="jump-palette"><span class="jump-fab-label">↓ 最新へ</span><span id="btn-jump-latest-unread" class="jump-fab-unread" aria-live="polite" aria-label="新着件数">0</span></button>
                     </div>
+                    <aside class="meeting-ai-suggestion" aria-label="AIからの提案">
+                        <img src="assets/icons/sparkles.svg" alt="">
+                        <p><strong>AIの提案</strong><span>重要点や次のアクションを整理できます。</span></p>
+                        <button type="button" id="btn-open-ai-suggestion" class="secondary">AIを開く</button>
+                    </aside>
                 </main>
 
                 <aside class="meeting-ai-panel">
@@ -433,6 +470,29 @@
                 </div>
                 <div id="self-info">参加者: ---</div>
             </footer>
+
+            <nav class="meeting-mobile-dock" aria-label="会議操作">
+                <button type="button" id="btn-dock-memo" title="会議メモ">
+                    <img src="assets/icons/sticky-note.svg" alt="">
+                    <span>メモ</span>
+                </button>
+                <button type="button" id="btn-dock-participants" title="重要発言">
+                    <img src="assets/icons/star.svg" alt="">
+                    <span>重要</span>
+                </button>
+                <button type="button" id="btn-dock-mic" class="dock-mic" title="マイクを接続" aria-label="マイクを接続">
+                    <img src="assets/icons/mic.svg" alt="">
+                    <span class="visually-hidden">マイク</span>
+                </button>
+                <button type="button" id="btn-dock-more" title="会議設定">
+                    <img src="assets/icons/sliders-horizontal.svg" alt="">
+                    <span>設定</span>
+                </button>
+                <button type="button" id="btn-dock-end" class="dock-end" title="会議を終了">
+                    <img src="assets/icons/circle-stop.svg" alt="">
+                    <span>終了</span>
+                </button>
+            </nav>
         </section>
 
         <section id="summary-screen">
@@ -443,7 +503,7 @@
                     <p id="summary-info">ルーム: ---</p>
                 </div>
                 <div class="review-actions">
-                    <button id="btn-summary-mobile-menu" class="secondary mobile-only" aria-expanded="false" aria-controls="summary-mobile-menu">☰</button>
+                    <button id="btn-summary-mobile-menu" class="icon-btn mobile-only" title="振り返りメニュー" aria-label="振り返りメニュー" aria-expanded="false" aria-controls="summary-mobile-menu"><img src="assets/icons/menu.svg" alt=""></button>
                     <button id="btn-home" class="btn-home">
                         <span class="btn-home-label">ホームへ戻る</span>
                         <span id="btn-home-hint" class="btn-home-hint" hidden>議事録はアカウントに保存されます</span>

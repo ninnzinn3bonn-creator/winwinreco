@@ -79,23 +79,37 @@
 
     function syncMuteUi() {
         const unifiedBtn = document.getElementById('btn-mic-state');
+        const dockBtn = document.getElementById('btn-dock-mic');
         const indicator = document.querySelector('.recording-indicator');
+        const hasStream = !!state.stream;
+        const label = !hasStream
+            ? 'マイク ON'
+            : state.isMuted
+                ? 'ミュート中 (タップで解除)'
+                : '録音中 (タップでミュート)';
+        const title = !hasStream
+            ? 'タップでマイクを接続'
+            : state.isMuted
+                ? 'タップでミュートを解除'
+                : 'タップでミュート';
+        const iconPath = state.isMuted ? 'assets/icons/mic-off.svg' : 'assets/icons/mic.svg';
         if (unifiedBtn) {
-            const hasStream = !!state.stream;
             unifiedBtn.classList.remove('mic-state-off', 'mic-state-on', 'mic-state-muted');
-            if (!hasStream) {
-                unifiedBtn.textContent = '🎙 マイク ON';
-                unifiedBtn.classList.add('mic-state-off');
-                unifiedBtn.title = 'タップでマイクを接続';
-            } else if (state.isMuted) {
-                unifiedBtn.textContent = '🔇 ミュート中 (タップで解除)';
-                unifiedBtn.classList.add('mic-state-muted');
-                unifiedBtn.title = 'タップでミュートを解除';
-            } else {
-                unifiedBtn.textContent = '🔴 録音中 (タップでミュート)';
-                unifiedBtn.classList.add('mic-state-on');
-                unifiedBtn.title = 'タップでミュート';
-            }
+            unifiedBtn.classList.add(!hasStream ? 'mic-state-off' : state.isMuted ? 'mic-state-muted' : 'mic-state-on');
+            const icon = unifiedBtn.querySelector('img');
+            const text = unifiedBtn.querySelector('.mic-state-label');
+            if (icon) icon.src = iconPath;
+            if (text) text.textContent = label;
+            unifiedBtn.title = title;
+            unifiedBtn.setAttribute('aria-label', title);
+        }
+        if (dockBtn) {
+            const icon = dockBtn.querySelector('img');
+            if (icon) icon.src = iconPath;
+            dockBtn.classList.toggle('is-muted', state.isMuted);
+            dockBtn.classList.toggle('is-recording', hasStream && !state.isMuted);
+            dockBtn.title = title;
+            dockBtn.setAttribute('aria-label', title);
         }
         if (indicator) {
             indicator.classList.toggle('paused', state.isMuted);
@@ -218,6 +232,7 @@
             dom.micLevelBar.style.width = '4%';
             dom.micLevelBar.classList.remove('clipped');
         }
+        if (dom.liveFocusLevel) dom.liveFocusLevel.style.width = '4%';
     }
 
     function startMicMonitor() {
@@ -236,6 +251,7 @@
             const width = Math.max(4, Math.min(100, Math.round(rms * 320)));
             dom.micLevelBar.style.width = `${width}%`;
             dom.micLevelBar.classList.toggle('clipped', rms >= state.voiceGate.maxThreshold);
+            if (dom.liveFocusLevel) dom.liveFocusLevel.style.width = `${width}%`;
             state.micMonitorFrame = requestAnimationFrame(tick);
         };
 

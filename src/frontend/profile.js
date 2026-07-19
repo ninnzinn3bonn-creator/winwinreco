@@ -448,8 +448,14 @@
         undoBtn.textContent = '元に戻す';
         const closeBtn = document.createElement('button');
         closeBtn.type = 'button';
-        closeBtn.textContent = '✕';
         closeBtn.className = 'undo-toast-dismiss';
+        closeBtn.title = '閉じる';
+        closeBtn.setAttribute('aria-label', '閉じる');
+        const closeIcon = document.createElement('img');
+        closeIcon.src = '/assets/icons/x.svg';
+        closeIcon.alt = '';
+        closeIcon.className = 'g-icon';
+        closeBtn.appendChild(closeIcon);
         toast.appendChild(text);
         toast.appendChild(undoBtn);
         toast.appendChild(closeBtn);

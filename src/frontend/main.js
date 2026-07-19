@@ -2957,6 +2957,7 @@ window.AppMain = {
     toggleMobileMeetingMenu: (...args) => window.AppMeetingUi.toggleMobileMeetingMenu(...args),
     toggleMobileMemoryPanel: (...args) => window.AppMeetingUi.toggleMobileMemoryPanel(...args),
     toggleMobileAiPanel: (...args) => window.AppMeetingUi.toggleMobileAiPanel(...args),
+    switchMeetingView: (...args) => window.AppMeetingUi.switchMeetingView(...args),
     toggleSummaryMobileMenu: (...args) => window.AppMeetingUi.toggleSummaryMobileMenu(...args),
     toggleSummaryStats: (...args) => window.AppMeetingUi.toggleSummaryStats(...args),
     toggleSummarySidebar: (...args) => window.AppMeetingUi.toggleSummarySidebar(...args),

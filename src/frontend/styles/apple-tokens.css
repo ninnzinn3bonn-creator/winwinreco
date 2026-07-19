@@ -1,0 +1,126 @@
+:root {
+    color-scheme: light dark;
+    --g-bg: #f5f5f7;
+    --g-surface: #ffffff;
+    --g-surface-subtle: #f2f2f7;
+    --g-surface-raised: #ffffff;
+    --g-text: #1d1d1f;
+    --g-text-secondary: #6e6e73;
+    --g-text-tertiary: #86868b;
+    --g-separator: #d2d2d7;
+    --g-separator-soft: #e8e8ed;
+    --g-accent: #148f86;
+    --g-accent-pressed: #0d6f68;
+    --g-accent-soft: #dff4f1;
+    --g-danger: #d92d3a;
+    --g-danger-pressed: #ac1f2a;
+    --g-danger-soft: #fde9eb;
+    --g-success: #248a3d;
+    --g-warning: #a86500;
+    --g-focus: #007aff;
+    --g-overlay: rgba(0, 0, 0, 0.34);
+    --g-font: system-ui, -apple-system, BlinkMacSystemFont, "Hiragino Sans", "Yu Gothic UI", "Noto Sans JP", "Segoe UI", sans-serif;
+    --g-radius-control: 4px;
+    --g-radius: 8px;
+    --g-target: 44px;
+    --g-page-gutter: clamp(16px, 4vw, 32px);
+    --g-content: 720px;
+    --g-wide: 1440px;
+    --g-shadow-popover: 0 12px 32px rgba(0, 0, 0, 0.12);
+
+    --color-bg: var(--g-bg);
+    --color-bg-raised: var(--g-surface-raised);
+    --color-surface: var(--g-surface);
+    --color-surface-soft: var(--g-surface-subtle);
+    --color-surface-strong: var(--g-surface-subtle);
+    --color-text: var(--g-text);
+    --color-text-muted: var(--g-text-secondary);
+    --color-text-subtle: var(--g-text-tertiary);
+    --color-border: var(--g-separator);
+    --color-border-soft: var(--g-separator-soft);
+    --color-accent: var(--g-accent);
+    --color-accent-hover: var(--g-accent-pressed);
+    --color-accent-active: var(--g-accent-pressed);
+    --color-accent-soft: var(--g-accent-soft);
+    --color-danger: var(--g-danger);
+    --color-danger-soft: var(--g-danger-soft);
+    --font-sans: var(--g-font);
+    --radius-xs: 4px;
+    --radius-sm: 6px;
+    --radius-md: 8px;
+    --radius-lg: 8px;
+    --radius-xl: 8px;
+    --radius-2xl: 8px;
+    --radius-pill: 999px;
+    --shadow-xs: none;
+    --shadow-sm: none;
+    --shadow-md: none;
+    --shadow-lg: var(--g-shadow-popover);
+    --shadow-xl: var(--g-shadow-popover);
+}
+@media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+        --g-bg: #000000;
+        --g-surface: #1c1c1e;
+        --g-surface-subtle: #2c2c2e;
+        --g-surface-raised: #242426;
+        --g-text: #f5f5f7;
+        --g-text-secondary: #aeaeb2;
+        --g-text-tertiary: #8e8e93;
+        --g-separator: #48484a;
+        --g-separator-soft: #38383a;
+        --g-accent: #40c8be;
+        --g-accent-pressed: #65d8d0;
+        --g-accent-soft: #133f3c;
+        --g-danger: #ff453a;
+        --g-danger-pressed: #ff6961;
+        --g-danger-soft: #4b1718;
+        --g-success: #30d158;
+        --g-warning: #ffd60a;
+        --g-focus: #64d2ff;
+        --g-overlay: rgba(0, 0, 0, 0.62);
+        --g-shadow-popover: 0 14px 36px rgba(0, 0, 0, 0.42);
+    }
+}
+
+html {
+    background: var(--g-bg);
+    text-size-adjust: 100%;
+}
+
+body {
+    min-width: 320px;
+    background: var(--g-bg);
+    color: var(--g-text);
+    font-family: var(--g-font);
+    font-size: 16px;
+    line-height: 1.55;
+    letter-spacing: 0;
+    -webkit-font-smoothing: antialiased;
+}
+
+*, *::before, *::after { letter-spacing: 0; }
+
+button,
+input,
+textarea,
+select { font: inherit; }
+
+:where(a, button, input, textarea, select, [tabindex]):focus-visible {
+    outline: 3px solid color-mix(in srgb, var(--g-focus) 72%, transparent);
+    outline-offset: 2px;
+}
+
+::selection {
+    background: var(--g-accent-soft);
+    color: var(--g-text);
+}
+
+@media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after {
+        scroll-behavior: auto !important;
+        animation-duration: 0.01ms !important;
+        animation-iteration-count: 1 !important;
+        transition-duration: 0.01ms !important;
+    }
+}

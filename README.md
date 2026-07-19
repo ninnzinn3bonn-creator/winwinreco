@@ -24,6 +24,9 @@ If you are new to this project, read these files in this order:
 When UI, scroll behavior, or mobile layouts change, also review
 [docs/MANUAL_TESTS.md](docs/MANUAL_TESTS.md).
 
+For UI work, the approved mobile direction, source policy, and owned design
+tokens are documented in [docs/design/README.md](docs/design/README.md).
+
 ## Main Features
 
 - real-time transcription
@@ -138,6 +141,7 @@ npm run test:all
 - run `npm run check:encoding` before finishing changes that touch text files
 - run `Closeout Pass` after feature work or bugfixes
 - run `UI Regression Pass` after UI, mobile, scroll, or layout changes
+- run `npm run test:visual` after changing shared UI tokens or core screens
 - run `Doc Sync Pass` after behavior, setup, defaults, or architecture changes
 - add intent-focused comments to production code so future AI agents can understand decisions, invariants, and provider contracts
 

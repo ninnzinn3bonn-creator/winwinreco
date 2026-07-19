@@ -602,8 +602,11 @@
             button { width: 100%; }
         }
     </style>
+    <link rel="stylesheet" href="styles/apple-tokens.css">
+    <link rel="stylesheet" href="styles/apple-components.css">
+    <link rel="stylesheet" href="styles/apple-screens.css">
 </head>
-<body>
+<body class="progress-page">
     <main class="page">
         <header class="topbar">
             <div class="brand">
@@ -615,10 +618,10 @@
             </div>
             <div class="top-actions">
                 <span id="save-status" class="status-line">読み込み中</span>
-                <button type="button" id="btn-export-json" title="JSONを書き出し">JSON</button>
-                <button type="button" id="btn-export-csv" title="CSVを書き出し">CSV</button>
-                <button type="button" id="btn-import" title="JSONを読み込み">Import</button>
-                <button type="button" id="btn-reset" class="danger" title="初期データへ戻す">Reset</button>
+                <button type="button" id="btn-export-json" title="JSONを書き出し"><img class="g-icon" src="assets/icons/download.svg" alt="">JSON</button>
+                <button type="button" id="btn-export-csv" title="CSVを書き出し"><img class="g-icon" src="assets/icons/download.svg" alt="">CSV</button>
+                <button type="button" id="btn-import" title="JSONを読み込み"><img class="g-icon" src="assets/icons/copy.svg" alt="">Import</button>
+                <button type="button" id="btn-reset" class="danger" title="初期データへ戻す"><img class="g-icon" src="assets/icons/refresh-cw.svg" alt="">Reset</button>
                 <input type="file" id="import-file" class="hidden" accept="application/json,.json">
             </div>
         </header>

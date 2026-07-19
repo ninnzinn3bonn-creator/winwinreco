@@ -135,6 +135,31 @@
             });
         }
 
+        bindClick('btn-dock-mic', () => {
+            if (!state.stream) {
+                callHandler('reconnectMic');
+            } else {
+                callHandler('toggleMute');
+            }
+        });
+        bindClick('btn-dock-end', () => callHandler('endRoom'));
+        bindClick('btn-dock-memo', () => callHandler('addMemo'));
+        bindClick('btn-dock-more', () => callHandler('toggleMobileMeetingMenu'));
+        bindClick('btn-dock-participants', () => callHandler('switchMeetingView', 'important'));
+        bindClick('btn-open-ai-suggestion', () => callHandler('switchMeetingView', 'ai'));
+        document.querySelectorAll('[data-meeting-view]').forEach((button) => {
+            button.addEventListener('click', () => callHandler('switchMeetingView', button.dataset.meetingView));
+            button.addEventListener('keydown', (event) => {
+                if (event.key !== 'ArrowLeft' && event.key !== 'ArrowRight') return;
+                const views = ['live', 'important', 'ai'];
+                const current = views.indexOf(button.dataset.meetingView);
+                const offset = event.key === 'ArrowRight' ? 1 : -1;
+                const next = views[(current + offset + views.length) % views.length];
+                callHandler('switchMeetingView', next);
+                document.querySelector(`[data-meeting-view="${next}"]`)?.focus();
+            });
+        });
+
         bindClick('btn-mobile-menu', () => callHandler('toggleMobileMeetingMenu'));
         bindClick('btn-meeting-mic-settings', () => callHandler('toggleMobileMeetingMenu'));
         bindClick('btn-toggle-memory-panel', () => callHandler('toggleMobileMemoryPanel'));

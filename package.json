@@ -11,6 +11,7 @@
     "test": "jest",
     "test:all": "npm run test && npm run test:firestore",
     "test:firestore": "cross-env DB_DRIVER=firestore FIRESTORE_EMULATOR_HOST=localhost:8080 GOOGLE_CLOUD_PROJECT=demo-test NODE_ENV=test jest --runInBand",
+    "test:visual": "playwright test e2e/meeting-flow.spec.js -g \"mobile-first core screens\"",
     "emulators": "firebase emulators:start --only firestore --project demo-test",
     "test:e2e": "playwright test",
     "start": "node src/backend/server.js",
@@ -39,6 +40,7 @@
     "cross-env": "^10.1.0",
     "firebase-tools": "^13.35.1",
     "jest": "^30.2.0",
+    "lucide-static": "1.25.0",
     "supertest": "^7.2.2"
   }
 }

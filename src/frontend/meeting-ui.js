@@ -57,6 +57,39 @@
         renderMobileMeetingControls();
     }
 
+    function switchMeetingView(view) {
+        const nextView = ['live', 'important', 'ai'].includes(view) ? view : 'live';
+        const layout = document.querySelector('.meeting-layout');
+        if (layout) layout.dataset.mobileView = nextView;
+        document.querySelectorAll('[data-meeting-view]').forEach((button) => {
+            const selected = button.dataset.meetingView === nextView;
+            button.classList.toggle('active', selected);
+            button.setAttribute('aria-selected', selected ? 'true' : 'false');
+            button.tabIndex = selected ? 0 : -1;
+        });
+    }
+
+    function startMeetingElapsedTimer() {
+        if (state.meetingElapsedTimer) clearInterval(state.meetingElapsedTimer);
+        state.meetingStartedAt = Date.now();
+        const output = document.getElementById('meeting-elapsed');
+        const update = () => {
+            if (!output) return;
+            const elapsed = Math.max(0, Math.floor((Date.now() - state.meetingStartedAt) / 1000));
+            const minutes = Math.floor(elapsed / 60);
+            const seconds = elapsed % 60;
+            output.textContent = `${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`;
+            output.dateTime = `PT${elapsed}S`;
+        };
+        update();
+        state.meetingElapsedTimer = setInterval(update, 1000);
+    }
+
+    function stopMeetingElapsedTimer() {
+        if (state.meetingElapsedTimer) clearInterval(state.meetingElapsedTimer);
+        state.meetingElapsedTimer = null;
+    }
+
     function renderMobileMeetingControls() {
         const mobile = isMobileViewport();
         const menuButton = document.getElementById('btn-mobile-menu');
@@ -80,7 +113,10 @@
         }
         if (menuButton) {
             menuButton.setAttribute('aria-expanded', drawerOpen ? 'true' : 'false');
-            menuButton.innerText = drawerOpen ? '✕' : '☰';
+            const icon = menuButton.querySelector('img');
+            if (icon) icon.src = drawerOpen ? 'assets/icons/x.svg' : 'assets/icons/menu.svg';
+            menuButton.title = drawerOpen ? '会議メニューを閉じる' : '会議メニュー';
+            menuButton.setAttribute('aria-label', menuButton.title);
         }
         if (settingsButton) settingsButton.setAttribute('aria-expanded', drawerOpen ? 'true' : 'false');
         if (memoryButton) {
@@ -116,7 +152,11 @@
         }
         if (menuButton) {
             menuButton.setAttribute('aria-expanded', mobile && state.summaryMobileMenuOpen ? 'true' : 'false');
-            menuButton.innerText = mobile && state.summaryMobileMenuOpen ? '✕' : '☰';
+            const open = mobile && state.summaryMobileMenuOpen;
+            const icon = menuButton.querySelector('img');
+            if (icon) icon.src = open ? 'assets/icons/x.svg' : 'assets/icons/menu.svg';
+            menuButton.title = open ? '振り返りメニューを閉じる' : '振り返りメニュー';
+            menuButton.setAttribute('aria-label', menuButton.title);
         }
         if (statsButton) {
             statsButton.innerText = state.summaryStatsCollapsed ? '集計を表示' : '集計を折りたたむ';
@@ -333,6 +373,7 @@
         dom.meetingScreen.classList.add('active');
         window.AppMain.setFlowProgressStep('meeting');
         dom.roomInfo.innerText = `ルーム: ${state.roomId}`;
+        startMeetingElapsedTimer();
         // 終了ボタンはホストのみ表示
         const endBtn = document.getElementById('btn-end');
         if (endBtn) endBtn.hidden = !state.isHost;
@@ -374,6 +415,7 @@
         window.AppLogUi.renderMemoModal();
         document.body.classList.remove('setup-mode', 'meeting-mode');
         document.body.classList.add('summary-mode');
+        stopMeetingElapsedTimer();
         state.mobileMenuOpen = false;
         state.mobileMemoryCollapsed = false;
         state.mobileAiCollapsed = false;
@@ -528,6 +570,7 @@
         toggleMobileMeetingMenu,
         toggleMobileMemoryPanel,
         toggleMobileAiPanel,
+        switchMeetingView,
         renderMobileMeetingControls,
         renderSummaryMobileControls,
         toggleSummaryMobileMenu,
