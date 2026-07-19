@@ -203,6 +203,27 @@ async function initDB(dbPath) {
                                 resolveActions();
                             });
                         }))
+                        .then(() => new Promise((resolveMemos, rejectMemos) => {
+                            db.run(`CREATE TABLE IF NOT EXISTS room_memos (
+                                id TEXT PRIMARY KEY,
+                                room_id TEXT NOT NULL,
+                                participant_id TEXT,
+                                user_id TEXT,
+                                display_name TEXT DEFAULT '',
+                                memo_text TEXT NOT NULL,
+                                created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                                FOREIGN KEY(room_id) REFERENCES rooms(id)
+                            )`, (memosErr) => {
+                                if (memosErr) return rejectMemos(memosErr);
+                                db.run(
+                                    'CREATE INDEX IF NOT EXISTS idx_room_memos_room ON room_memos(room_id, created_at)',
+                                    (idxErr) => {
+                                        if (idxErr) return rejectMemos(idxErr);
+                                        resolveMemos();
+                                    }
+                                );
+                            });
+                        }))
                         // [U-1] パスワードリセットトークン。token_hash のみ保存し平文は残さない。
                         .then(() => new Promise((resolvePwr, rejectPwr) => {
                             db.run(`CREATE TABLE IF NOT EXISTS password_reset_tokens (

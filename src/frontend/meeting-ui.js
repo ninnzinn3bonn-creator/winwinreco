@@ -66,7 +66,7 @@
         requestAnimationFrame(() => dom.meetingMemoTextarea?.focus());
     }
 
-    function saveMeetingMemo() {
+    async function saveMeetingMemo() {
         const textarea = dom.meetingMemoTextarea;
         const memo = textarea?.value.trim() || '';
         if (!memo) {
@@ -76,9 +76,35 @@
             return;
         }
         textarea?.setCustomValidity('');
-        addSystemMessage(`全体メモ: ${memo}`);
-        closeMeetingMemoModal();
-        window.AppToast.success('会議メモを追加しました');
+        const saveButton = document.getElementById('btn-save-meeting-memo');
+        if (saveButton) {
+            saveButton.disabled = true;
+            saveButton.innerText = '保存中...';
+        }
+        try {
+            const res = await fetch(`/rooms/${state.roomId}/memos`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    participant_id: state.participantId,
+                    control_token: state.controlToken,
+                    memo_text: memo
+                })
+            });
+            const saved = await readApiResponse(res);
+            if (!res.ok) throw new Error(saved.error || '会議メモの保存に失敗しました');
+            addSystemMessage(`会議メモ: ${saved.memo_text || memo}`);
+            closeMeetingMemoModal();
+            window.AppToast.success('会議メモを保存しました', { detail: '会議履歴から確認できます。' });
+        } catch (error) {
+            window.AppToast.error('会議メモの保存に失敗しました', { detail: error.message });
+            textarea?.focus();
+        } finally {
+            if (saveButton) {
+                saveButton.disabled = false;
+                saveButton.innerText = '保存';
+            }
+        }
     }
 
     function toggleMobileMeetingMenu() {

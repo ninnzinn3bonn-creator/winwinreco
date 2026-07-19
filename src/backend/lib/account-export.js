@@ -186,9 +186,12 @@ async function exportAccountToZip(repos, accountId) {
 
     // ── ルームデータ ─────────────────────────────────────────────────────────
     for (const room of ownRooms) {
-        const [utterances, participants] = await Promise.all([
+        const [utterances, participants, meetingMemos] = await Promise.all([
             utteranceRepo ? utteranceRepo.findByRoomId(room.id) : [],
-            participantRepo ? participantRepo.findByRoomId(room.id) : []
+            participantRepo ? participantRepo.findByRoomId(room.id) : [],
+            roomRepo && typeof roomRepo.findMeetingMemosByRoomId === 'function'
+                ? roomRepo.findMeetingMemosByRoomId(room.id)
+                : []
         ]);
 
         const roomData = {
@@ -200,6 +203,12 @@ async function exportAccountToZip(repos, accountId) {
             summary: room.summary_text || '',
             minutes: room.minutes_text || '',
             todo: room.todo_text || '',
+            meeting_memos: meetingMemos.map((memo) => ({
+                id: memo.id,
+                display_name: memo.display_name || '',
+                memo_text: memo.memo_text || '',
+                created_at: memo.created_at || null
+            })),
             ai_workspace: room.ai_workspace_json
                 ? (() => { try { return JSON.parse(room.ai_workspace_json); } catch (_) { return null; } })()
                 : null,

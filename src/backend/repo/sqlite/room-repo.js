@@ -99,6 +99,54 @@ class RoomRepository {
         });
     }
 
+    async addMeetingMemo(roomId, memo) {
+        const createdAt = memo.created_at || new Date().toISOString();
+        return new Promise((resolve, reject) => {
+            this.db.run(
+                `INSERT INTO room_memos
+                 (id, room_id, participant_id, user_id, display_name, memo_text, created_at)
+                 VALUES (?, ?, ?, ?, ?, ?, ?)`,
+                [
+                    memo.id,
+                    roomId,
+                    memo.participant_id || null,
+                    memo.user_id || null,
+                    memo.display_name || '',
+                    memo.memo_text,
+                    createdAt
+                ],
+                (err) => {
+                    if (err) return reject(err);
+                    resolve({
+                        id: memo.id,
+                        room_id: roomId,
+                        participant_id: memo.participant_id || null,
+                        user_id: memo.user_id || null,
+                        display_name: memo.display_name || '',
+                        memo_text: memo.memo_text,
+                        created_at: createdAt
+                    });
+                }
+            );
+        });
+    }
+
+    async findMeetingMemosByRoomId(roomId) {
+        return new Promise((resolve, reject) => {
+            this.db.all(
+                `SELECT id, room_id, participant_id, user_id, display_name, memo_text, created_at
+                 FROM room_memos
+                 WHERE room_id = ?
+                 ORDER BY created_at ASC, id ASC`,
+                [roomId],
+                (err, rows) => {
+                    if (err) return reject(err);
+                    resolve(rows || []);
+                }
+            );
+        });
+    }
+
     async updateAiConfig(id, provider, model, usePastMeetings = null) {
         return new Promise((resolve, reject) => {
             const fields = ['ai_provider = ?', 'ai_model = ?'];
@@ -268,6 +316,7 @@ class RoomRepository {
             this.db.run(sql, params, () => resolve());
         });
         // Order matters when foreign keys exist; otherwise just be exhaustive.
+        await runIgnore('DELETE FROM room_memos WHERE room_id = ?', [roomId]);
         await runIgnore('DELETE FROM utterances WHERE room_id = ?', [roomId]);
         await runIgnore('DELETE FROM room_analyses WHERE room_id = ?', [roomId]);
         await runIgnore('DELETE FROM actions WHERE room_id = ?', [roomId]);

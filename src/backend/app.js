@@ -1577,6 +1577,9 @@ function createApp(repositories = {}) {
                     aiWorkspace = { raw: room.ai_workspace_json };
                 }
             }
+            const meetingMemos = typeof roomRepo.findMeetingMemosByRoomId === 'function'
+                ? await roomRepo.findMeetingMemosByRoomId(room.id)
+                : [];
 
             res.status(200).json({
                 id: room.id,
@@ -1592,6 +1595,7 @@ function createApp(repositories = {}) {
                 minutes_updated_at: room.minutes_updated_at,
                 todo: room.todo_text || '',
                 todo_updated_at: room.todo_updated_at,
+                meeting_memos: meetingMemos,
                 ai_workspace: aiWorkspace,
                 ai_workspace_updated_at: room.ai_workspace_updated_at
             });
@@ -1934,6 +1938,33 @@ function createApp(repositories = {}) {
         } catch (error) {
             logger.error(error, { route: 'GET /rooms/:id/memory', requestId: req.requestId, roomId: req.roomId });
             res.status(500).json({ error: 'Failed to fetch starred logs' });
+        }
+    });
+
+    app.post('/rooms/:id/memos', requireParticipant, async (req, res) => {
+        try {
+            if (!roomRepo || typeof roomRepo.addMeetingMemo !== 'function') {
+                return res.status(503).json({ error: 'Meeting memo storage unavailable' });
+            }
+            const room = await roomRepo.findById(req.roomId);
+            if (!room) return res.status(404).json({ error: 'Room not found' });
+            if (room.status === 'ended') {
+                return res.status(409).json({ error: 'Meeting has already ended' });
+            }
+            const memoText = sanitizeMemoText(req.body?.memo_text || '');
+            if (!memoText) return res.status(400).json({ error: 'memo_text is required' });
+
+            const memo = await roomRepo.addMeetingMemo(req.roomId, {
+                id: newId('memo'),
+                participant_id: req.participant.id,
+                user_id: req.participant.user_id || null,
+                display_name: req.participant.display_name || '',
+                memo_text: memoText
+            });
+            res.status(201).json(memo);
+        } catch (error) {
+            logger.error(error, { route: 'POST /rooms/:id/memos', requestId: req.requestId, roomId: req.roomId });
+            res.status(500).json({ error: 'Failed to save meeting memo' });
         }
     });
 

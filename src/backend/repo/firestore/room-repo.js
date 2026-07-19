@@ -35,6 +35,18 @@ class RoomRepository {
         };
     }
 
+    _memoToDomain(roomId, id, data) {
+        return {
+            id,
+            room_id: roomId,
+            participant_id: data.participant_id || null,
+            user_id: data.user_id || null,
+            display_name: data.display_name || '',
+            memo_text: data.memo_text || '',
+            created_at: fromTimestamp(data.created_at)
+        };
+    }
+
     async create(room) {
         const {
             id, owner_id, material_summary,
@@ -116,6 +128,24 @@ class RoomRepository {
         await this.col.doc(id).update({ status: 'ended', ended_at: serverTs() });
     }
 
+    async addMeetingMemo(roomId, memo) {
+        const ref = this.col.doc(roomId).collection('memos').doc(memo.id);
+        await ref.set({
+            participant_id: memo.participant_id || null,
+            user_id: memo.user_id || null,
+            display_name: memo.display_name || '',
+            memo_text: memo.memo_text,
+            created_at: serverTs()
+        });
+        const saved = await ref.get();
+        return this._memoToDomain(roomId, saved.id, saved.data());
+    }
+
+    async findMeetingMemosByRoomId(roomId) {
+        const snap = await this.col.doc(roomId).collection('memos').orderBy('created_at', 'asc').get();
+        return snap.docs.map((doc) => this._memoToDomain(roomId, doc.id, doc.data()));
+    }
+
     async updateAiConfig(id, provider, model, usePastMeetings = null) {
         const fields = { ai_provider: provider, ai_model: model };
         if (typeof usePastMeetings === 'boolean') fields.use_past_meetings = usePastMeetings;
@@ -185,7 +215,7 @@ class RoomRepository {
     }
 
     async deleteCascade(roomId) {
-        const subs = ['participants', 'utterances', 'analyses', 'actions', 'chunks'];
+        const subs = ['participants', 'utterances', 'analyses', 'actions', 'chunks', 'memos'];
         const docRef = this.col.doc(roomId);
         for (const sub of subs) {
             const snap = await docRef.collection(sub).get();

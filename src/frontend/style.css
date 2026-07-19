@@ -4407,6 +4407,58 @@ body.participant-mode .host-only { display: none !important; }
     background: var(--color-surface, #fff);
     resize: vertical;
 }
+.profile-history-memos {
+    margin-top: var(--space-3);
+    border-top: 1px solid var(--color-border, #e5e7e3);
+    border-bottom: 1px solid var(--color-border, #e5e7e3);
+}
+.profile-history-memos > summary {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    min-height: 44px;
+    padding: 8px 2px;
+    color: var(--color-text, #16201a);
+    font-weight: 700;
+    cursor: pointer;
+}
+.profile-history-memos > summary .g-icon {
+    width: 17px;
+    height: 17px;
+}
+.profile-history-memo-count {
+    margin-left: auto;
+    color: var(--color-text-muted, #6b7a72);
+    font-size: var(--font-size-sm, 14px);
+    font-weight: 600;
+}
+.profile-history-memo-list {
+    border-top: 1px solid var(--color-border, #e5e7e3);
+}
+.profile-history-memo-item {
+    padding: 10px 2px;
+}
+.profile-history-memo-item + .profile-history-memo-item {
+    border-top: 1px solid var(--color-border, #e5e7e3);
+}
+.profile-history-memo-meta {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 12px;
+    color: var(--color-text-muted, #6b7a72);
+    font-size: var(--font-size-sm, 14px);
+}
+.profile-history-memo-meta strong {
+    color: var(--color-text, #16201a);
+}
+.profile-history-memo-text {
+    margin: 5px 0 0;
+    color: var(--color-text, #16201a);
+    line-height: 1.55;
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+}
 
 /* Settings tab */
 .profile-settings-grid {

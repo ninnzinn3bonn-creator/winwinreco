@@ -107,6 +107,48 @@ describe('Account history endpoints', () => {
         expect(res.body.is_owner).toBe(true);
         expect(res.body).toHaveProperty('title');
         expect(res.body).toHaveProperty('ai_workspace');
+        expect(res.body).toHaveProperty('meeting_memos');
+    });
+
+    test('meeting memos remain available in history after the room ends', async () => {
+        const { agent, account } = await signupFresh('host-memo');
+        const room = await agent.post('/rooms').send({});
+        const join = await agent
+            .post(`/rooms/${room.body.id}/join`)
+            .send({
+                user_id: account.id,
+                display_name: 'メモ担当',
+                location_id: 'web-browser'
+            });
+
+        const saved = await agent
+            .post(`/rooms/${room.body.id}/memos`)
+            .send({
+                participant_id: join.body.id,
+                control_token: join.body.control_token,
+                memo_text: '次回までに見積もりを更新する'
+            });
+        expect(saved.status).toBe(201);
+        expect(saved.body).toMatchObject({
+            display_name: 'メモ担当',
+            memo_text: '次回までに見積もりを更新する'
+        });
+
+        const ended = await agent
+            .post(`/rooms/${room.body.id}/end`)
+            .send({
+                participant_id: join.body.id,
+                control_token: join.body.control_token
+            });
+        expect(ended.status).toBe(200);
+
+        const detail = await agent.get(`/me/rooms/${room.body.id}`);
+        expect(detail.status).toBe(200);
+        expect(detail.body.meeting_memos).toHaveLength(1);
+        expect(detail.body.meeting_memos[0]).toMatchObject({
+            display_name: 'メモ担当',
+            memo_text: '次回までに見積もりを更新する'
+        });
     });
 
     test('/me/backfill links anonymous participations to the new account', async () => {

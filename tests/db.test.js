@@ -19,7 +19,7 @@ describe('Database Setup', () => {
     test('initDB should create core tables and required columns', async () => {
         const db = await initDB(dbPath);
 
-        const tables = ['rooms', 'participants', 'utterances', 'actions', 'users', 'user_context'];
+        const tables = ['rooms', 'participants', 'utterances', 'actions', 'room_memos', 'users', 'user_context'];
         for (const table of tables) {
             await new Promise((resolve, reject) => {
                 db.get(`SELECT name FROM sqlite_master WHERE type='table' AND name=?`, [table], (err, row) => {

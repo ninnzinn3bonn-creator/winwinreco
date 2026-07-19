@@ -513,6 +513,30 @@
         const meta = `${(full.created_at || '').replace('T', ' ').slice(0, 16)} 〜 ${(full.ended_at || '').replace('T', ' ').slice(0, 16) || '進行中'}`;
         state.detailPane.appendChild(el('div', { className: 'auth-archive-meta' }, meta));
 
+        const meetingMemos = Array.isArray(full.meeting_memos) ? full.meeting_memos : [];
+        if (meetingMemos.length) {
+            const memoList = el('div', { className: 'profile-history-memo-list' });
+            meetingMemos.forEach((memo) => {
+                const author = (memo.display_name || '').trim() || '参加者';
+                const when = (memo.created_at || '').replace('T', ' ').slice(0, 16);
+                memoList.appendChild(el('div', { className: 'profile-history-memo-item' }, [
+                    el('div', { className: 'profile-history-memo-meta' }, [
+                        el('strong', {}, author),
+                        el('time', { datetime: memo.created_at || '' }, when)
+                    ]),
+                    el('p', { className: 'profile-history-memo-text' }, memo.memo_text || '')
+                ]));
+            });
+            state.detailPane.appendChild(el('details', { className: 'profile-history-memos' }, [
+                el('summary', {}, [
+                    el('img', { src: '/assets/icons/sticky-note.svg', alt: '', className: 'g-icon' }),
+                    el('span', {}, '会議メモ'),
+                    el('span', { className: 'profile-history-memo-count' }, `${meetingMemos.length}件`)
+                ]),
+                memoList
+            ]));
+        }
+
         const sections = [
             { key: 'summary', label: '要約' },
             { key: 'minutes', label: '議事録' },
